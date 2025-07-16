@@ -1,3 +1,4 @@
+---@diagnostic disable: duplicate-doc-field
 local sim = {}
 
 local position_samples = {}
@@ -153,7 +154,7 @@ end
 ---@return number
 local function GetSmoothedAngularVelocity(pEntity)
 	local samples = position_samples[pEntity:GetIndex()]
-	if not samples or #samples < 4 then -- Need more samples for better smoothing
+	if not samples or #samples < 4 then -- need more samples for better smoothing
 		return 0
 	end
 
@@ -161,7 +162,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return (vec.x == 0 and vec.y == 0) and 0 or math.deg(math.atan(vec.y, vec.x))
 	end
 
-	-- first pass: Calculate raw angular velocities with movement threshold
+	-- first pass: calculate raw angular velocities with movement threshold
 	local ang_vels = {}
 	local MIN_MOVEMENT = 0.1 -- ignore tiny movements that are likely noise
 
@@ -327,7 +328,7 @@ function sim.Run(stepSize, pTarget, time)
 				end
 			end
 
-			-- Failed step-up validation or step-up attempt - do slide
+			-- do slide, we failed to do a step up
 			next_pos = trace.endpos
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)

@@ -100,32 +100,28 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	end
 
 	local iprojectile_speed = weapon_info.flForwardVelocity
-	local flstepSize = pLocal:GetPropFloat("localdata", "m_flstepSize") or 18
-	local max_iterations = (dist > (iMaxDistance * 0.5)) and 2 or 5
+	local flstepSize = pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local predicted_target_pos = vecTargetOrigin
 	local total_time = 0.0
 	local tolerance = 5 -- HUs
 	local player_positions = nil
 
-	for i = 1, max_iterations do
-		local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
-		total_time = travel_time + charge_time
+	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
+	total_time = travel_time + charge_time
 
-		player_positions = playerSim.Run(flstepSize, pTarget, total_time)
-		if not player_positions or #player_positions == 0 then
-			break
-		end
+	player_positions = playerSim.Run(flstepSize, pTarget, total_time)
+	if not player_positions or #player_positions == 0 then
+		return nil, nil, nil
+	end
 
-		local new_pos = player_positions[#player_positions]
-		local delta = (new_pos - predicted_target_pos):Length()
+	local new_pos = player_positions[#player_positions]
+	local delta = (new_pos - predicted_target_pos):Length()
 
-		if delta < tolerance then
-			predicted_target_pos = new_pos
-			break
-		end
-
+	if delta < tolerance then
 		predicted_target_pos = new_pos
 	end
+
+	predicted_target_pos = new_pos
 
 	return predicted_target_pos, total_time, charge_time, player_positions
 end

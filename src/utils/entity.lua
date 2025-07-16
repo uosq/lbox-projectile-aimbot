@@ -41,7 +41,6 @@ end
 
 ---@param player Entity
 ---@param shootpos Vector3
----@param utils Utils
 ---@param viewangle EulerAngles
 ---@param PREFERRED_BONES table
 function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
@@ -57,8 +56,8 @@ function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFE
 		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
 
 		if trace and trace.fraction >= 0.6 then
-			local angle = utils.math.PositionAngles(shootpos, bonePos)
-			local fov = utils.math.AngleFov(angle, viewangle)
+			local angle = utils.PositionAngles(shootpos, bonePos)
+			local fov = utils.AngleFov(angle, viewangle)
 
 			if fov < info.fov then
 				info.fov, info.angle, info.index = fov, angle, player:GetIndex()

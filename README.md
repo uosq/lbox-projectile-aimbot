@@ -1,6 +1,8 @@
-Most settings of the aimbot are configured on lbox menu (ignore cloaked, bonked, aim fov, aim key, etc)
+# Navet's Projectile Aimbot
 
-This is not a fork anymore
+### This script is a work in progress!
+
+Most settings of the aimbot are configured on lbox menu (ignore cloaked, bonked, aim fov, aim key, etc)
 
 If LMAOBOX's projectile aimbot is enabled, this script will be disabled when using a projectile weapon :) (we dont need 2 aimbots running at the same time, do we?)
 
