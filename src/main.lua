@@ -232,12 +232,26 @@ local function CreateMove(uCmd)
 
 	predicted_pos = predicted_pos + GetProjectileOffset(pTarget, pWeapon)
 
-	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, shouldHit)
+	local trace = engine.TraceHull(
+		vecShootPos,
+		predicted_pos,
+		-weapon_info.vecCollisionMax,
+		weapon_info.vecCollisionMax,
+		MASK_SHOT_HULL,
+		shouldHit
+	)
 
 	if trace and trace.fraction < 1 then
 		local newpos = predicted_pos + Vector3(0, 0, 10)
 
-		trace = engine.TraceLine(vecShootPos, newpos, MASK_SHOT_HULL, shouldHit)
+		trace = engine.TraceHull(
+			vecShootPos,
+			newpos,
+			-weapon_info.vecCollisionMax,
+			weapon_info.vecCollisionMax,
+			MASK_SHOT_HULL,
+			shouldHit
+		)
 
 		if trace and trace.fraction < 1 then
 			return
