@@ -211,9 +211,8 @@ local function CreateMove(uCmd)
 	end
 
 	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, function(ent, contentsMask)
-		return false
+		return ent:GetIndex() ~= pLocal:GetIndex()
 	end)
-
 	if trace and trace.fraction < 1 then
 		return
 	end
