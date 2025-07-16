@@ -48,6 +48,7 @@ printc(100, 100, 255, 255, "(almost) Every setting is configured by using the Lm
 
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
+local ent_utils = require("src.utils.entity")
 
 local playerSim = require("src.simulation.player")
 local projSim = require("src.simulation.proj")
@@ -59,6 +60,8 @@ local displayed_time = 0
 local iMaxDistance = 2048
 
 local MAX_SIM_TIME = 2.0 --- 2.0 * 67 = 134 ticks
+
+local original_gui_value = gui.GetValue("projectile aimbot")
 
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
@@ -168,6 +171,25 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	return nil, nil, nil, nil
 end
 
+---@param pWeapon Entity
+---@param pTarget Entity
+---@return Vector3
+local function GetProjectileOffset(pTarget, pWeapon)
+	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET then
+		return Vector3()
+	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ARROW then
+		return Vector3()
+		--[[local bones = ent_utils.GetBones(pTarget)
+		local head_pos = bones[1]
+		local diff = head_pos - pTarget:GetAbsOrigin()
+		return Vector3(0, 0, diff.z)]]
+	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB then
+		return Vector3(0, 0, 10)
+	end
+
+	return Vector3(0, 0, pTarget:GetMaxs().z / 2)
+end
+
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
 	local netchan = clientstate:GetNetChannel()
@@ -203,7 +225,7 @@ local function CreateMove(uCmd)
 	end
 
 	if gui.GetValue("projectile aimbot") ~= "none" then
-		return
+		gui.SetValue("projectile aimbot", "none")
 	end
 
 	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
@@ -212,10 +234,10 @@ local function CreateMove(uCmd)
 	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 
 	--- gotta fix those offsets
-	--local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
+	local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
 
-	local vecShootPos = pLocal:GetAbsOrigin()
-		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
+	--[[local vecShootPos = pLocal:GetAbsOrigin()
+		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))]]
 
 	local target_info = GetClosestPlayerToFov(pLocal, vecShootPos, players)
 	if not target_info or target_info.index == nil then
@@ -236,11 +258,43 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	local function shouldHit(ent)
+		if ent:GetIndex() == pLocal:GetIndex() then
+			return false
+		end
+
+		if ent:GetIndex() == pTarget:GetIndex() then
+			return false
+		end
+
+		if ent:IsPlayer() == false then
+			return true
+		end
+
+		return true
+	end
+
+	predicted_pos = predicted_pos + GetProjectileOffset(pTarget, pWeapon)
+
+	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, shouldHit)
+
+	if trace and trace.fraction < 1 then
+		local newpos = predicted_pos + Vector3(0, 0, 10)
+
+		trace = engine.TraceLine(vecShootPos, newpos, MASK_SHOT_HULL, shouldHit)
+
+		if trace and trace.fraction < 1 then
+			return
+		end
+
+		predicted_pos = newpos
+	end
+
 	local angle = nil
 	local projectile_path
 
 	if weapon_info.flGravity > 0 then
-		local gravity = weapon_info.flGravity * globals.TickInterval()
+		local gravity = weapon_info.flGravity -- * globals.TickInterval()
 		local aim_dir = math_utils.SolveBallisticArc(vecShootPos, predicted_pos, weapon_info.flForwardVelocity, gravity)
 
 		if aim_dir then
@@ -256,15 +310,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, function(ent, contentsMask)
-		return false
-	end)
-
-	if trace and trace.fraction < 1 then
-		return
-	end
-
-	if wep_utils.CanShoot() and (gui.GetValue("auto shoot") or (uCmd.buttons & IN_ATTACK) ~= 0) then
+	if wep_utils.CanShoot() and (gui.GetValue("auto shoot") == 1 or (uCmd.buttons & IN_ATTACK) ~= 0) then
 		uCmd:SetViewAngles(angle:Unpack())
 		uCmd.buttons = uCmd.buttons | IN_ATTACK
 
@@ -292,6 +338,10 @@ local function Draw()
 	end
 
 	if pLocal:IsAlive() == false then
+		return
+	end
+
+	if engine.IsTakingScreenshot() and gui.GetValue("clean screenshots") == 1 then
 		return
 	end
 
@@ -345,8 +395,13 @@ local function Draw()
 	end
 end
 
+local function Unload()
+	gui.SetValue("projectile aimbot", original_gui_value)
+end
+
 callbacks.Register("CreateMove", CreateMove)
 callbacks.Register("Draw", Draw)
+callbacks.Register("Unload", Unload)
 
 end)
 __bundle_register("src.simulation.proj", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -882,6 +937,82 @@ end
 return sim
 
 end)
+__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
+local ent_utils = {}
+
+---@param plocal Entity
+function ent_utils.GetShootPosition(plocal)
+	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+end
+
+---@param entity Entity
+---@return table<integer, Vector3>
+function ent_utils.GetBones(entity)
+	local model = entity:GetModel()
+	local studioHdr = models.GetStudioModel(model)
+
+	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
+	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
+	local hitboxes = hitboxSet:GetHitboxes()
+
+	--boneMatrices is an array of 3x4 float matrices
+	local boneMatrices = entity:SetupBones()
+
+    local bones = {}
+
+	for i = 1, #hitboxes do
+		local hitbox = hitboxes[i]
+		local bone = hitbox:GetBone()
+
+		local boneMatrix = boneMatrices[bone]
+
+		if boneMatrix == nil then
+			goto continue
+		end
+
+		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
+
+        bones[i] = bonePos
+		::continue::
+	end
+
+    return bones
+end
+
+---@param player Entity
+---@param shootpos Vector3
+---@param viewangle EulerAngles
+---@param PREFERRED_BONES table
+function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
+	local bones = ent_utils.GetBones(player)
+	local info = {}
+	info.fov = math.huge
+	info.angle = nil
+	info.index = nil
+	info.pos = nil
+
+	for _, preferred_bone in ipairs(PREFERRED_BONES) do
+		local bonePos = bones[preferred_bone]
+		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
+
+		if trace and trace.fraction >= 0.6 then
+			local angle = utils.PositionAngles(shootpos, bonePos)
+			local fov = utils.AngleFov(angle, viewangle)
+
+			if fov < info.fov then
+				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
+				info.pos = bonePos
+				break --- found a suitable bone, no need to check the other ones
+			end
+		end
+	end
+
+	return info
+end
+
+return ent_utils
+
+end)
 __bundle_register("src.utils.math", function(require, _LOADED, __bundle_register, __bundle_modules)
 local Math = {}
 
@@ -1037,9 +1168,9 @@ function wep_utils.CanShoot()
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 	old_weapon = weapon
-	if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
+	--[[if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
 		return true
-	end
+	end]]
 	return nextAttack <= globals.CurTime()
 end
 

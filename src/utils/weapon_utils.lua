@@ -34,9 +34,9 @@ function wep_utils.CanShoot()
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 	old_weapon = weapon
-	if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
+	--[[if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
 		return true
-	end
+	end]]
 	return nextAttack <= globals.CurTime()
 end
 
