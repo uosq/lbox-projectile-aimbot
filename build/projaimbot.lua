@@ -45,7 +45,6 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 --- this is a fuckin lie
 printc(100, 255, 100, 255, "Navet's Projectile Aimbot loaded")
 printc(100, 100, 255, 255, "(almost) Every setting is configured by using the Lmaobox menu")
-printc(255, 100, 100, 255, "This build does NOT compensate for high ping")
 
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
@@ -58,6 +57,8 @@ local displayed_path = {}
 local displayed_time = 0
 
 local iMaxDistance = 2048
+
+local MAX_SIM_TIME = 2.0 --- 2.0 * 67 = 134 ticks
 
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
@@ -126,7 +127,8 @@ end
 ---@param pTarget Entity
 ---@param vecShootPos Vector3
 ---@param weapon_info any
-local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info)
+---@param latency number
+local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info, latency)
 	local vecTargetOrigin = pTarget:GetAbsOrigin()
 	local dist = (vecShootPos - vecTargetOrigin):Length()
 
@@ -150,7 +152,11 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	local player_positions = nil
 
 	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
-	total_time = travel_time + charge_time
+	total_time = travel_time + charge_time + latency
+
+	if total_time > MAX_SIM_TIME then
+		return nil, nil, nil, nil
+	end
 
 	player_positions = playerSim.Run(flstepSize, pTarget, total_time)
 
@@ -164,6 +170,11 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	local netchan = clientstate:GetNetChannel()
+	if not netchan then
+		return
+	end
+
 	local pLocal = entities.GetLocalPlayer()
 	if not pLocal or pLocal:IsAlive() == false then
 		return
@@ -216,8 +227,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	local latency = netchan:GetLatency(E_Flows.FLOW_OUTGOING) + netchan:GetLatency(E_Flows.FLOW_INCOMING)
+
 	local predicted_pos, total_time, charge, player_predicted_path =
-		GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info)
+		GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info, latency)
 
 	if predicted_pos == nil or total_time == nil or charge == nil or player_predicted_path == nil then
 		return
@@ -243,7 +256,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_PLAYERSOLID, function(ent, contentsMask)
+	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, function(ent, contentsMask)
 		return false
 	end)
 
