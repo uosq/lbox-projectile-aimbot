@@ -144,32 +144,30 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	end
 
 	local iprojectile_speed = weapon_info.flForwardVelocity
-	local flstepSize = pLocal:GetPropFloat("localdata", "m_flstepSize") or 18
-	local max_iterations = (dist > (iMaxDistance * 0.5)) and 2 or 5
+	local flstepSize = pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local predicted_target_pos = vecTargetOrigin
 	local total_time = 0.0
-	local tolerance = 5 -- HUs
+	local tolerance = 140 -- HUs (minimum thing for splash damage from soldier's rocket)
 	local player_positions = nil
 
-	for i = 1, max_iterations do
-		local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
-		total_time = travel_time + charge_time
+	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
+	total_time = travel_time + charge_time
 
-		player_positions = playerSim.Run(flstepSize, pTarget, total_time)
-		if not player_positions or #player_positions == 0 then
-			break
-		end
-
-		local new_pos = player_positions[#player_positions]
-		local delta = (new_pos - predicted_target_pos):Length()
-
-		if delta < tolerance then
-			predicted_target_pos = new_pos
-			break
-		end
-
-		predicted_target_pos = new_pos
+	player_positions = playerSim.Run(flstepSize, pTarget, total_time)
+	if not player_positions or #player_positions == 0 then
+		return nil, nil, nil
 	end
+
+	local new_pos = player_positions[#player_positions]
+	local delta = (new_pos - predicted_target_pos):Length()
+
+	if delta < tolerance then
+		predicted_target_pos = new_pos
+	else
+		return nil, nil, nil
+	end
+
+	predicted_target_pos = new_pos
 
 	return predicted_target_pos, total_time, charge_time, player_positions
 end
@@ -517,6 +515,7 @@ return sim
 
 end)
 __bundle_register("src.simulation.player", function(require, _LOADED, __bundle_register, __bundle_modules)
+---@diagnostic disable: duplicate-doc-field
 local sim = {}
 
 local position_samples = {}
@@ -672,7 +671,7 @@ end
 ---@return number
 local function GetSmoothedAngularVelocity(pEntity)
 	local samples = position_samples[pEntity:GetIndex()]
-	if not samples or #samples < 4 then -- Need more samples for better smoothing
+	if not samples or #samples < 4 then -- need more samples for better smoothing
 		return 0
 	end
 
@@ -680,7 +679,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return (vec.x == 0 and vec.y == 0) and 0 or math.deg(math.atan(vec.y, vec.x))
 	end
 
-	-- first pass: Calculate raw angular velocities with movement threshold
+	-- first pass: calculate raw angular velocities with movement threshold
 	local ang_vels = {}
 	local MIN_MOVEMENT = 0.1 -- ignore tiny movements that are likely noise
 
@@ -846,7 +845,7 @@ function sim.Run(stepSize, pTarget, time)
 				end
 			end
 
-			-- Failed step-up validation or step-up attempt - do slide
+			-- do slide, we failed to do a step up
 			next_pos = trace.endpos
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)

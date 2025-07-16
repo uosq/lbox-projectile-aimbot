@@ -103,7 +103,7 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	local flstepSize = pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local predicted_target_pos = vecTargetOrigin
 	local total_time = 0.0
-	local tolerance = 5 -- HUs
+	local tolerance = 140 -- HUs (minimum thing for splash damage from soldier's rocket)
 	local player_positions = nil
 
 	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
@@ -119,6 +119,8 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 
 	if delta < tolerance then
 		predicted_target_pos = new_pos
+	else
+		return nil, nil, nil
 	end
 
 	predicted_target_pos = new_pos
