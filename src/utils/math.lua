@@ -89,5 +89,27 @@ function Math.clamp(val, min, max)
 	return math.max(min, math.min(val, max))
 end
 
+function Math.GetBallisticFlightTime(p0, p1, speed, gravity)
+	local diff = p1 - p0
+	local dx = math.sqrt(diff.x ^ 2 + diff.y ^ 2)
+	local dy = diff.z
+	local speed2 = speed * speed
+	local g = gravity
+
+	local discriminant = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
+	if discriminant < 0 then
+		return nil
+	end
+
+	local sqrt_discriminant = math.sqrt(discriminant)
+	local angle = math.atan((speed2 - sqrt_discriminant) / (g * dx))
+
+	-- Flight time calculation
+	local vz = speed * math.sin(angle)
+	local flight_time = (vz + math.sqrt(vz * vz + 2 * g * dy)) / g
+
+	return flight_time
+end
+
 Math.NormalizeVector = NormalizeVector
 return Math

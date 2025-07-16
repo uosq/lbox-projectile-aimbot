@@ -87,7 +87,7 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	local dist = (vecShootPos - vecTargetOrigin):Length()
 
 	if dist > iMaxDistance then
-		return nil
+		return nil, nil, nil, nil
 	end
 
 	local charge_time = 0.0
@@ -103,29 +103,19 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	local flstepSize = pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local predicted_target_pos = vecTargetOrigin
 	local total_time = 0.0
-	local tolerance = 140 -- HUs (minimum thing for splash damage from soldier's rocket)
 	local player_positions = nil
 
 	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
 	total_time = travel_time + charge_time
 
 	player_positions = playerSim.Run(flstepSize, pTarget, total_time)
-	if not player_positions or #player_positions == 0 then
-		return nil, nil, nil
+
+	if player_positions and #player_positions > 0 then
+		predicted_target_pos = player_positions[#player_positions]
+		return predicted_target_pos, total_time, charge_time, player_positions
 	end
 
-	local new_pos = player_positions[#player_positions]
-	local delta = (new_pos - predicted_target_pos):Length()
-
-	if delta < tolerance then
-		predicted_target_pos = new_pos
-	else
-		return nil, nil, nil
-	end
-
-	predicted_target_pos = new_pos
-
-	return predicted_target_pos, total_time, charge_time, player_positions
+	return nil, nil, nil, nil
 end
 
 ---@param uCmd UserCmd
@@ -184,6 +174,7 @@ local function CreateMove(uCmd)
 
 	local predicted_pos, total_time, charge, player_predicted_path =
 		GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info)
+
 	if predicted_pos == nil or total_time == nil or charge == nil or player_predicted_path == nil then
 		return
 	end
@@ -208,9 +199,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_SHOT_HULL, function(ent, contentsMask)
-		return ent:GetIndex() ~= pLocal:GetIndex()
+	local trace = engine.TraceLine(vecShootPos, predicted_pos, MASK_PLAYERSOLID, function(ent, contentsMask)
+		return false
 	end)
+
 	if trace and trace.fraction < 1 then
 		return
 	end
