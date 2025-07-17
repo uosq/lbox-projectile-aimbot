@@ -253,15 +253,19 @@ function wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefIndex, iWepID)
 	}
 end
 
-function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
+---@param pLocal Entity
+---@param weapon_info WeaponInfo
+---@param bIsFlippedViewModel boolean
+---@return Vector3, Vector3 The normal shoot position, the projectile's offset
+function wep_utils.GetShootOffset(pLocal, weapon_info, bIsFlippedViewModel)
 	-- i stole this from terminator
 	local vStartPosition = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 	local vStartAngle = engine.GetViewAngles()
 
-	return vStartPosition
-		+ (vStartAngle:Forward() * weapon_info.vecOffset.x)
-		+ (vStartAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
-		+ (vStartAngle:Up() * weapon_info.vecOffset.z)
+	return vStartPosition,
+		(vStartAngle:Forward() * weapon_info.vecOffset.x)
+			+ (vStartAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
+			+ (vStartAngle:Up() * weapon_info.vecOffset.z)
 end
 
 return wep_utils

@@ -64,6 +64,14 @@ local BEGGARS_BAZOOKA_INDEX = 730
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
+local splashDirections = {}
+
+for pitch = -45, 45, 15 do
+	for yaw = -45, 45, 15 do
+		splashDirections[#splashDirections + 1] = Vector3(pitch / 45, yaw / 45, 0)
+	end
+end
+
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
 ---@param shootpos Vector3
@@ -130,6 +138,64 @@ local function DirectionToAngles(direction)
 	local pitch = math.asin(-direction.z) * (180 / math.pi)
 	local yaw = math.atan(direction.y, direction.x) * (180 / math.pi)
 	return Vector3(pitch, yaw, 0)
+end
+
+---@param pWeapon Entity
+local function iGetSplashRadius(pWeapon)
+	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE then
+		return 146
+	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET then
+		return 130
+	end
+
+	return nil
+end
+
+---@param pLocal Entity
+---@param pWeapon Entity
+---@param pTarget Entity
+---@param vecPredictedPos Vector3
+---@param weapon_info WeaponInfo
+---@param vecShootPos Vector3
+---@return Vector3?
+local function vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, vecPredictedPos, weapon_info, vecShootPos)
+	local iSplashRadius = iGetSplashRadius(pWeapon)
+	if not iSplashRadius then
+		return nil
+	end
+
+	local vecMins = -weapon_info.vecCollisionMax
+	local vecMaxs = weapon_info.vecCollisionMax
+
+	local bestPos, bestDist = nil, math.huge
+
+	local function shouldHit(ent)
+		if ent:GetIndex() == pLocal:GetIndex() then
+			return false
+		end
+		return ent:IsPlayer() == false
+	end
+
+	for _, dir in ipairs(splashDirections) do
+		local splashPos = vecPredictedPos + dir * (iSplashRadius * 0.9)
+
+		-- Can we shoot the splash position?
+		local shootTrace = engine.TraceHull(vecShootPos, splashPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if shootTrace and shootTrace.fraction == 1 then
+			local distanceToTarget = (splashPos - vecPredictedPos):Length()
+			if distanceToTarget <= iSplashRadius then
+				local splashTrace = engine.TraceLine(splashPos, vecPredictedPos, MASK_SHOT_HULL, shouldHit)
+				if splashTrace and splashTrace.fraction >= 1 then
+					if distanceToTarget < bestDist then
+						bestPos = splashPos
+						bestDist = distanceToTarget
+					end
+				end
+			end
+		end
+	end
+
+	return bestPos
 end
 
 ---Returns predicted target pos, total time, charge time
@@ -253,8 +319,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase or not iDefinitionIndex then
+	if pWeapon:IsMeleeWeapon() then
 		return
 	end
 
@@ -266,12 +331,25 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	if pLocal:InCond(E_TFCOND.TFCond_Taunting) then
+		return
+	end
+
+	if pLocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
+		return
+	end
+
 	if engine.IsChatOpen() == true or engine.Con_IsVisible() or engine.IsGameUIVisible() then
 		return
 	end
 
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
+	end
+
+	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
+	if not iCase or not iDefinitionIndex then
+		return
 	end
 
 	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
@@ -289,10 +367,10 @@ local function CreateMove(uCmd)
 	end
 
 	--- gotta fix those offsets
-	local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
+	--local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
 
-	--[[local vecShootPos = pLocal:GetAbsOrigin()
-		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))]]
+	local vecShootPos = pLocal:GetAbsOrigin()
+		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
 
 	local target_info = GetClosestPlayerToFov(pLocal, vecShootPos, players, bAimTeamMate)
 	if not target_info or target_info.index == nil then
@@ -341,22 +419,37 @@ local function CreateMove(uCmd)
 	)
 
 	if trace and trace.fraction < 1 then
-		local newpos = predicted_pos + Vector3(0, 0, 10)
+		local bestSplashPos = vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, predicted_pos, weapon_info, vecShootPos)
+		if bestSplashPos then
+			local visTrace = engine.TraceHull(
+				vecShootPos,
+				bestSplashPos,
+				-weapon_info.vecCollisionMax,
+				weapon_info.vecCollisionMax,
+				MASK_SHOT_HULL,
+				shouldHit
+			)
+			if visTrace and visTrace.fraction >= 1 then
+				predicted_pos = bestSplashPos
+			end
+		else
+			local newpos = predicted_pos + Vector3(0, 0, 10)
 
-		trace = engine.TraceHull(
-			vecShootPos,
-			newpos,
-			-weapon_info.vecCollisionMax,
-			weapon_info.vecCollisionMax,
-			MASK_SHOT_HULL,
-			shouldHit
-		)
+			trace = engine.TraceHull(
+				vecShootPos,
+				newpos,
+				-weapon_info.vecCollisionMax,
+				weapon_info.vecCollisionMax,
+				MASK_SHOT_HULL,
+				shouldHit
+			)
 
-		if trace and trace.fraction < 1 then
-			return
+			if trace and trace.fraction < 1 then
+				return
+			end
+
+			predicted_pos = newpos
 		end
-
-		predicted_pos = newpos
 	end
 
 	local angle = nil
@@ -401,7 +494,7 @@ local function CreateMove(uCmd)
 		end
 	elseif isCompoundBow then
 		local hit_target = false
-		local TOLERANCE = 45.0
+		local TOLERANCE = 50.0
 
 		-- Check if projectile path hits predicted position
 		if projectile_path and #projectile_path > 0 then
