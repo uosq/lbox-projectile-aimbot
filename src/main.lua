@@ -152,7 +152,7 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 		return nil, nil, nil, nil
 	end
 
-	total_time = travel_time + charge_time + latency
+	total_time = travel_time + latency
 
 	if total_time > MAX_SIM_TIME then
 		return nil, nil, nil, nil
@@ -331,7 +331,7 @@ local function CreateMove(uCmd)
 		projectile_path = projSim.Run(pLocal, pWeapon, vecShootPos, angle:Forward(), total_time)
 	end
 
-	if angle == nil then
+	if angle == nil or projectile_path == nil then
 		return
 	end
 
@@ -355,7 +355,36 @@ local function CreateMove(uCmd)
 			displayed_projectile_path = projectile_path
 			displayed_time = globals.CurTime() + 1
 		end
-	elseif isCompoundBow or isStickyLauncher then
+	elseif isCompoundBow then
+		local hit_target = false
+		local TOLERANCE = 45.0
+
+		-- Check if projectile path hits predicted position
+		if projectile_path and #projectile_path > 0 then
+			for _, step in ipairs(projectile_path) do
+				if (step.pos - predicted_pos):Length() < TOLERANCE then
+					hit_target = true
+					break
+				end
+			end
+		end
+
+		-- always hold IN_ATTACK to start/continue charging
+		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
+
+		-- Release only if projectile is accurate enough
+		if hit_target and charge > 0.0 and (uCmd.buttons & IN_ATTACK) ~= 0 then
+			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
+			uCmd:SetViewAngles(angle:Unpack())
+			uCmd:SetSendPacket(false)
+
+			displayed_path = player_predicted_path
+			displayed_projectile_path = projectile_path
+			displayed_time = globals.CurTime() + 1
+		end
+	elseif isStickyLauncher then
 		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
