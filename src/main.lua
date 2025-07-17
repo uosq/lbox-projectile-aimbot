@@ -16,14 +16,16 @@ local displayed_time = 0
 local iMaxDistance = 2048
 
 local MAX_SIM_TIME = 2.0 --- 2.0 * 67 = 134 ticks
+local BEGGARS_BAZOOKA_INDEX = 730
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
 ---@param shootpos Vector3
+---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
 ---@return PlayerInfo
-local function GetClosestPlayerToFov(pLocal, shootpos, players)
+local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	local info = {
 		angle = nil,
 		fov = gui.GetValue("aim fov"),
@@ -31,39 +33,45 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players)
 		pos = nil,
 	}
 
+	local localTeam = pLocal:GetTeamNumber()
+
 	for _, player in pairs(players) do
-		if not player:IsDormant() and player:IsAlive() and player:GetTeamNumber() ~= pLocal:GetTeamNumber() then
-			if player:InCond(E_TFCOND.TFCond_Cloaked) == true and gui.GetValue("ignore cloaked") == 1 then
+		if not player:IsDormant() and player:IsAlive() and player:GetIndex() ~= pLocal:GetIndex() then
+			local isTeammate = player:GetTeamNumber() == localTeam
+			if bAimTeamMate ~= isTeammate then
 				goto skip
 			end
 
-			if player:InCond(E_TFCOND.TFCond_Disguised) == true and gui.GetValue("ignore disguised") == 1 then
+			if player:InCond(E_TFCOND.TFCond_Cloaked) and gui.GetValue("ignore cloaked") == 1 then
 				goto skip
 			end
 
-			if player:InCond(E_TFCOND.TFCond_Ubercharged) == true then
+			if player:InCond(E_TFCOND.TFCond_Disguised) and gui.GetValue("ignore disguised") == 1 then
 				goto skip
 			end
 
-			if player:InCond(E_TFCOND.TFCond_Taunting) == true and gui.GetValue("ignore taunting") == 1 then
+			if player:InCond(E_TFCOND.TFCond_Ubercharged) then
 				goto skip
 			end
 
-			if player:InCond(E_TFCOND.TFCond_Bonked) == true and gui.GetValue("ignore bonked") == 1 then
+			if player:InCond(E_TFCOND.TFCond_Taunting) and gui.GetValue("ignore taunting") == 1 then
+				goto skip
+			end
+
+			if player:InCond(E_TFCOND.TFCond_Bonked) and gui.GetValue("ignore bonked") == 1 then
 				goto skip
 			end
 
 			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() < iMaxDistance then
 				local origin = player:GetAbsOrigin()
-				local angle, fov
-				angle = math_utils.PositionAngles(shootpos, origin)
-				fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
+				local angle = math_utils.PositionAngles(shootpos, origin)
+				local fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
 
 				if fov and fov < info.fov then
 					info.angle = angle
 					info.fov = fov
 					info.index = player:GetIndex()
-					info.pos = player:GetAbsOrigin()
+					info.pos = origin
 				end
 			end
 
@@ -134,11 +142,10 @@ local function GetProjectileOffset(pTarget, pWeapon)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET then
 		return Vector3()
 	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ARROW then
-		return Vector3()
-		--[[local bones = ent_utils.GetBones(pTarget)
+		local bones = ent_utils.GetBones(pTarget)
 		local head_pos = bones[1]
 		local diff = head_pos - pTarget:GetAbsOrigin()
-		return Vector3(0, 0, diff.z)]]
+		return Vector3(0, 0, diff.z)
 	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB then
 		return Vector3(0, 0, 10)
 	end
@@ -180,6 +187,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	if engine.IsChatOpen() == true or engine.Con_IsVisible() or engine.IsGameUIVisible() then
+		return
+	end
+
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
 	end
@@ -188,6 +199,13 @@ local function CreateMove(uCmd)
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local iWeaponID = pWeapon:GetWeaponID()
 	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local bAimTeamMate = false
+	local bIsSandvich = false
+
+	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
+		bAimTeamMate = true
+		bIsSandvich = true
+	end
 
 	--- gotta fix those offsets
 	local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
@@ -195,7 +213,7 @@ local function CreateMove(uCmd)
 	--[[local vecShootPos = pLocal:GetAbsOrigin()
 		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))]]
 
-	local target_info = GetClosestPlayerToFov(pLocal, vecShootPos, players)
+	local target_info = GetClosestPlayerToFov(pLocal, vecShootPos, players, bAimTeamMate)
 	if not target_info or target_info.index == nil then
 		return
 	end
@@ -280,19 +298,61 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	if wep_utils.CanShoot() and (gui.GetValue("auto shoot") == 1 or (uCmd.buttons & IN_ATTACK) ~= 0) then
-		uCmd:SetViewAngles(angle:Unpack())
-		uCmd.buttons = uCmd.buttons | IN_ATTACK
+	local isBeggar = iDefinitionIndex == BEGGARS_BAZOOKA_INDEX
+	local isCompoundBow = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local isStickyLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
-		if charge and charge > 0 then
+	if isBeggar then
+		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
+
+		if clip < 1 and pTarget then
+			-- keep holding IN_ATTACK while charging
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		else
+			-- release to fire
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
+			uCmd:SetViewAngles(angle:Unpack())
+			uCmd:SetSendPacket(false)
+
+			displayed_path = player_predicted_path
+			displayed_projectile_path = projectile_path
+			displayed_time = globals.CurTime() + 1
+		end
+	elseif isCompoundBow or isStickyLauncher then
+		if gui.GetValue("auto shoot") == 1 then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		uCmd:SetSendPacket(false)
+		-- release to fire
+		if charge > 0.0 then
+			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
+			uCmd:SetViewAngles(angle:Unpack())
+			uCmd:SetSendPacket(false)
 
-		displayed_path = player_predicted_path
-		displayed_projectile_path = projectile_path
-		displayed_time = globals.CurTime() + 1
+			displayed_path = player_predicted_path
+			displayed_projectile_path = projectile_path
+			displayed_time = globals.CurTime() + 1
+		end
+	else
+		--- epic sandvich aimbot
+		if bIsSandvich then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK2
+			uCmd:SetViewAngles(angle:Unpack())
+		else
+			if wep_utils.CanShoot() then
+				if gui.GetValue("auto shoot") == 1 then
+					uCmd.buttons = uCmd.buttons | IN_ATTACK
+				end
+
+				if (uCmd.buttons & IN_ATTACK) ~= 0 then
+					uCmd:SetViewAngles(angle:Unpack())
+					uCmd:SetSendPacket(false)
+					displayed_path = player_predicted_path
+					displayed_projectile_path = projectile_path
+					displayed_time = globals.CurTime() + 1
+				end
+			end
+		end
 	end
 end
 
@@ -327,12 +387,12 @@ local function Draw()
 				local screen_last = client.WorldToScreen(last_pos)
 
 				if screen_current and screen_last then
-					draw.Color(255, 255, 255, 200)
+					draw.Color(255, 255, 255, 100)
 					draw.Line(screen_last[1], screen_last[2], screen_current[1], screen_current[2])
 
 					--- last position
 					if i == max_positions then
-						local w, h = 10, 10
+						local w, h = 5, 5
 						draw.FilledRect(
 							screen_current[1] - w,
 							screen_current[2] - h,
@@ -354,9 +414,8 @@ local function Draw()
 				local screen_last = client.WorldToScreen(last_pos)
 
 				if screen_current and screen_last then
-					-- sick ass fade
-					local alpha = math.max(25, 255 - (i * 5))
-					draw.Color(255, 255, 255, alpha)
+					-- sick ass fade (no more :( )
+					draw.Color(255, 255, 255, 150)
 					draw.Line(screen_last[1], screen_last[2], screen_current[1], screen_current[2])
 				end
 			end

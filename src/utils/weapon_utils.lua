@@ -140,6 +140,7 @@ do
 		[58] = 11,
 		[1083] = 11,
 		[1105] = 11,
+		[42] = 13,
 	}
 	local maxIndex = 0
 	for k, _ in pairs(defs) do
@@ -232,9 +233,12 @@ function wep_utils.GetProjectileInformation(pWeapon, bDucking, iCase, iDefIndex,
 		return Vector3(23.5, 8, -3), 1000, 200, collisionMaxs[4], 450, nil
 	elseif iCase == 12 then
 		return Vector3(23.5, 8, -3), 3000, 300, collisionMaxs[3], 900, 1.3
+	elseif iCase == 13 then
+		return Vector3(), 350, 0, collisionMaxs[4], 0.25, 0.5
 	end
 end
 
+---@return WeaponInfo
 function wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefIndex, iWepID)
 	local vOffset, fForwardVelocity, fUpwardVelocity, vCollisionMax, fGravity, fDrag =
 		wep_utils.GetProjectileInformation(pWeapon, bDucking, iCase, iDefIndex, iWepID)
