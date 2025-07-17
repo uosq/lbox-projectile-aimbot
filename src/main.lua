@@ -240,6 +240,8 @@ local function CreateMove(uCmd)
 	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		bAimTeamMate = true
 		bIsSandvich = true
+	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
+		bAimTeamMate = true
 	end
 
 	--- gotta fix those offsets
