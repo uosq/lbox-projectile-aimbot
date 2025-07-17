@@ -162,7 +162,40 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	local total_time = 0.0
 	local player_positions = nil
 
-	local travel_time = math.sqrt((vecShootPos - predicted_target_pos):LengthSqr()) / iprojectile_speed
+	-- Solve for the ballistic direction first
+	local aim_dir = nil
+	if weapon_info.flGravity > 0 then
+		local gravity = weapon_info.flGravity
+		aim_dir = math_utils.SolveBallisticArc(vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
+	else
+		aim_dir = math_utils.NormalizeVector(predicted_target_pos - vecShootPos)
+	end
+
+	if not aim_dir then
+		return nil, nil, nil, nil
+	end
+
+	local projectile_path = projSim.Run(pLocal, pWeapon, vecShootPos, aim_dir, MAX_SIM_TIME)
+	local TOLERANCE = 5.0 --- in HUs
+
+	-- find time where projectile hits or reaches closest to predicted_target_pos
+	local travel_time = nil
+	if projectile_path and #projectile_path > 0 then
+		for i, step in ipairs(projectile_path) do
+			if (step.pos - predicted_target_pos):Length() < TOLERANCE then
+				travel_time = step.time_secs
+				break
+			end
+		end
+
+		-- Fallback: last time
+		if not travel_time then
+			travel_time = projectile_path[#projectile_path].time_secs
+		end
+	else
+		return nil, nil, nil, nil
+	end
+
 	total_time = travel_time + charge_time + latency
 
 	if total_time > MAX_SIM_TIME then
@@ -191,6 +224,8 @@ local function GetProjectileOffset(pTarget, pWeapon)
 		local diff = head_pos - pTarget:GetAbsOrigin()
 		return Vector3(0, 0, diff.z)
 	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB then
+		return Vector3(0, 0, 10)
+	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE then
 		return Vector3(0, 0, 10)
 	end
 
@@ -363,7 +398,7 @@ local function CreateMove(uCmd)
 			displayed_time = globals.CurTime() + 1
 		end
 	elseif isCompoundBow or isStickyLauncher then
-		if gui.GetValue("auto shoot") == 1 then
+		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
@@ -382,6 +417,10 @@ local function CreateMove(uCmd)
 		if bIsSandvich then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK2
 			uCmd:SetViewAngles(angle:Unpack())
+
+			displayed_path = player_predicted_path
+			displayed_projectile_path = projectile_path
+			displayed_time = globals.CurTime() + 1
 		else
 			if wep_utils.CanShoot() then
 				if gui.GetValue("auto shoot") == 1 then
@@ -1441,7 +1480,7 @@ function wep_utils.GetProjectileInformation(pWeapon, bDucking, iCase, iDefIndex,
 	elseif iCase == 12 then
 		return Vector3(23.5, 8, -3), 3000, 300, collisionMaxs[3], 900, 1.3
 	elseif iCase == 13 then
-		return Vector3(), 350, 0, collisionMaxs[4], 0.25, 0.5
+		return Vector3(), 350, 0, collisionMaxs[4], 0.25, 0.1
 	end
 end
 

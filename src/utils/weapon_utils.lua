@@ -234,7 +234,7 @@ function wep_utils.GetProjectileInformation(pWeapon, bDucking, iCase, iDefIndex,
 	elseif iCase == 12 then
 		return Vector3(23.5, 8, -3), 3000, 300, collisionMaxs[3], 900, 1.3
 	elseif iCase == 13 then
-		return Vector3(), 350, 0, collisionMaxs[4], 0.25, 0.5
+		return Vector3(), 350, 0, collisionMaxs[4], 0.25, 0.1
 	end
 end
 
