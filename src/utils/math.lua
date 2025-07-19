@@ -111,5 +111,11 @@ function Math.GetBallisticFlightTime(p0, p1, speed, gravity)
 	return flight_time
 end
 
+function Math.DirectionToAngles(direction)
+	local pitch = math.asin(-direction.z) * (180 / math.pi)
+	local yaw = math.atan(direction.y, direction.x) * (180 / math.pi)
+	return Vector3(pitch, yaw, 0)
+end
+
 Math.NormalizeVector = NormalizeVector
 return Math

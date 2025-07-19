@@ -42,65 +42,58 @@ local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (
 	return require, loaded, register, modules
 end)(require)
 __bundle_register("__root", function(require, _LOADED, __bundle_register, __bundle_modules)
---- this is a fuckin lie
-printc(100, 255, 100, 255, "Navet's Projectile Aimbot loaded")
-printc(100, 100, 255, 255, "(almost) Every setting is configured by using the Lmaobox menu")
-
 local wep_utils = require("src.utils.weapon_utils")
-local math_utils = require("src.utils.math")
 local ent_utils = require("src.utils.entity")
+local math_utils = require("src.utils.math")
 
-local playerSim = require("src.simulation.player")
-local projSim = require("src.simulation.proj")
+local player_sim = require("src.simulation.player")
+local proj_sim = require("src.simulation.proj")
 
-local displayed_projectile_path = {}
-local displayed_path = {}
---local displayed_splash_pos = nil
-local displayed_time = 0
+local prediction = require("src.prediction")
+local multipoint = require("src.multipoint")
 
-local iMaxDistance = 2048
-
-local MAX_SIM_TIME = 2.0 --- 2.0 * 67 = 134 ticks
+local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
+local max_distance = 2048
+
+local paths = {
+	proj_path = {},
+	player_path = {},
+}
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
-local OFFSET_MULTIPLIERS = {
-	normal = {
-		{ 0, 0, 0.2 }, -- legs
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.9 }, -- near head
-	},
-	huntsman = {
-		{ 0, 0, 0.9 }, -- near head
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.2 }, -- legs
-	},
-}
-
---[[
----@type Vector3[]
-local splashDirections = {}
-
-local stepTheta = 15 --- yaw
-local stepPhi = 15 --- pitch
-
-for phi = 0 + stepPhi, 180 - stepPhi, stepPhi do
-	local radPhi = math.rad(phi)
-	for theta = 0, 360 - stepTheta, stepTheta do
-		local radTheta = math.rad(theta)
-
-		local x = math.sin(radPhi) * math.cos(radTheta)
-		local y = math.sin(radPhi) * math.sin(radTheta)
-		local z = math.cos(radPhi)
-
-		splashDirections[#splashDirections + 1] = Vector3(x, y, z)
+local function CanRun(pLocal, pWeapon)
+	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
+		return false
 	end
-end]]
+
+	if not wep_utils.CanShoot() then
+		return false
+	end
+
+	if pWeapon:IsMeleeWeapon() then
+		return false
+	end
+
+	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+		return false
+	end
+
+	if pLocal:InCond(E_TFCOND.TFCond_Taunting) then
+		return false
+	end
+
+	if pLocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
+		return false
+	end
+
+	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
+		return false
+	end
+
+	return true
+end
 
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
@@ -144,7 +137,7 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 				goto skip
 			end
 
-			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() < iMaxDistance then
+			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() < max_distance then
 				local origin = player:GetAbsOrigin()
 				local angle = math_utils.PositionAngles(shootpos, origin)
 				local fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
@@ -164,213 +157,28 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	return info
 end
 
-local function DirectionToAngles(direction)
-	local pitch = math.asin(-direction.z) * (180 / math.pi)
-	local yaw = math.atan(direction.y, direction.x) * (180 / math.pi)
-	return Vector3(pitch, yaw, 0)
-end
-
---[[-@param pWeapon Entity
-local function iGetSplashRadius(pWeapon)
-	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE then
-		return 146
-	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET then
-		return 130
-	end
-
-	return nil
-end]]
-
---[[---@param pLocal Entity
----@param pWeapon Entity
----@param vecPredictedPos Vector3
----@param weapon_info WeaponInfo
----@param vecShootPos Vector3
----@return Vector3?
-local function vecFindVisibleSplashPos(pLocal, pWeapon, vecPredictedPos, weapon_info, vecShootPos)
-	local iSplashRadius = iGetSplashRadius(pWeapon)
-	if not iSplashRadius then
-		return nil
-	end
-
-	local vecMins = -weapon_info.vecCollisionMax
-	local vecMaxs = weapon_info.vecCollisionMax
-
-	local bestPos, bestDist = nil, iSplashRadius
-
-	local function shouldHit(ent)
-		if ent:GetIndex() == pLocal:GetIndex() then
-			return false
-		end
-		return ent:IsPlayer() == false
-	end
-
-	for _, dir in ipairs(splashDirections) do
-		local splashPos = vecPredictedPos + dir * (iSplashRadius * 0.9)
-
-		-- check if we can shoot the splash position
-		local shootTrace = engine.TraceHull(vecShootPos, splashPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-		if shootTrace and shootTrace.fraction == 1 then
-			local distanceToTarget = (splashPos - vecPredictedPos):Length()
-			if distanceToTarget <= iSplashRadius then
-				local splashTrace = engine.TraceLine(splashPos, vecPredictedPos, MASK_SHOT_HULL, shouldHit)
-				if splashTrace and splashTrace.fraction >= 1 then
-					if distanceToTarget < bestDist then
-						bestPos = splashPos
-						bestDist = distanceToTarget
-					end
-				end
-			end
-		end
-	end
-
-	return bestPos
-end]]
-
----Returns predicted target pos, total time, charge time
----@param pLocal Entity
----@param pWeapon Entity
----@param pTarget Entity
----@param vecShootPos Vector3
----@param weapon_info any
----@param latency number
-local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info, latency)
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
-	local dist = (vecShootPos - vecTargetOrigin):Length()
-
-	if dist > iMaxDistance then
-		return nil, nil, nil, nil
-	end
-
-	local charge_time = 0.0
-	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
-		charge_time = globals.CurTime() - pWeapon:GetChargeBeginTime()
-		charge_time = (charge_time > 1.0) and 0 or charge_time
-	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		charge_time = globals.CurTime() - pWeapon:GetChargeBeginTime()
-		charge_time = (charge_time > 4.0) and 0 or charge_time
-	end
-
-	local iprojectile_speed = weapon_info.flForwardVelocity
-	local flstepSize = pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local predicted_target_pos = vecTargetOrigin
-	local total_time = 0.0
-	local player_positions = nil
-
-	-- Solve for the ballistic direction first
-	local aim_dir = nil
-	if weapon_info.flGravity > 0 then
-		local gravity = weapon_info.flGravity
-		aim_dir = math_utils.SolveBallisticArc(vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
-	else
-		aim_dir = math_utils.NormalizeVector(predicted_target_pos - vecShootPos)
-	end
-
-	if not aim_dir then
-		return nil, nil, nil, nil
-	end
-
-	local projectile_path = projSim.Run(pLocal, pWeapon, vecShootPos, aim_dir, MAX_SIM_TIME)
-	local TOLERANCE = 5.0 --- in HUs
-
-	-- find time where projectile hits or reaches closest to predicted_target_pos
-	local travel_time = nil
-	if projectile_path and #projectile_path > 0 then
-		for i, step in ipairs(projectile_path) do
-			if (step.pos - predicted_target_pos):Length() < TOLERANCE then
-				travel_time = step.time_secs
-				break
-			end
-		end
-
-		-- Fallback: last time
-		if not travel_time then
-			travel_time = projectile_path[#projectile_path].time_secs
-		end
-	else
-		return nil, nil, nil, nil
-	end
-
-	total_time = travel_time + latency
-
-	if total_time > MAX_SIM_TIME then
-		return nil, nil, nil, nil
-	end
-
-	player_positions = playerSim.Run(flstepSize, pTarget, total_time)
-
-	if player_positions and #player_positions > 0 then
-		predicted_target_pos = player_positions[#player_positions]
-		return predicted_target_pos, total_time, charge_time, player_positions
-	end
-
-	return nil, nil, nil, nil
-end
-
----I wanted to use ent_utils.GetBones but this way i dont need to loop some bones
----@return Vector3[]
-local function GetMultipointOffsets(pTarget, bIsHuntsman)
-	local points = {}
-	local origin = pTarget:GetAbsOrigin()
-	local maxs = pTarget:GetMaxs()
-
-	local multipliers = bIsHuntsman and OFFSET_MULTIPLIERS.huntsman or OFFSET_MULTIPLIERS.normal
-
-	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		table.insert(points, origin + offset)
-	end
-
-	return points
-end
-
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
-	local netchan = clientstate:GetNetChannel()
-	if not netchan then
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
 		return
 	end
 
 	local pLocal = entities.GetLocalPlayer()
-	if not pLocal or pLocal:IsAlive() == false then
+	if pLocal == nil then
 		return
 	end
 
 	local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon")
-	if not pWeapon then
-		return
-	end
-
-	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
-		return
-	end
-
-	if pWeapon:IsMeleeWeapon() then
+	if pWeapon == nil then
 		return
 	end
 
 	local players = entities.FindByClass("CTFPlayer")
+	player_sim.RunBackground(players)
 
-	playerSim.RunBackground(players)
-
-	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+	if not CanRun(pLocal, pWeapon) then
 		return
-	end
-
-	if pLocal:InCond(E_TFCOND.TFCond_Taunting) then
-		return
-	end
-
-	if pLocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
-		return
-	end
-
-	if engine.IsChatOpen() == true or engine.Con_IsVisible() or engine.IsGameUIVisible() then
-		return
-	end
-
-	if gui.GetValue("projectile aimbot") ~= "none" then
-		gui.SetValue("projectile aimbot", "none")
 	end
 
 	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
@@ -378,10 +186,12 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	if gui.GetValue("projectile aimbot") ~= "none" then
+		gui.SetValue("projectile aimbot", "none")
+	end
+
 	local iWeaponID = pWeapon:GetWeaponID()
-	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
 	local bAimTeamMate = false
 	local bIsSandvich = false
 
@@ -392,28 +202,27 @@ local function CreateMove(uCmd)
 		bAimTeamMate = true
 	end
 
-	--- gotta fix those offsets ( i never fixed them)
-	--local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, engine.GetViewAngles())
-
 	local vecHeadPos = pLocal:GetAbsOrigin()
 		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
 
-	local target_info = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
-	if not target_info or target_info.index == nil then
+	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
+	if not best_target.index then
 		return
 	end
 
-	local pTarget = entities.GetByIndex(target_info.index)
+	local pTarget = entities.GetByIndex(best_target.index)
 	if not pTarget then
 		return
 	end
 
-	local latency = netchan:GetLatency(E_Flows.FLOW_OUTGOING) + netchan:GetLatency(E_Flows.FLOW_INCOMING)
+	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
-	local predicted_pos, total_time, charge, player_predicted_path =
-		GetPredictedPosition(pLocal, pWeapon, pTarget, vecHeadPos, weapon_info, latency)
-
-	if predicted_pos == nil or total_time == nil or charge == nil or player_predicted_path == nil then
+	prediction:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, math_utils, vecHeadPos, nLatency)
+	local pred_result = prediction:Run()
+	if not pred_result then
 		return
 	end
 
@@ -433,111 +242,41 @@ local function CreateMove(uCmd)
 		return true
 	end
 
-	local vecMins, vecMaxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
-	local multipoints = GetMultipointOffsets(pTarget, pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW)
-	local bestPoint = nil
-	local bestFraction = 0
+	multipoint:Set(
+		pLocal,
+		pTarget,
+		bIsHuntsman,
+		pred_result.vecPos,
+		players,
+		bAimTeamMate,
+		vecHeadPos,
+		weapon_info,
+		math_utils,
+		max_distance
+	)
 
-	for _, point in ipairs(multipoints) do
-		local test_pos = predicted_pos + (point - pTarget:GetAbsOrigin())
-		local trace = engine.TraceHull(vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-		if trace and trace.fraction > bestFraction then
-			bestPoint = test_pos
-			bestFraction = trace.fraction
-			if bestFraction >= 0.95 then
-				break
-			end
-		end
-	end
-
-	if bestPoint then
-		predicted_pos = bestPoint
-	end
-
-	local trace = engine.TraceHull(vecHeadPos, predicted_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-
-	if trace and trace.fraction < 1 then
-		local bones = ent_utils.GetBones(pTarget)
-		local preferred_bones = {}
-
-		if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ARROW then
-			preferred_bones = { 1, 4, 3 } -- head, body, chest
-		else
-			preferred_bones = { 4, 3, 1 } -- body, chest, head
-		end
-
-		local found_bone = false
-		local best_pos = nil
-		local best_trace_fraction = 0
-
-		for _, boneIndex in ipairs(preferred_bones) do
-			local bone = bones[boneIndex]
-			if bone then
-				local test_pos = bone
-				local test_trace = engine.TraceHull(vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-
-				if test_trace and test_trace.fraction > best_trace_fraction then
-					best_pos = test_pos
-					best_trace_fraction = test_trace.fraction
-
-					if test_trace.fraction >= 0.95 then -- almost clear shot
-						found_bone = true
-						break
-					end
-				end
-			end
-		end
-
-		if best_pos and best_trace_fraction > 0.7 then -- at least 70% clear (good enough :)
-			predicted_pos = best_pos
-			found_bone = true
-		end
-
-		if not found_bone then
-			--[[local bestSplashPos = vecFindVisibleSplashPos(pLocal, pWeapon, predicted_pos, weapon_info, vecShootPos)
-			if bestSplashPos then
-				local visTrace =
-					engine.TraceHull(vecShootPos, bestSplashPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-				if visTrace and visTrace.fraction >= 0.95 then
-					predicted_pos = bestSplashPos
-					displayed_splash_pos = bestSplashPos
-				else
-					return -- no clear shot available :(
-				end
-			else
-				return -- no clear shot available :(
-			end]]
-			return
-		end
-	end
-
-	local angle = nil
-	local projectile_path
-
-	if weapon_info.flGravity > 0 then
-		local gravity = weapon_info.flGravity
-		local aim_dir = math_utils.SolveBallisticArc(vecHeadPos, predicted_pos, weapon_info.flForwardVelocity, gravity)
-
-		if aim_dir then
-			-- convert direction to angles
-			angle = DirectionToAngles(aim_dir)
-			projectile_path =
-				projSim.Run(pLocal, pWeapon, vecHeadPos, EulerAngles(angle:Unpack()):Forward(), total_time)
-		end
-	else
-		angle = math_utils.PositionAngles(vecHeadPos, predicted_pos)
-		projectile_path = projSim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time)
-	end
-
-	if angle == nil then
+	local best_pos = multipoint:GetBestHitPoint()
+	if not best_pos then
 		return
 	end
 
-	local isBeggar = iDefinitionIndex == BEGGARS_BAZOOKA_INDEX
-	local isCompoundBow = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	local isStickyLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
+	local vecMins, vecMaxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
+	local trace = engine.TraceHull(vecHeadPos, best_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
-	if isBeggar then
+	if trace and trace.fraction < 1 then
+		return
+	end
+
+	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
+	if not angle then
+		return
+	end
+
+	local bIsBeggar = iDefinitionIndex == BEGGARS_BAZOOKA_INDEX
+	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
+	local bAttack = false
+
+	if bIsBeggar then
 		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
 
 		if clip < 1 and pTarget then
@@ -549,12 +288,10 @@ local function CreateMove(uCmd)
 			uCmd:SetViewAngles(angle:Unpack())
 			uCmd:SetSendPacket(false)
 
-			displayed_path = player_predicted_path
-			displayed_projectile_path = projectile_path
-			displayed_time = globals.CurTime() + 1
+			bAttack = true
 		end
-	elseif isCompoundBow then
-		if angle and charge > 0.1 then -- smol charge required, just in case yk
+	elseif bIsHuntsman then
+		if angle and pred_result.nChargeTime > 0.1 then -- smol charge required, just in case yk
 			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
@@ -565,9 +302,7 @@ local function CreateMove(uCmd)
 				uCmd:SetViewAngles(angle:Unpack())
 				uCmd:SetSendPacket(false)
 
-				displayed_path = player_predicted_path
-				displayed_projectile_path = projectile_path
-				displayed_time = globals.CurTime() + 1
+				bAttack = true
 			end
 		else
 			-- keep charging
@@ -575,20 +310,18 @@ local function CreateMove(uCmd)
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
 		end
-	elseif isStickyLauncher then
+	elseif bIsStickybombLauncher then
 		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
 		-- release to fire
-		if charge > 0.1 then
+		if pred_result.nChargeTime > 0.1 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
 			uCmd:SetViewAngles(angle:Unpack())
 			uCmd:SetSendPacket(false)
 
-			displayed_path = player_predicted_path
-			displayed_projectile_path = projectile_path
-			displayed_time = globals.CurTime() + 1
+			bAttack = true
 		end
 	else
 		--- epic sandvich aimbot
@@ -597,9 +330,7 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK2
 			uCmd:SetViewAngles(angle:Unpack())
 
-			displayed_path = player_predicted_path
-			displayed_projectile_path = projectile_path
-			displayed_time = globals.CurTime() + 1
+			bAttack = true
 		else
 			if wep_utils.CanShoot() then
 				if gui.GetValue("auto shoot") == 1 then
@@ -609,99 +340,268 @@ local function CreateMove(uCmd)
 				if (uCmd.buttons & IN_ATTACK) ~= 0 then
 					uCmd:SetViewAngles(angle:Unpack())
 					uCmd:SetSendPacket(false)
-					displayed_path = player_predicted_path
-					displayed_projectile_path = projectile_path
-					displayed_time = globals.CurTime() + 1
+
+					bAttack = true
 				end
 			end
 		end
+	end
+
+	if bAttack == true then
+		displayed_time = globals.CurTime() + 1
+		paths.player_path = pred_result.vecPlayerPath
+		paths.proj_path = pred_result.vecProjPath
 	end
 end
 
 local function Draw()
-	local pLocal = entities.GetLocalPlayer()
-	if not pLocal then
-		return
-	end
-
-	if (globals.CurTime() - displayed_time) > 0 then
-		displayed_path = {}
-		displayed_projectile_path = {}
-		--displayed_splash_pos = nil
-	end
-
-	if pLocal:IsAlive() == false then
-		return
-	end
-
-	if engine.IsTakingScreenshot() and gui.GetValue("clean screenshots") == 1 then
-		return
-	end
-
 	draw.Color(255, 255, 255, 255)
 
-	if displayed_path and #displayed_path >= 2 then
-		local max_positions = #displayed_path
-		local last_pos = nil
-
-		for i, pos in pairs(displayed_path) do
-			if last_pos then
-				local screen_current = client.WorldToScreen(pos)
-				local screen_last = client.WorldToScreen(last_pos)
-
-				if screen_current and screen_last then
-					draw.Color(255, 255, 255, 100)
-					draw.Line(screen_last[1], screen_last[2], screen_current[1], screen_current[2])
-
-					--- last position
-					if i == max_positions then
-						local w, h = 5, 5
-						draw.FilledRect(
-							screen_current[1] - w,
-							screen_current[2] - h,
-							screen_current[1] + w,
-							screen_current[2] + h
-						)
-					end
-				end
-			end
-			last_pos = pos
-		end
+	if displayed_time < globals.CurTime() then
+		paths.player_path = {}
+		paths.proj_path = {}
+		return
 	end
 
-	if displayed_projectile_path then
-		local last_pos = nil
-		for i, path in pairs(displayed_projectile_path) do
-			if last_pos then
-				local screen_current = client.WorldToScreen(path.pos)
-				local screen_last = client.WorldToScreen(last_pos)
+	if paths.player_path then
+		local lastpos = nil
+		local lastpos_screen = nil
 
-				if screen_current and screen_last then
-					-- sick ass fade (no more :( )
-					draw.Color(255, 255, 255, 100)
-					draw.Line(screen_last[1], screen_last[2], screen_current[1], screen_current[2])
+		for _, pos in pairs(paths.player_path) do
+			if lastpos then
+				local current = client.WorldToScreen(pos)
+				if current and lastpos_screen then
+					draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
 				end
 			end
-			last_pos = path.pos
+
+			lastpos = pos
+			lastpos_screen = client.WorldToScreen(lastpos)
 		end
 	end
-
-	--[[if displayed_splash_pos then
-		draw.Color(255, 150, 150, 150)
-		local pos = client.WorldToScreen(displayed_splash_pos)
-		if pos then
-			draw.FilledRect(pos[1] - 5, pos[2] - 5, pos[1] + 5, pos[2] + 5)
-		end
-	end]]
-end
-
-local function Unload()
-	gui.SetValue("projectile aimbot", original_gui_value)
 end
 
 callbacks.Register("CreateMove", CreateMove)
 callbacks.Register("Draw", Draw)
-callbacks.Register("Unload", Unload)
+
+end)
+__bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
+---@class Multipoint
+---@field private pLocal Entity
+---@field private pTarget Entity
+---@field private bIsHuntsman boolean
+---@field private vecPredictedPos Vector3
+---@field private players table<integer, Entity>
+---@field private bAimTeamMate boolean
+---@field private vecHeadPos Vector3
+---@field private weapon_info WeaponInfo
+---@field private math_utils MathLib
+---@field private iMaxDistance integer
+local multipoint = {}
+
+local offset_multipliers = {
+	normal = {
+		{ 0, 0, 0.2 }, -- legs
+		{ 0, 0, 0.5 }, -- chest
+		{ 0.6, 0, 0.5 }, -- right shoulder
+		{ -0.6, 0, 0.5 }, -- left shoulder
+		{ 0, 0, 0.9 }, -- near head
+	},
+	huntsman = {
+		{ 0, 0, 0.9 }, -- near head
+		{ 0, 0, 0.5 }, -- chest
+		{ 0.6, 0, 0.5 }, -- right shoulder
+		{ -0.6, 0, 0.5 }, -- left shoulder
+		{ 0, 0, 0.2 }, -- legs
+	},
+}
+
+---@return Vector3?
+function multipoint:GetBestHitPoint()
+	local points = {}
+	local origin = self.pTarget:GetAbsOrigin()
+	local maxs = self.pTarget:GetMaxs()
+
+	local multipliers = self.bIsHuntsman and offset_multipliers.huntsman or offset_multipliers.normal
+
+	for _, mult in ipairs(multipliers) do
+		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+		table.insert(points, origin + offset)
+	end
+
+	local vecMins, vecMaxs = -self.weapon_info.vecCollisionMax, self.weapon_info.vecCollisionMax
+	local bestPoint = nil
+	local bestFraction = 0
+
+	local function shouldHit(ent)
+		if ent:GetIndex() == client.GetLocalPlayerIndex() then
+			return false
+		end
+
+		if ent:GetIndex() == self.pTarget:GetIndex() then
+			return false
+		end
+
+		if ent:IsPlayer() == false then
+			return true
+		end
+
+		return true
+	end
+
+	for _, point in ipairs(points) do
+		local test_pos = self.vecPredictedPos + (point - self.pTarget:GetAbsOrigin())
+		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if trace and trace.fraction > bestFraction then
+			bestPoint = test_pos
+			bestFraction = trace.fraction
+			if bestFraction >= 0.95 then
+				break
+			end
+		end
+	end
+
+	return bestPoint
+end
+
+function multipoint:Set(
+	pLocal,
+	pTarget,
+	bIsHuntsman,
+	vecPredictedPos,
+	players,
+	bAimTeamMate,
+	vecHeadPos,
+	weapon_info,
+	math_utils,
+	iMaxDistance
+)
+	self.pLocal = pLocal
+	self.pTarget = pTarget
+	self.bIsHuntsman = bIsHuntsman
+	self.vecPredictedPos = vecPredictedPos
+	self.players = players
+	self.bAimTeamMate = bAimTeamMate
+	self.vecHeadPos = vecHeadPos
+	self.weapon_info = weapon_info
+	self.math_utils = math_utils
+	self.iMaxDistance = iMaxDistance
+end
+
+return multipoint
+
+end)
+__bundle_register("src.prediction", function(require, _LOADED, __bundle_register, __bundle_modules)
+---@class Prediction
+---@field pLocal Entity
+---@field pWeapon Entity
+---@field pTarget Entity
+---@field weapon_info WeaponInfo
+---@field proj_sim ProjectileSimulation
+---@field player_sim table
+---@field vecShootPos Vector3
+---@field iMaxDistance integer
+---@field math_utils MathLib
+---@field nMaxTime number
+---@field nLatency number
+---@field private __index table
+local pred = {}
+pred.__index = pred
+
+function pred:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, math_utils, vecShootPos, nLatency)
+	self.pLocal = pLocal
+	self.pWeapon = pWeapon
+	self.weapon_info = weapon_info
+	self.proj_sim = proj_sim
+	self.player_sim = player_sim
+	self.vecShootPos = vecShootPos
+	self.pTarget = pTarget
+	self.iMaxDistance = 2048
+	self.nMaxTime = 1.0
+	self.nLatency = nLatency
+	self.math_utils = math_utils
+end
+
+---@return PredictionResult?
+function pred:Run()
+	local vecTargetOrigin = self.pTarget:GetAbsOrigin()
+	local dist = (self.vecShootPos - vecTargetOrigin):Length()
+
+	if dist > self.iMaxDistance then
+		return nil
+	end
+
+	local charge_time = 0.0
+	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		charge_time = globals.CurTime() - self.pWeapon:GetChargeBeginTime()
+		charge_time = (charge_time > 1.0) and 0 or charge_time
+	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
+		charge_time = globals.CurTime() - self.pWeapon:GetChargeBeginTime()
+		charge_time = (charge_time > 4.0) and 0 or charge_time
+	end
+
+	local iprojectile_speed = self.weapon_info.flForwardVelocity
+	local predicted_target_pos = vecTargetOrigin
+
+	local aim_dir = nil
+	if self.weapon_info.flGravity > 0 then
+		local gravity = self.weapon_info.flGravity
+		aim_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
+	else
+		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
+	end
+
+	if not aim_dir then
+		return nil
+	end
+
+	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, self.vecShootPos, aim_dir, self.nMaxTime)
+	local TOLERANCE = 5.0 --- in HUs
+
+	local total_time = 0.0
+	local travel_time = nil
+	if projectile_path and #projectile_path > 0 then
+		for i, step in ipairs(projectile_path) do
+			if (step.pos - predicted_target_pos):Length() < TOLERANCE then
+				travel_time = step.time_secs
+				break
+			end
+		end
+
+		-- Fallback: last time
+		if not travel_time then
+			travel_time = projectile_path[#projectile_path].time_secs
+		end
+	else
+		return nil
+	end
+
+	total_time = travel_time + self.nLatency
+
+	if total_time > self.nMaxTime then
+		return nil
+	end
+
+	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
+	local player_positions = nil
+
+	player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+
+	if player_positions and #player_positions > 0 then
+		return {
+			vecPos = player_positions[#player_positions],
+			nTime = total_time,
+			nChargeTime = charge_time,
+			vecAimDir = aim_dir,
+			vecPlayerPath = player_positions,
+			vecProjPath = projectile_path,
+		}
+	end
+
+	return nil
+end
+
+return pred
 
 end)
 __bundle_register("src.simulation.proj", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -823,7 +723,7 @@ end
 ---@param shootPos Vector3
 ---@param vecForward Vector3 The target direction the projectile should aim for
 ---@param nTime number Number of seconds we want to simulate
----@return {pos: Vector3, time_secs: number, target_index?: integer, error?: number}[]
+---@return ProjSimRet
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime)
 	local positions = {}
 
@@ -925,18 +825,6 @@ local function AddPositionSample(pEntity)
 			-- reject outlier velocities
 			if vel:Length() <= MAX_ALLOWED_SPEED then
 				velocity_samples[index][#velocity_samples[index] + 1] = vel
-
-				-- calculate acceleration from velocity samples
-				local vel_samples = velocity_samples[index]
-				if #vel_samples >= 2 then
-					local prev_vel = vel_samples[#vel_samples - 1]
-					local accel = (vel - prev_vel) / dt
-
-					-- reject outlier accelerations
-					if accel:Length() <= MAX_ALLOWED_ACCELERATION then
-						acceleration_samples[index][#acceleration_samples[index] + 1] = accel
-					end
-				end
 			end
 		end
 	end
@@ -1027,32 +915,6 @@ local function GetSmoothedVelocity(pEntity)
 	local smoothed = samples[1]
 	for i = 2, #samples do
 		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
-	end
-
-	return smoothed
-end
-
---- exponential smoothing for acceleration
----@param pEntity Entity
----@return Vector3
-local function GetSmoothedAcceleration(pEntity)
-	local samples = acceleration_samples[pEntity:GetIndex()]
-	if not samples or #samples == 0 then
-		return Vector3(0, 0, 0)
-	end
-
-	local grounded = IsPlayerOnGround(pEntity)
-	local alpha = grounded and 0.4 or 0.3
-
-	local smoothed = samples[1]
-	for i = 2, #samples do
-		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
-	end
-
-	-- apply deadzone to filter out noise
-	local ACCEL_DEADZONE = 50.0 -- HU/sec²
-	if smoothed:Length() < ACCEL_DEADZONE then
-		smoothed = Vector3(0, 0, 0)
 	end
 
 	return smoothed
@@ -1161,20 +1023,11 @@ function sim.RunBackground(players)
 	end
 end
 
-local function NormalizeVector(vec)
-	local len = vec:Length()
-	if len == 0 then
-		return Vector3()
-	end
-	return vec / len
-end
-
 ---@param stepSize number
 ---@param pTarget Entity The target
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = GetSmoothedVelocity(pTarget)
-	local smoothed_acceleration = GetSmoothedAcceleration(pTarget)
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget)
 	local last_pos = pTarget:GetAbsOrigin()
 
@@ -1203,29 +1056,11 @@ function sim.Run(stepSize, pTarget, time)
 		smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 		smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
 
-		-- rotate acceleration
-		local ax, ay = smoothed_acceleration.x, smoothed_acceleration.y
-		smoothed_acceleration.x = ax * cos_yaw - ay * sin_yaw
-		smoothed_acceleration.y = ax * sin_yaw + ay * cos_yaw
-
-		-- apply acceleration to velocity
-		smoothed_velocity = smoothed_velocity + smoothed_acceleration * tick_interval
-
-		smoothed_acceleration = smoothed_acceleration * (pTarget:GetPropFloat("m_flFriction") or 1.0)
-
 		-- clamp velocity to target's max speed
 		local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450
 		local vel_length = smoothed_velocity:Length()
 		if vel_length > target_max_speed then
 			smoothed_velocity = smoothed_velocity * (target_max_speed / vel_length)
-
-			-- also reduce acceleration when at max speed to prevent unrealistic buildup
-			local vel_direction = NormalizeVector(smoothed_velocity)
-			local accel_in_vel_direction = smoothed_acceleration:Dot(vel_direction)
-			if accel_in_vel_direction > 0 then
-				-- remove acceleration component that would increase speed further
-				smoothed_acceleration = smoothed_acceleration - vel_direction * accel_in_vel_direction
-			end
 		end
 
 		local move_delta = smoothed_velocity * tick_interval
@@ -1277,12 +1112,6 @@ function sim.Run(stepSize, pTarget, time)
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)
 			smoothed_velocity = smoothed_velocity - normal * dot
-
-			-- also adjust acceleration when hitting walls
-			local accel_dot = smoothed_acceleration:Dot(normal)
-			if accel_dot < 0 then -- only adjust if accelerating into the wall
-				smoothed_acceleration = smoothed_acceleration - normal * accel_dot
-			end
 		else
 			last_pos = next_pos
 			positions[#positions + 1] = last_pos
@@ -1308,82 +1137,6 @@ function sim.Run(stepSize, pTarget, time)
 end
 
 return sim
-
-end)
-__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
-local ent_utils = {}
-
----@param plocal Entity
-function ent_utils.GetShootPosition(plocal)
-	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-end
-
----@param entity Entity
----@return table<integer, Vector3>
-function ent_utils.GetBones(entity)
-	local model = entity:GetModel()
-	local studioHdr = models.GetStudioModel(model)
-
-	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
-	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
-	local hitboxes = hitboxSet:GetHitboxes()
-
-	--boneMatrices is an array of 3x4 float matrices
-	local boneMatrices = entity:SetupBones()
-
-    local bones = {}
-
-	for i = 1, #hitboxes do
-		local hitbox = hitboxes[i]
-		local bone = hitbox:GetBone()
-
-		local boneMatrix = boneMatrices[bone]
-
-		if boneMatrix == nil then
-			goto continue
-		end
-
-		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
-
-        bones[i] = bonePos
-		::continue::
-	end
-
-    return bones
-end
-
----@param player Entity
----@param shootpos Vector3
----@param viewangle EulerAngles
----@param PREFERRED_BONES table
-function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
-	local bones = ent_utils.GetBones(player)
-	local info = {}
-	info.fov = math.huge
-	info.angle = nil
-	info.index = nil
-	info.pos = nil
-
-	for _, preferred_bone in ipairs(PREFERRED_BONES) do
-		local bonePos = bones[preferred_bone]
-		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
-
-		if trace and trace.fraction >= 0.6 then
-			local angle = utils.PositionAngles(shootpos, bonePos)
-			local fov = utils.AngleFov(angle, viewangle)
-
-			if fov < info.fov then
-				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
-				info.pos = bonePos
-				break --- found a suitable bone, no need to check the other ones
-			end
-		end
-	end
-
-	return info
-end
-
-return ent_utils
 
 end)
 __bundle_register("src.utils.math", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -1500,8 +1253,90 @@ function Math.GetBallisticFlightTime(p0, p1, speed, gravity)
 	return flight_time
 end
 
+function Math.DirectionToAngles(direction)
+	local pitch = math.asin(-direction.z) * (180 / math.pi)
+	local yaw = math.atan(direction.y, direction.x) * (180 / math.pi)
+	return Vector3(pitch, yaw, 0)
+end
+
 Math.NormalizeVector = NormalizeVector
 return Math
+
+end)
+__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
+local ent_utils = {}
+
+---@param plocal Entity
+function ent_utils.GetShootPosition(plocal)
+	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+end
+
+---@param entity Entity
+---@return table<integer, Vector3>
+function ent_utils.GetBones(entity)
+	local model = entity:GetModel()
+	local studioHdr = models.GetStudioModel(model)
+
+	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
+	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
+	local hitboxes = hitboxSet:GetHitboxes()
+
+	--boneMatrices is an array of 3x4 float matrices
+	local boneMatrices = entity:SetupBones()
+
+    local bones = {}
+
+	for i = 1, #hitboxes do
+		local hitbox = hitboxes[i]
+		local bone = hitbox:GetBone()
+
+		local boneMatrix = boneMatrices[bone]
+
+		if boneMatrix == nil then
+			goto continue
+		end
+
+		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
+
+        bones[i] = bonePos
+		::continue::
+	end
+
+    return bones
+end
+
+---@param player Entity
+---@param shootpos Vector3
+---@param viewangle EulerAngles
+---@param PREFERRED_BONES table
+function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
+	local bones = ent_utils.GetBones(player)
+	local info = {}
+	info.fov = math.huge
+	info.angle = nil
+	info.index = nil
+	info.pos = nil
+
+	for _, preferred_bone in ipairs(PREFERRED_BONES) do
+		local bonePos = bones[preferred_bone]
+		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
+
+		if trace and trace.fraction >= 0.6 then
+			local angle = utils.PositionAngles(shootpos, bonePos)
+			local fov = utils.AngleFov(angle, viewangle)
+
+			if fov < info.fov then
+				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
+				info.pos = bonePos
+				break --- found a suitable bone, no need to check the other ones
+			end
+		end
+	end
+
+	return info
+end
+
+return ent_utils
 
 end)
 __bundle_register("src.utils.weapon_utils", function(require, _LOADED, __bundle_register, __bundle_modules)

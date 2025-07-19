@@ -116,7 +116,7 @@ end
 ---@param shootPos Vector3
 ---@param vecForward Vector3 The target direction the projectile should aim for
 ---@param nTime number Number of seconds we want to simulate
----@return {pos: Vector3, time_secs: number, target_index?: integer, error?: number}[]
+---@return ProjSimRet
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime)
 	local positions = {}
 
