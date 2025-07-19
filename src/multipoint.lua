@@ -2,6 +2,7 @@
 ---@field private pLocal Entity
 ---@field private pTarget Entity
 ---@field private bIsHuntsman boolean
+---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
 ---@field private players table<integer, Entity>
 ---@field private bAimTeamMate boolean
@@ -62,8 +63,14 @@ function multipoint:GetBestHitPoint()
 	end
 
 	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		local test_pos = self.vecPredictedPos + offset
+		local forward = self.math_utils.NormalizeVector(self.vecAimDir)
+		local right = self.math_utils.NormalizeVector(forward:Cross(Vector3(0, 0, 1)))
+		local up = self.math_utils.NormalizeVector(right:Cross(forward))
+
+		local test_pos = self.vecPredictedPos
+			+ right * (maxs.x * mult[1])
+			+ forward * (maxs.y * mult[2])
+			+ up * (maxs.z * mult[3])
 		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
@@ -81,10 +88,11 @@ function multipoint:Set(
 	pLocal,
 	pTarget,
 	bIsHuntsman,
-	vecPredictedPos,
+	vecAimDir,
 	players,
 	bAimTeamMate,
 	vecHeadPos,
+	vecPredictedPos,
 	weapon_info,
 	math_utils,
 	iMaxDistance
@@ -92,13 +100,14 @@ function multipoint:Set(
 	self.pLocal = pLocal
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
-	self.vecPredictedPos = vecPredictedPos
+	self.vecAimDir = vecAimDir
 	self.players = players
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info
 	self.math_utils = math_utils
 	self.iMaxDistance = iMaxDistance
+	self.vecPredictedPos = vecPredictedPos
 end
 
 return multipoint

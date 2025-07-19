@@ -224,10 +224,11 @@ local function CreateMove(uCmd)
 		pLocal,
 		pTarget,
 		bIsHuntsman,
-		pred_result.vecPos,
+		pred_result.vecAimDir,
 		players,
 		bAimTeamMate,
 		vecHeadPos,
+		pred_result.vecPos,
 		weapon_info,
 		math_utils,
 		max_distance
@@ -245,7 +246,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
 
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false

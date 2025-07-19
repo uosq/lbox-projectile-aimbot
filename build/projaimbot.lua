@@ -50,7 +50,7 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 	Update: v3
 ]]
 
-local version = "3"
+local version = "3.2"
 
 --local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
@@ -268,10 +268,11 @@ local function CreateMove(uCmd)
 		pLocal,
 		pTarget,
 		bIsHuntsman,
-		pred_result.vecPos,
+		pred_result.vecAimDir,
 		players,
 		bAimTeamMate,
 		vecHeadPos,
+		pred_result.vecPos,
 		weapon_info,
 		math_utils,
 		max_distance
@@ -289,7 +290,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
 
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false
@@ -425,6 +426,7 @@ __bundle_register("src.multipoint", function(require, _LOADED, __bundle_register
 ---@field private pLocal Entity
 ---@field private pTarget Entity
 ---@field private bIsHuntsman boolean
+---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
 ---@field private players table<integer, Entity>
 ---@field private bAimTeamMate boolean
@@ -485,8 +487,14 @@ function multipoint:GetBestHitPoint()
 	end
 
 	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		local test_pos = self.vecPredictedPos + offset
+		local forward = self.math_utils.NormalizeVector(self.vecAimDir)
+		local right = self.math_utils.NormalizeVector(forward:Cross(Vector3(0, 0, 1)))
+		local up = self.math_utils.NormalizeVector(right:Cross(forward))
+
+		local test_pos = self.vecPredictedPos
+			+ right * (maxs.x * mult[1])
+			+ forward * (maxs.y * mult[2])
+			+ up * (maxs.z * mult[3])
 		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
@@ -504,10 +512,11 @@ function multipoint:Set(
 	pLocal,
 	pTarget,
 	bIsHuntsman,
-	vecPredictedPos,
+	vecAimDir,
 	players,
 	bAimTeamMate,
 	vecHeadPos,
+	vecPredictedPos,
 	weapon_info,
 	math_utils,
 	iMaxDistance
@@ -515,13 +524,14 @@ function multipoint:Set(
 	self.pLocal = pLocal
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
-	self.vecPredictedPos = vecPredictedPos
+	self.vecAimDir = vecAimDir
 	self.players = players
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info
 	self.math_utils = math_utils
 	self.iMaxDistance = iMaxDistance
+	self.vecPredictedPos = vecPredictedPos
 end
 
 return multipoint
