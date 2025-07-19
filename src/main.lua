@@ -29,12 +29,12 @@ local paths = {
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
-local function CanRun(pLocal, pWeapon)
+local function CanRun(pLocal, pWeapon, bIsBeggar)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
 		return false
 	end
 
-	if not wep_utils.CanShoot() then
+	if not wep_utils.CanShoot() and not bIsBeggar then
 		return false
 	end
 
@@ -143,7 +143,8 @@ local function CreateMove(uCmd)
 	local players = entities.FindByClass("CTFPlayer")
 	player_sim.RunBackground(players)
 
-	if not CanRun(pLocal, pWeapon) then
+	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
+	if not CanRun(pLocal, pWeapon, bIsBeggar) then
 		return
 	end
 
@@ -238,7 +239,6 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local bIsBeggar = iDefinitionIndex == BEGGARS_BAZOOKA_INDEX
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false
 

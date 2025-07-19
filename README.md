@@ -15,3 +15,17 @@ If LMAOBOX's projectile aimbot is enabled, this script will be disabled when usi
    - ignore bonked
    - ignore taunting
    - ignore disguised
+
+### How to build
+
+Requirements:
+
+- [Luabundler](https://github.com/Benjamin-Dobell/luabundler) (If you're on NixOS, you can [use this](https://github.com/uosq/luabundler-nix))
+
+Instructions:
+
+```bash
+git clone https://github.com/uosq/lbox-projectile-aimbot.git
+cd lbox-projectile-aimbot
+./merge.sh
+```
