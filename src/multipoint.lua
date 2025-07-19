@@ -61,8 +61,9 @@ function multipoint:GetBestHitPoint()
 		return true
 	end
 
-	for _, point in ipairs(points) do
-		local test_pos = self.vecPredictedPos + (point - self.pTarget:GetAbsOrigin())
+	for _, mult in ipairs(multipliers) do
+		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+		local test_pos = self.vecPredictedPos + offset
 		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos

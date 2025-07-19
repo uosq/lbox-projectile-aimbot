@@ -187,7 +187,18 @@ local function CreateMove(uCmd)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
-	prediction:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, math_utils, vecHeadPos, nLatency)
+	prediction:Set(
+		pLocal,
+		pWeapon,
+		pTarget,
+		weapon_info,
+		proj_sim,
+		player_sim,
+		math_utils,
+		multipoint,
+		vecHeadPos,
+		nLatency
+	)
 	local pred_result = prediction:Run()
 	if not pred_result then
 		return
@@ -234,10 +245,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
-	if not angle then
-		return
-	end
+	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
 
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false

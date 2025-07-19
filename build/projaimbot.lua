@@ -231,7 +231,18 @@ local function CreateMove(uCmd)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
-	prediction:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, math_utils, vecHeadPos, nLatency)
+	prediction:Set(
+		pLocal,
+		pWeapon,
+		pTarget,
+		weapon_info,
+		proj_sim,
+		player_sim,
+		math_utils,
+		multipoint,
+		vecHeadPos,
+		nLatency
+	)
 	local pred_result = prediction:Run()
 	if not pred_result then
 		return
@@ -278,10 +289,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
-	if not angle then
-		return
-	end
+	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
 
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false
@@ -476,8 +484,9 @@ function multipoint:GetBestHitPoint()
 		return true
 	end
 
-	for _, point in ipairs(points) do
-		local test_pos = self.vecPredictedPos + (point - self.pTarget:GetAbsOrigin())
+	for _, mult in ipairs(multipliers) do
+		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+		local test_pos = self.vecPredictedPos + offset
 		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
@@ -531,11 +540,23 @@ __bundle_register("src.prediction", function(require, _LOADED, __bundle_register
 ---@field math_utils MathLib
 ---@field nMaxTime number
 ---@field nLatency number
+---@field multipoint Multipoint
 ---@field private __index table
 local pred = {}
 pred.__index = pred
 
-function pred:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, math_utils, vecShootPos, nLatency)
+function pred:Set(
+	pLocal,
+	pWeapon,
+	pTarget,
+	weapon_info,
+	proj_sim,
+	player_sim,
+	math_utils,
+	multipoint,
+	vecShootPos,
+	nLatency
+)
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
 	self.weapon_info = weapon_info
@@ -545,6 +566,7 @@ function pred:Set(pLocal, pWeapon, pTarget, weapon_info, proj_sim, player_sim, m
 	self.pTarget = pTarget
 	self.iMaxDistance = 2048
 	self.nMaxTime = 1.0
+	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
 end
@@ -568,11 +590,42 @@ function pred:Run()
 	end
 
 	local iprojectile_speed = self.weapon_info.flForwardVelocity
-	local predicted_target_pos = vecTargetOrigin
+	local gravity = self.weapon_info.flGravity
 
+	local initial_dir = nil
+	if gravity > 0 then
+		initial_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, vecTargetOrigin, iprojectile_speed, gravity)
+	else
+		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+	end
+
+	if not initial_dir then
+		return nil
+	end
+
+	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, self.vecShootPos, initial_dir, self.nMaxTime)
+	if not projectile_path or #projectile_path == 0 then
+		return nil
+	end
+
+	local travel_time = nil
+	travel_time = projectile_path[#projectile_path].time_secs
+
+	local total_time = travel_time + self.nLatency
+	if total_time > self.nMaxTime then
+		return nil
+	end
+
+	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
+	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+	if not player_positions or #player_positions == 0 then
+		return nil
+	end
+
+	-- 🔁 Recalculate aim_dir towards predicted position
+	local predicted_target_pos = player_positions[#player_positions]
 	local aim_dir = nil
-	if self.weapon_info.flGravity > 0 then
-		local gravity = self.weapon_info.flGravity
+	if gravity > 0 then
 		aim_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
 	else
 		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
@@ -582,50 +635,14 @@ function pred:Run()
 		return nil
 	end
 
-	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, self.vecShootPos, aim_dir, self.nMaxTime)
-	local TOLERANCE = 5.0 --- in HUs
-
-	local total_time = 0.0
-	local travel_time = nil
-	if projectile_path and #projectile_path > 0 then
-		for i, step in ipairs(projectile_path) do
-			if (step.pos - predicted_target_pos):Length() < TOLERANCE then
-				travel_time = step.time_secs
-				break
-			end
-		end
-
-		-- Fallback: last time
-		if not travel_time then
-			travel_time = projectile_path[#projectile_path].time_secs
-		end
-	else
-		return nil
-	end
-
-	total_time = travel_time + self.nLatency
-
-	if total_time > self.nMaxTime then
-		return nil
-	end
-
-	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local player_positions = nil
-
-	player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-
-	if player_positions and #player_positions > 0 then
-		return {
-			vecPos = player_positions[#player_positions],
-			nTime = total_time,
-			nChargeTime = charge_time,
-			vecAimDir = aim_dir,
-			vecPlayerPath = player_positions,
-			vecProjPath = projectile_path,
-		}
-	end
-
-	return nil
+	return {
+		vecPos = predicted_target_pos,
+		nTime = total_time,
+		nChargeTime = charge_time,
+		vecAimDir = aim_dir,
+		vecPlayerPath = player_positions,
+		vecProjPath = projectile_path,
+	}
 end
 
 return pred
