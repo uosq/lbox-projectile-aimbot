@@ -42,8 +42,16 @@ local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (
 	return require, loaded, register, modules
 end)(require)
 __bundle_register("__root", function(require, _LOADED, __bundle_register, __bundle_modules)
+---@diagnostic disable: cast-local-type
+
+--[[
+	NAVET'S PROEJECTILE AIMBOT
+	made by navet
+	Update: v3
+]]
+
+--local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
-local ent_utils = require("src.utils.entity")
 local math_utils = require("src.utils.math")
 
 local player_sim = require("src.simulation.player")
@@ -381,8 +389,25 @@ local function Draw()
 	end
 end
 
-callbacks.Register("CreateMove", CreateMove)
-callbacks.Register("Draw", Draw)
+local function Unload()
+	callbacks.Unregister("CreateMove", "ProjAimbot CreateMove")
+	callbacks.Unregister("Draw", "ProjAimbot Draw")
+	gui.SetValue("projectile aimbot", original_gui_value)
+	paths = nil
+	wep_utils = nil
+	math_utils = nil
+	player_sim = nil
+	proj_sim = nil
+	prediction = nil
+	multipoint = nil
+end
+
+callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
+callbacks.Register("Draw", "ProjAimbot Draw", Draw)
+callbacks.Register("Unload", Unload)
+
+printc(252, 186, 3, 255, "Navet's Projectile Aimbot loaded")
+printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")
 
 end)
 __bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -1261,82 +1286,6 @@ end
 
 Math.NormalizeVector = NormalizeVector
 return Math
-
-end)
-__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
-local ent_utils = {}
-
----@param plocal Entity
-function ent_utils.GetShootPosition(plocal)
-	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-end
-
----@param entity Entity
----@return table<integer, Vector3>
-function ent_utils.GetBones(entity)
-	local model = entity:GetModel()
-	local studioHdr = models.GetStudioModel(model)
-
-	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
-	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
-	local hitboxes = hitboxSet:GetHitboxes()
-
-	--boneMatrices is an array of 3x4 float matrices
-	local boneMatrices = entity:SetupBones()
-
-    local bones = {}
-
-	for i = 1, #hitboxes do
-		local hitbox = hitboxes[i]
-		local bone = hitbox:GetBone()
-
-		local boneMatrix = boneMatrices[bone]
-
-		if boneMatrix == nil then
-			goto continue
-		end
-
-		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
-
-        bones[i] = bonePos
-		::continue::
-	end
-
-    return bones
-end
-
----@param player Entity
----@param shootpos Vector3
----@param viewangle EulerAngles
----@param PREFERRED_BONES table
-function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
-	local bones = ent_utils.GetBones(player)
-	local info = {}
-	info.fov = math.huge
-	info.angle = nil
-	info.index = nil
-	info.pos = nil
-
-	for _, preferred_bone in ipairs(PREFERRED_BONES) do
-		local bonePos = bones[preferred_bone]
-		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
-
-		if trace and trace.fraction >= 0.6 then
-			local angle = utils.PositionAngles(shootpos, bonePos)
-			local fov = utils.AngleFov(angle, viewangle)
-
-			if fov < info.fov then
-				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
-				info.pos = bonePos
-				break --- found a suitable bone, no need to check the other ones
-			end
-		end
-	end
-
-	return info
-end
-
-return ent_utils
 
 end)
 __bundle_register("src.utils.weapon_utils", function(require, _LOADED, __bundle_register, __bundle_modules)

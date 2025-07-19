@@ -1,5 +1,13 @@
+---@diagnostic disable: cast-local-type
+
+--[[
+	NAVET'S PROEJECTILE AIMBOT
+	made by navet
+	Update: v3
+]]
+
+--local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
-local ent_utils = require("src.utils.entity")
 local math_utils = require("src.utils.math")
 
 local player_sim = require("src.simulation.player")
@@ -337,5 +345,22 @@ local function Draw()
 	end
 end
 
-callbacks.Register("CreateMove", CreateMove)
-callbacks.Register("Draw", Draw)
+local function Unload()
+	callbacks.Unregister("CreateMove", "ProjAimbot CreateMove")
+	callbacks.Unregister("Draw", "ProjAimbot Draw")
+	gui.SetValue("projectile aimbot", original_gui_value)
+	paths = nil
+	wep_utils = nil
+	math_utils = nil
+	player_sim = nil
+	proj_sim = nil
+	prediction = nil
+	multipoint = nil
+end
+
+callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
+callbacks.Register("Draw", "ProjAimbot Draw", Draw)
+callbacks.Register("Unload", Unload)
+
+printc(252, 186, 3, 255, "Navet's Projectile Aimbot loaded")
+printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")
