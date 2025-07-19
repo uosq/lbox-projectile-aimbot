@@ -6,7 +6,7 @@
 	Update: v3
 ]]
 
-local version = "3"
+local version = "3.2"
 
 --local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
