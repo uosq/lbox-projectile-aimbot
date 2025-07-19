@@ -1,9 +1,17 @@
----@diagnostic disable: duplicate-doc-field
+---@diagnostic disable: duplicate-doc-field, missing-fields
 local sim = {}
 
+---@type Vector3
 local position_samples = {}
+
+---@type Vector3
 local velocity_samples = {}
+
+---@type Vector3
+local acceleration_samples = {}
+
 local MAX_ALLOWED_SPEED = 2000 -- HU/sec
+local MAX_ALLOWED_ACCELERATION = 5000 -- HU/sec²
 local SAMPLE_COUNT = 16
 
 ---@class Sample
@@ -19,6 +27,8 @@ local function AddPositionSample(pEntity)
 		position_samples[index] = {}
 		---@type Vector3[]
 		velocity_samples[index] = {}
+		---@type Vector3[]
+		acceleration_samples[index] = {}
 	end
 
 	local current_time = globals.CurTime()
@@ -38,6 +48,18 @@ local function AddPositionSample(pEntity)
 			-- reject outlier velocities
 			if vel:Length() <= MAX_ALLOWED_SPEED then
 				velocity_samples[index][#velocity_samples[index] + 1] = vel
+
+				-- calculate acceleration from velocity samples
+				local vel_samples = velocity_samples[index]
+				if #vel_samples >= 2 then
+					local prev_vel = vel_samples[#vel_samples - 1]
+					local accel = (vel - prev_vel) / dt
+
+					-- reject outlier accelerations
+					if accel:Length() <= MAX_ALLOWED_ACCELERATION then
+						acceleration_samples[index][#acceleration_samples[index] + 1] = accel
+					end
+				end
 			end
 		end
 	end
@@ -54,29 +76,13 @@ local function AddPositionSample(pEntity)
 			table.remove(velocity_samples[index], 1)
 		end
 	end
+
+	if #acceleration_samples[index] > SAMPLE_COUNT - 2 then
+		for i = 1, #acceleration_samples[index] - (SAMPLE_COUNT - 2) do
+			table.remove(acceleration_samples[index], 1)
+		end
+	end
 end
-
-----@param vecPredictedPos Vector3
-----@param vecMins Vector3
-----@param vecMaxs Vector3
-----@param pTarget Entity
-----@param flStepHeight number
-----@return boolean
---[[local function IsOnGround(vecPredictedPos, vecMins, vecMaxs, pTarget, flStepHeight)
-local function shouldHit(ent)
-	return ent:GetIndex() ~= pTarget:GetIndex()
-end
-
-local step = Vector3(0, 0, -flStepHeight)
-
-local trace =
-engine.TraceHull(vecPredictedPos, vecPredictedPos + step, vecMins, vecMaxs, MASK_PLAYERSOLID, shouldHit)
-if trace and trace.fraction < 1 then
-	return false
-end
-
-return true
-end]]
 
 ---@param position Vector3
 ---@param mins Vector3
@@ -129,8 +135,7 @@ local function IsPlayerOnGround(pEntity)
 	return grounded == true
 end
 
---- exponential smoothing
---- is this better?
+--- exponential smoothing for velocity
 ---@param pEntity Entity
 ---@return Vector3
 local function GetSmoothedVelocity(pEntity)
@@ -140,11 +145,37 @@ local function GetSmoothedVelocity(pEntity)
 	end
 
 	local grounded = IsPlayerOnGround(pEntity)
-	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = smootherer --more responsive
+	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = more responsive
 
 	local smoothed = samples[1]
 	for i = 2, #samples do
 		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
+	end
+
+	return smoothed
+end
+
+--- exponential smoothing for acceleration
+---@param pEntity Entity
+---@return Vector3
+local function GetSmoothedAcceleration(pEntity)
+	local samples = acceleration_samples[pEntity:GetIndex()]
+	if not samples or #samples == 0 then
+		return Vector3(0, 0, 0)
+	end
+
+	local grounded = IsPlayerOnGround(pEntity)
+	local alpha = grounded and 0.4 or 0.3
+
+	local smoothed = samples[1]
+	for i = 2, #samples do
+		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
+	end
+
+	-- apply deadzone to filter out noise
+	local ACCEL_DEADZONE = 50.0 -- HU/sec²
+	if smoothed:Length() < ACCEL_DEADZONE then
+		smoothed = Vector3(0, 0, 0)
 	end
 
 	return smoothed
@@ -164,7 +195,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 
 	-- first pass: calculate raw angular velocities with movement threshold
 	local ang_vels = {}
-	local MIN_MOVEMENT = 0.1 -- ignore tiny movements that are likely noise
+	local MIN_MOVEMENT = 1 -- ignore tiny movements that are likely noise
 
 	for i = 1, #samples - 2 do
 		local d1 = samples[i + 1].pos - samples[i].pos
@@ -191,7 +222,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return 0
 	end
 
-	-- second pass: Apply median filter to remove outliers
+	-- second pass: apply median filter to remove outliers
 	if #ang_vels >= 3 then
 		local filtered_vels = {}
 		for i = 1, #ang_vels do
@@ -208,22 +239,22 @@ local function GetSmoothedAngularVelocity(pEntity)
 		ang_vels = filtered_vels
 	end
 
-	-- third pass: Exponential smoothing with adaptive alpha
+	-- third pass: exponential smoothing with adaptive alpha
 	local grounded = IsPlayerOnGround(pEntity)
 	local base_alpha = grounded and 0.4 or 0.2
 
 	local smoothed = ang_vels[1]
 	for i = 2, #ang_vels do
-		-- Adaptive alpha based on change magnitude
+		-- adaptive alpha based on change magnitude
 		local change = math.abs(ang_vels[i] - smoothed)
-		local alpha = base_alpha * math.min(1, change / 30) -- reduce smoothing for large changes
+		local alpha = base_alpha * math.min(1, change / 45) -- reduce smoothing for large changes
 		alpha = math.max(0.1, alpha) -- minimum smoothing
 
 		smoothed = (ang_vels[i] * alpha) + (smoothed * (1 - alpha))
 	end
 
 	-- apply deadzone for very small movements
-	local DEADZONE = 2.0
+	local DEADZONE = 4.0
 	if math.abs(smoothed) < DEADZONE then
 		smoothed = 0
 	end
@@ -253,11 +284,20 @@ function sim.RunBackground(players)
 	end
 end
 
+local function NormalizeVector(vec)
+	local len = vec:Length()
+	if len == 0 then
+		return Vector3()
+	end
+	return vec / len
+end
+
 ---@param stepSize number
 ---@param pTarget Entity The target
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = GetSmoothedVelocity(pTarget)
+	local smoothed_acceleration = GetSmoothedAcceleration(pTarget)
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget)
 	local last_pos = pTarget:GetAbsOrigin()
 
@@ -277,12 +317,39 @@ function sim.Run(stepSize, pTarget, time)
 	local was_onground = false
 
 	for i = 1, maxTicks do
-		-- apply angular velocity
+		-- apply angular velocity to both velocity and acceleration
 		local yaw = math.rad(angular_velocity)
 		local cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+
+		-- rotate velocity
 		local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 		smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 		smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
+
+		-- rotate acceleration
+		local ax, ay = smoothed_acceleration.x, smoothed_acceleration.y
+		smoothed_acceleration.x = ax * cos_yaw - ay * sin_yaw
+		smoothed_acceleration.y = ax * sin_yaw + ay * cos_yaw
+
+		-- apply acceleration to velocity
+		smoothed_velocity = smoothed_velocity + smoothed_acceleration * tick_interval
+
+		smoothed_acceleration = smoothed_acceleration * (pTarget:GetPropFloat("m_flFriction") or 1.0)
+
+		-- clamp velocity to target's max speed
+		local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450
+		local vel_length = smoothed_velocity:Length()
+		if vel_length > target_max_speed then
+			smoothed_velocity = smoothed_velocity * (target_max_speed / vel_length)
+
+			-- also reduce acceleration when at max speed to prevent unrealistic buildup
+			local vel_direction = NormalizeVector(smoothed_velocity)
+			local accel_in_vel_direction = smoothed_acceleration:Dot(vel_direction)
+			if accel_in_vel_direction > 0 then
+				-- remove acceleration component that would increase speed further
+				smoothed_acceleration = smoothed_acceleration - vel_direction * accel_in_vel_direction
+			end
+		end
 
 		local move_delta = smoothed_velocity * tick_interval
 		local next_pos = last_pos + move_delta
@@ -294,7 +361,7 @@ function sim.Run(stepSize, pTarget, time)
 				local step_up = last_pos + Vector3(0, 0, stepSize)
 				local step_up_trace = engine.TraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
-				if step_up_trace.fraction == 1.0 then
+				if step_up_trace.fraction >= 1.0 then
 					local step_forward = step_up + move_delta
 					local step_forward_trace =
 						engine.TraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
@@ -333,6 +400,12 @@ function sim.Run(stepSize, pTarget, time)
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)
 			smoothed_velocity = smoothed_velocity - normal * dot
+
+			-- also adjust acceleration when hitting walls
+			local accel_dot = smoothed_acceleration:Dot(normal)
+			if accel_dot < 0 then -- only adjust if accelerating into the wall
+				smoothed_acceleration = smoothed_acceleration - normal * accel_dot
+			end
 		else
 			last_pos = next_pos
 			positions[#positions + 1] = last_pos

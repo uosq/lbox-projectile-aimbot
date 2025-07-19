@@ -55,6 +55,7 @@ local projSim = require("src.simulation.proj")
 
 local displayed_projectile_path = {}
 local displayed_path = {}
+--local displayed_splash_pos = nil
 local displayed_time = 0
 
 local iMaxDistance = 2048
@@ -64,13 +65,42 @@ local BEGGARS_BAZOOKA_INDEX = 730
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
+local OFFSET_MULTIPLIERS = {
+	normal = {
+		{ 0, 0, 0.2 }, -- legs
+		{ 0, 0, 0.5 }, -- chest
+		{ 0.6, 0, 0.5 }, -- right shoulder
+		{ -0.6, 0, 0.5 }, -- left shoulder
+		{ 0, 0, 0.9 }, -- near head
+	},
+	huntsman = {
+		{ 0, 0, 0.9 }, -- near head
+		{ 0, 0, 0.5 }, -- chest
+		{ 0.6, 0, 0.5 }, -- right shoulder
+		{ -0.6, 0, 0.5 }, -- left shoulder
+		{ 0, 0, 0.2 }, -- legs
+	},
+}
+
+--[[
+---@type Vector3[]
 local splashDirections = {}
 
-for pitch = -45, 45, 15 do
-	for yaw = -45, 45, 15 do
-		splashDirections[#splashDirections + 1] = Vector3(pitch / 45, yaw / 45, 0)
+local stepTheta = 15 --- yaw
+local stepPhi = 15 --- pitch
+
+for phi = 0 + stepPhi, 180 - stepPhi, stepPhi do
+	local radPhi = math.rad(phi)
+	for theta = 0, 360 - stepTheta, stepTheta do
+		local radTheta = math.rad(theta)
+
+		local x = math.sin(radPhi) * math.cos(radTheta)
+		local y = math.sin(radPhi) * math.sin(radTheta)
+		local z = math.cos(radPhi)
+
+		splashDirections[#splashDirections + 1] = Vector3(x, y, z)
 	end
-end
+end]]
 
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
@@ -140,7 +170,7 @@ local function DirectionToAngles(direction)
 	return Vector3(pitch, yaw, 0)
 end
 
----@param pWeapon Entity
+--[[-@param pWeapon Entity
 local function iGetSplashRadius(pWeapon)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE then
 		return 146
@@ -149,16 +179,15 @@ local function iGetSplashRadius(pWeapon)
 	end
 
 	return nil
-end
+end]]
 
----@param pLocal Entity
+--[[---@param pLocal Entity
 ---@param pWeapon Entity
----@param pTarget Entity
 ---@param vecPredictedPos Vector3
 ---@param weapon_info WeaponInfo
 ---@param vecShootPos Vector3
 ---@return Vector3?
-local function vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, vecPredictedPos, weapon_info, vecShootPos)
+local function vecFindVisibleSplashPos(pLocal, pWeapon, vecPredictedPos, weapon_info, vecShootPos)
 	local iSplashRadius = iGetSplashRadius(pWeapon)
 	if not iSplashRadius then
 		return nil
@@ -167,7 +196,7 @@ local function vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, vecPredictedPos
 	local vecMins = -weapon_info.vecCollisionMax
 	local vecMaxs = weapon_info.vecCollisionMax
 
-	local bestPos, bestDist = nil, math.huge
+	local bestPos, bestDist = nil, iSplashRadius
 
 	local function shouldHit(ent)
 		if ent:GetIndex() == pLocal:GetIndex() then
@@ -179,7 +208,7 @@ local function vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, vecPredictedPos
 	for _, dir in ipairs(splashDirections) do
 		local splashPos = vecPredictedPos + dir * (iSplashRadius * 0.9)
 
-		-- Can we shoot the splash position?
+		-- check if we can shoot the splash position
 		local shootTrace = engine.TraceHull(vecShootPos, splashPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if shootTrace and shootTrace.fraction == 1 then
 			local distanceToTarget = (splashPos - vecPredictedPos):Length()
@@ -196,7 +225,7 @@ local function vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, vecPredictedPos
 	end
 
 	return bestPos
-end
+end]]
 
 ---Returns predicted target pos, total time, charge time
 ---@param pLocal Entity
@@ -278,24 +307,21 @@ local function GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapo
 	return nil, nil, nil, nil
 end
 
----@param pWeapon Entity
----@param pTarget Entity
----@return Vector3
-local function GetProjectileOffset(pTarget, pWeapon)
-	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET then
-		return Vector3()
-	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ARROW then
-		local bones = ent_utils.GetBones(pTarget)
-		local head_pos = bones[1]
-		local diff = head_pos - pTarget:GetAbsOrigin()
-		return Vector3(0, 0, diff.z)
-	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB then
-		return Vector3(0, 0, 10)
-	elseif pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE then
-		return Vector3(0, 0, 10)
+---I wanted to use ent_utils.GetBones but this way i dont need to loop some bones
+---@return Vector3[]
+local function GetMultipointOffsets(pTarget, bIsHuntsman)
+	local points = {}
+	local origin = pTarget:GetAbsOrigin()
+	local maxs = pTarget:GetMaxs()
+
+	local multipliers = bIsHuntsman and OFFSET_MULTIPLIERS.huntsman or OFFSET_MULTIPLIERS.normal
+
+	for _, mult in ipairs(multipliers) do
+		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+		table.insert(points, origin + offset)
 	end
 
-	return Vector3(0, 0, pTarget:GetMaxs().z / 2)
+	return points
 end
 
 ---@param uCmd UserCmd
@@ -366,13 +392,13 @@ local function CreateMove(uCmd)
 		bAimTeamMate = true
 	end
 
-	--- gotta fix those offsets
-	--local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
+	--- gotta fix those offsets ( i never fixed them)
+	--local vecShootPos = wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, engine.GetViewAngles())
 
-	local vecShootPos = pLocal:GetAbsOrigin()
+	local vecHeadPos = pLocal:GetAbsOrigin()
 		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
 
-	local target_info = GetClosestPlayerToFov(pLocal, vecShootPos, players, bAimTeamMate)
+	local target_info = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 	if not target_info or target_info.index == nil then
 		return
 	end
@@ -385,7 +411,7 @@ local function CreateMove(uCmd)
 	local latency = netchan:GetLatency(E_Flows.FLOW_OUTGOING) + netchan:GetLatency(E_Flows.FLOW_INCOMING)
 
 	local predicted_pos, total_time, charge, player_predicted_path =
-		GetPredictedPosition(pLocal, pWeapon, pTarget, vecShootPos, weapon_info, latency)
+		GetPredictedPosition(pLocal, pWeapon, pTarget, vecHeadPos, weapon_info, latency)
 
 	if predicted_pos == nil or total_time == nil or charge == nil or player_predicted_path == nil then
 		return
@@ -407,48 +433,81 @@ local function CreateMove(uCmd)
 		return true
 	end
 
-	predicted_pos = predicted_pos + GetProjectileOffset(pTarget, pWeapon)
+	local vecMins, vecMaxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
+	local multipoints = GetMultipointOffsets(pTarget, pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW)
+	local bestPoint = nil
+	local bestFraction = 0
 
-	local trace = engine.TraceHull(
-		vecShootPos,
-		predicted_pos,
-		-weapon_info.vecCollisionMax,
-		weapon_info.vecCollisionMax,
-		MASK_SHOT_HULL,
-		shouldHit
-	)
+	for _, point in ipairs(multipoints) do
+		local test_pos = predicted_pos + (point - pTarget:GetAbsOrigin())
+		local trace = engine.TraceHull(vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if trace and trace.fraction > bestFraction then
+			bestPoint = test_pos
+			bestFraction = trace.fraction
+			if bestFraction >= 0.95 then
+				break
+			end
+		end
+	end
+
+	if bestPoint then
+		predicted_pos = bestPoint
+	end
+
+	local trace = engine.TraceHull(vecHeadPos, predicted_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
-		local bestSplashPos = vecFindVisibleSplashPos(pLocal, pWeapon, pTarget, predicted_pos, weapon_info, vecShootPos)
-		if bestSplashPos then
-			local visTrace = engine.TraceHull(
-				vecShootPos,
-				bestSplashPos,
-				-weapon_info.vecCollisionMax,
-				weapon_info.vecCollisionMax,
-				MASK_SHOT_HULL,
-				shouldHit
-			)
-			if visTrace and visTrace.fraction >= 1 then
-				predicted_pos = bestSplashPos
-			end
+		local bones = ent_utils.GetBones(pTarget)
+		local preferred_bones = {}
+
+		if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ARROW then
+			preferred_bones = { 1, 4, 3 } -- head, body, chest
 		else
-			local newpos = predicted_pos + Vector3(0, 0, 10)
+			preferred_bones = { 4, 3, 1 } -- body, chest, head
+		end
 
-			trace = engine.TraceHull(
-				vecShootPos,
-				newpos,
-				-weapon_info.vecCollisionMax,
-				weapon_info.vecCollisionMax,
-				MASK_SHOT_HULL,
-				shouldHit
-			)
+		local found_bone = false
+		local best_pos = nil
+		local best_trace_fraction = 0
 
-			if trace and trace.fraction < 1 then
-				return
+		for _, boneIndex in ipairs(preferred_bones) do
+			local bone = bones[boneIndex]
+			if bone then
+				local test_pos = bone
+				local test_trace = engine.TraceHull(vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+
+				if test_trace and test_trace.fraction > best_trace_fraction then
+					best_pos = test_pos
+					best_trace_fraction = test_trace.fraction
+
+					if test_trace.fraction >= 0.95 then -- almost clear shot
+						found_bone = true
+						break
+					end
+				end
 			end
+		end
 
-			predicted_pos = newpos
+		if best_pos and best_trace_fraction > 0.7 then -- at least 70% clear (good enough :)
+			predicted_pos = best_pos
+			found_bone = true
+		end
+
+		if not found_bone then
+			--[[local bestSplashPos = vecFindVisibleSplashPos(pLocal, pWeapon, predicted_pos, weapon_info, vecShootPos)
+			if bestSplashPos then
+				local visTrace =
+					engine.TraceHull(vecShootPos, bestSplashPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+				if visTrace and visTrace.fraction >= 0.95 then
+					predicted_pos = bestSplashPos
+					displayed_splash_pos = bestSplashPos
+				else
+					return -- no clear shot available :(
+				end
+			else
+				return -- no clear shot available :(
+			end]]
+			return
 		end
 	end
 
@@ -456,19 +515,21 @@ local function CreateMove(uCmd)
 	local projectile_path
 
 	if weapon_info.flGravity > 0 then
-		local gravity = weapon_info.flGravity -- * globals.TickInterval()
-		local aim_dir = math_utils.SolveBallisticArc(vecShootPos, predicted_pos, weapon_info.flForwardVelocity, gravity)
+		local gravity = weapon_info.flGravity
+		local aim_dir = math_utils.SolveBallisticArc(vecHeadPos, predicted_pos, weapon_info.flForwardVelocity, gravity)
 
 		if aim_dir then
-			projectile_path = projSim.Run(pLocal, pWeapon, vecShootPos, aim_dir, total_time)
+			-- convert direction to angles
 			angle = DirectionToAngles(aim_dir)
+			projectile_path =
+				projSim.Run(pLocal, pWeapon, vecHeadPos, EulerAngles(angle:Unpack()):Forward(), total_time)
 		end
 	else
-		angle = math_utils.PositionAngles(vecShootPos, predicted_pos)
-		projectile_path = projSim.Run(pLocal, pWeapon, vecShootPos, angle:Forward(), total_time)
+		angle = math_utils.PositionAngles(vecHeadPos, predicted_pos)
+		projectile_path = projSim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time)
 	end
 
-	if angle == nil or projectile_path == nil then
+	if angle == nil then
 		return
 	end
 
@@ -493,33 +554,26 @@ local function CreateMove(uCmd)
 			displayed_time = globals.CurTime() + 1
 		end
 	elseif isCompoundBow then
-		local hit_target = false
-		local TOLERANCE = 50.0
-
-		-- Check if projectile path hits predicted position
-		if projectile_path and #projectile_path > 0 then
-			for _, step in ipairs(projectile_path) do
-				if (step.pos - predicted_pos):Length() < TOLERANCE then
-					hit_target = true
-					break
-				end
+		if angle and charge > 0.1 then -- smol charge required, just in case yk
+			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
-		end
 
-		-- always hold IN_ATTACK to start/continue charging
-		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
-			uCmd.buttons = uCmd.buttons | IN_ATTACK
-		end
+			-- release to shoot
+			if (uCmd.buttons & IN_ATTACK) ~= 0 then
+				uCmd.buttons = uCmd.buttons & ~IN_ATTACK
+				uCmd:SetViewAngles(angle:Unpack())
+				uCmd:SetSendPacket(false)
 
-		-- Release only if projectile is accurate enough
-		if hit_target and charge > 0.0 and (uCmd.buttons & IN_ATTACK) ~= 0 then
-			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
-			uCmd:SetViewAngles(angle:Unpack())
-			uCmd:SetSendPacket(false)
-
-			displayed_path = player_predicted_path
-			displayed_projectile_path = projectile_path
-			displayed_time = globals.CurTime() + 1
+				displayed_path = player_predicted_path
+				displayed_projectile_path = projectile_path
+				displayed_time = globals.CurTime() + 1
+			end
+		else
+			-- keep charging
+			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+				uCmd.buttons = uCmd.buttons | IN_ATTACK
+			end
 		end
 	elseif isStickyLauncher then
 		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
@@ -527,7 +581,7 @@ local function CreateMove(uCmd)
 		end
 
 		-- release to fire
-		if charge > 0.0 then
+		if charge > 0.1 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
 			uCmd:SetViewAngles(angle:Unpack())
 			uCmd:SetSendPacket(false)
@@ -538,6 +592,7 @@ local function CreateMove(uCmd)
 		end
 	else
 		--- epic sandvich aimbot
+		--- (isso é uma gambiarra do caraio)
 		if bIsSandvich then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK2
 			uCmd:SetViewAngles(angle:Unpack())
@@ -572,6 +627,7 @@ local function Draw()
 	if (globals.CurTime() - displayed_time) > 0 then
 		displayed_path = {}
 		displayed_projectile_path = {}
+		--displayed_splash_pos = nil
 	end
 
 	if pLocal:IsAlive() == false then
@@ -622,13 +678,21 @@ local function Draw()
 
 				if screen_current and screen_last then
 					-- sick ass fade (no more :( )
-					draw.Color(255, 255, 255, 150)
+					draw.Color(255, 255, 255, 100)
 					draw.Line(screen_last[1], screen_last[2], screen_current[1], screen_current[2])
 				end
 			end
 			last_pos = path.pos
 		end
 	end
+
+	--[[if displayed_splash_pos then
+		draw.Color(255, 150, 150, 150)
+		local pos = client.WorldToScreen(displayed_splash_pos)
+		if pos then
+			draw.FilledRect(pos[1] - 5, pos[2] - 5, pos[1] + 5, pos[2] + 5)
+		end
+	end]]
 end
 
 local function Unload()
@@ -811,12 +875,20 @@ return sim
 
 end)
 __bundle_register("src.simulation.player", function(require, _LOADED, __bundle_register, __bundle_modules)
----@diagnostic disable: duplicate-doc-field
+---@diagnostic disable: duplicate-doc-field, missing-fields
 local sim = {}
 
+---@type Vector3
 local position_samples = {}
+
+---@type Vector3
 local velocity_samples = {}
+
+---@type Vector3
+local acceleration_samples = {}
+
 local MAX_ALLOWED_SPEED = 2000 -- HU/sec
+local MAX_ALLOWED_ACCELERATION = 5000 -- HU/sec²
 local SAMPLE_COUNT = 16
 
 ---@class Sample
@@ -832,6 +904,8 @@ local function AddPositionSample(pEntity)
 		position_samples[index] = {}
 		---@type Vector3[]
 		velocity_samples[index] = {}
+		---@type Vector3[]
+		acceleration_samples[index] = {}
 	end
 
 	local current_time = globals.CurTime()
@@ -851,6 +925,18 @@ local function AddPositionSample(pEntity)
 			-- reject outlier velocities
 			if vel:Length() <= MAX_ALLOWED_SPEED then
 				velocity_samples[index][#velocity_samples[index] + 1] = vel
+
+				-- calculate acceleration from velocity samples
+				local vel_samples = velocity_samples[index]
+				if #vel_samples >= 2 then
+					local prev_vel = vel_samples[#vel_samples - 1]
+					local accel = (vel - prev_vel) / dt
+
+					-- reject outlier accelerations
+					if accel:Length() <= MAX_ALLOWED_ACCELERATION then
+						acceleration_samples[index][#acceleration_samples[index] + 1] = accel
+					end
+				end
 			end
 		end
 	end
@@ -867,29 +953,13 @@ local function AddPositionSample(pEntity)
 			table.remove(velocity_samples[index], 1)
 		end
 	end
+
+	if #acceleration_samples[index] > SAMPLE_COUNT - 2 then
+		for i = 1, #acceleration_samples[index] - (SAMPLE_COUNT - 2) do
+			table.remove(acceleration_samples[index], 1)
+		end
+	end
 end
-
-----@param vecPredictedPos Vector3
-----@param vecMins Vector3
-----@param vecMaxs Vector3
-----@param pTarget Entity
-----@param flStepHeight number
-----@return boolean
---[[local function IsOnGround(vecPredictedPos, vecMins, vecMaxs, pTarget, flStepHeight)
-local function shouldHit(ent)
-	return ent:GetIndex() ~= pTarget:GetIndex()
-end
-
-local step = Vector3(0, 0, -flStepHeight)
-
-local trace =
-engine.TraceHull(vecPredictedPos, vecPredictedPos + step, vecMins, vecMaxs, MASK_PLAYERSOLID, shouldHit)
-if trace and trace.fraction < 1 then
-	return false
-end
-
-return true
-end]]
 
 ---@param position Vector3
 ---@param mins Vector3
@@ -942,8 +1012,7 @@ local function IsPlayerOnGround(pEntity)
 	return grounded == true
 end
 
---- exponential smoothing
---- is this better?
+--- exponential smoothing for velocity
 ---@param pEntity Entity
 ---@return Vector3
 local function GetSmoothedVelocity(pEntity)
@@ -953,11 +1022,37 @@ local function GetSmoothedVelocity(pEntity)
 	end
 
 	local grounded = IsPlayerOnGround(pEntity)
-	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = smootherer --more responsive
+	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = more responsive
 
 	local smoothed = samples[1]
 	for i = 2, #samples do
 		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
+	end
+
+	return smoothed
+end
+
+--- exponential smoothing for acceleration
+---@param pEntity Entity
+---@return Vector3
+local function GetSmoothedAcceleration(pEntity)
+	local samples = acceleration_samples[pEntity:GetIndex()]
+	if not samples or #samples == 0 then
+		return Vector3(0, 0, 0)
+	end
+
+	local grounded = IsPlayerOnGround(pEntity)
+	local alpha = grounded and 0.4 or 0.3
+
+	local smoothed = samples[1]
+	for i = 2, #samples do
+		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
+	end
+
+	-- apply deadzone to filter out noise
+	local ACCEL_DEADZONE = 50.0 -- HU/sec²
+	if smoothed:Length() < ACCEL_DEADZONE then
+		smoothed = Vector3(0, 0, 0)
 	end
 
 	return smoothed
@@ -977,7 +1072,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 
 	-- first pass: calculate raw angular velocities with movement threshold
 	local ang_vels = {}
-	local MIN_MOVEMENT = 0.1 -- ignore tiny movements that are likely noise
+	local MIN_MOVEMENT = 1 -- ignore tiny movements that are likely noise
 
 	for i = 1, #samples - 2 do
 		local d1 = samples[i + 1].pos - samples[i].pos
@@ -1004,7 +1099,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return 0
 	end
 
-	-- second pass: Apply median filter to remove outliers
+	-- second pass: apply median filter to remove outliers
 	if #ang_vels >= 3 then
 		local filtered_vels = {}
 		for i = 1, #ang_vels do
@@ -1021,22 +1116,22 @@ local function GetSmoothedAngularVelocity(pEntity)
 		ang_vels = filtered_vels
 	end
 
-	-- third pass: Exponential smoothing with adaptive alpha
+	-- third pass: exponential smoothing with adaptive alpha
 	local grounded = IsPlayerOnGround(pEntity)
 	local base_alpha = grounded and 0.4 or 0.2
 
 	local smoothed = ang_vels[1]
 	for i = 2, #ang_vels do
-		-- Adaptive alpha based on change magnitude
+		-- adaptive alpha based on change magnitude
 		local change = math.abs(ang_vels[i] - smoothed)
-		local alpha = base_alpha * math.min(1, change / 30) -- reduce smoothing for large changes
+		local alpha = base_alpha * math.min(1, change / 45) -- reduce smoothing for large changes
 		alpha = math.max(0.1, alpha) -- minimum smoothing
 
 		smoothed = (ang_vels[i] * alpha) + (smoothed * (1 - alpha))
 	end
 
 	-- apply deadzone for very small movements
-	local DEADZONE = 2.0
+	local DEADZONE = 4.0
 	if math.abs(smoothed) < DEADZONE then
 		smoothed = 0
 	end
@@ -1066,11 +1161,20 @@ function sim.RunBackground(players)
 	end
 end
 
+local function NormalizeVector(vec)
+	local len = vec:Length()
+	if len == 0 then
+		return Vector3()
+	end
+	return vec / len
+end
+
 ---@param stepSize number
 ---@param pTarget Entity The target
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = GetSmoothedVelocity(pTarget)
+	local smoothed_acceleration = GetSmoothedAcceleration(pTarget)
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget)
 	local last_pos = pTarget:GetAbsOrigin()
 
@@ -1090,12 +1194,39 @@ function sim.Run(stepSize, pTarget, time)
 	local was_onground = false
 
 	for i = 1, maxTicks do
-		-- apply angular velocity
+		-- apply angular velocity to both velocity and acceleration
 		local yaw = math.rad(angular_velocity)
 		local cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+
+		-- rotate velocity
 		local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 		smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 		smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
+
+		-- rotate acceleration
+		local ax, ay = smoothed_acceleration.x, smoothed_acceleration.y
+		smoothed_acceleration.x = ax * cos_yaw - ay * sin_yaw
+		smoothed_acceleration.y = ax * sin_yaw + ay * cos_yaw
+
+		-- apply acceleration to velocity
+		smoothed_velocity = smoothed_velocity + smoothed_acceleration * tick_interval
+
+		smoothed_acceleration = smoothed_acceleration * (pTarget:GetPropFloat("m_flFriction") or 1.0)
+
+		-- clamp velocity to target's max speed
+		local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450
+		local vel_length = smoothed_velocity:Length()
+		if vel_length > target_max_speed then
+			smoothed_velocity = smoothed_velocity * (target_max_speed / vel_length)
+
+			-- also reduce acceleration when at max speed to prevent unrealistic buildup
+			local vel_direction = NormalizeVector(smoothed_velocity)
+			local accel_in_vel_direction = smoothed_acceleration:Dot(vel_direction)
+			if accel_in_vel_direction > 0 then
+				-- remove acceleration component that would increase speed further
+				smoothed_acceleration = smoothed_acceleration - vel_direction * accel_in_vel_direction
+			end
+		end
 
 		local move_delta = smoothed_velocity * tick_interval
 		local next_pos = last_pos + move_delta
@@ -1107,7 +1238,7 @@ function sim.Run(stepSize, pTarget, time)
 				local step_up = last_pos + Vector3(0, 0, stepSize)
 				local step_up_trace = engine.TraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
-				if step_up_trace.fraction == 1.0 then
+				if step_up_trace.fraction >= 1.0 then
 					local step_forward = step_up + move_delta
 					local step_forward_trace =
 						engine.TraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
@@ -1146,6 +1277,12 @@ function sim.Run(stepSize, pTarget, time)
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)
 			smoothed_velocity = smoothed_velocity - normal * dot
+
+			-- also adjust acceleration when hitting walls
+			local accel_dot = smoothed_acceleration:Dot(normal)
+			if accel_dot < 0 then -- only adjust if accelerating into the wall
+				smoothed_acceleration = smoothed_acceleration - normal * accel_dot
+			end
 		else
 			last_pos = next_pos
 			positions[#positions + 1] = last_pos
@@ -1623,15 +1760,19 @@ function wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefIndex, iWepID)
 	}
 end
 
-function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel)
+---@param pLocal Entity
+---@param weapon_info WeaponInfo
+---@param bIsFlippedViewModel boolean
+---@param eAngle EulerAngles
+---@return Vector3, Vector3 The normal shoot position
+function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, eAngle)
 	-- i stole this from terminator
 	local vStartPosition = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local vStartAngle = engine.GetViewAngles()
+	local vOffset = (eAngle:Forward() * weapon_info.vecOffset.x)
+		+ (eAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
+		+ (eAngle:Up() * weapon_info.vecOffset.z)
 
-	return vStartPosition
-		+ (vStartAngle:Forward() * weapon_info.vecOffset.x)
-		+ (vStartAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
-		+ (vStartAngle:Up() * weapon_info.vecOffset.z)
+	return vStartPosition + vOffset, vOffset
 end
 
 return wep_utils
