@@ -202,7 +202,6 @@ local function CreateMove(uCmd)
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
 	local bAimTeamMate = false
 	local bIsSandvich = false
 
@@ -213,8 +212,8 @@ local function CreateMove(uCmd)
 		bAimTeamMate = true
 	end
 
-	local vecHeadPos = pLocal:GetAbsOrigin()
-		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
+	local offset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
+	local vecHeadPos = pLocal:GetAbsOrigin() + offset
 
 	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 	if not best_target.index then
@@ -373,6 +372,40 @@ local function CreateMove(uCmd)
 	end
 end
 
+local function DrawPlayerPath()
+	local lastpos = nil
+	local lastpos_screen = nil
+
+	for _, pos in pairs(paths.player_path) do
+		if lastpos then
+			local current = client.WorldToScreen(pos)
+			if current and lastpos_screen then
+				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
+			end
+		end
+
+		lastpos = pos
+		lastpos_screen = client.WorldToScreen(lastpos)
+	end
+end
+
+local function DrawProjPath()
+	local lastpos = nil
+	local lastpos_screen = nil
+
+	for _, pos in pairs(paths.proj_path) do
+		if lastpos then
+			local current = client.WorldToScreen(pos.pos)
+			if current and lastpos_screen then
+				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
+			end
+		end
+
+		lastpos = pos.pos
+		lastpos_screen = client.WorldToScreen(lastpos)
+	end
+end
+
 local function Draw()
 	draw.Color(255, 255, 255, 255)
 
@@ -383,20 +416,11 @@ local function Draw()
 	end
 
 	if paths.player_path then
-		local lastpos = nil
-		local lastpos_screen = nil
+		DrawPlayerPath()
+	end
 
-		for _, pos in pairs(paths.player_path) do
-			if lastpos then
-				local current = client.WorldToScreen(pos)
-				if current and lastpos_screen then
-					draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
-				end
-			end
-
-			lastpos = pos
-			lastpos_screen = client.WorldToScreen(lastpos)
-		end
+	if paths.proj_path then
+		DrawProjPath()
 	end
 end
 
@@ -575,10 +599,21 @@ function pred:Set(
 	self.vecShootPos = vecShootPos
 	self.pTarget = pTarget
 	self.iMaxDistance = 2048
-	self.nMaxTime = 1.0
+	self.nMaxTime = 5.0
 	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
+end
+
+---@param offset Vector3
+---@param direction Vector3
+local function RotateOffsetAlongDirection(math_utils, offset, direction)
+	local forward = math_utils.NormalizeVector(direction)
+	local up = Vector3(0, 0, 1)
+	local right = math_utils.NormalizeVector(forward:Cross(up))
+	up = math_utils.NormalizeVector(right:Cross(forward))
+
+	return forward * offset.x + right * offset.y + up * offset.z
 end
 
 ---@return PredictionResult?
@@ -602,46 +637,53 @@ function pred:Run()
 	local iprojectile_speed = self.weapon_info.flForwardVelocity
 	local gravity = self.weapon_info.flGravity
 
+	local preliminary_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+	local rotated_offset = RotateOffsetAlongDirection(self.math_utils, self.weapon_info.vecOffset, preliminary_dir)
+	local vecMuzzlePos = self.vecShootPos + rotated_offset
+
 	local initial_dir = nil
 	if gravity > 0 then
-		initial_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, vecTargetOrigin, iprojectile_speed, gravity)
+		initial_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, iprojectile_speed, gravity)
 	else
-		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - vecMuzzlePos)
 	end
 
 	if not initial_dir then
 		return nil
 	end
 
-	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, self.vecShootPos, initial_dir, self.nMaxTime)
+	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, initial_dir, self.nMaxTime)
+
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end
 
-	local travel_time = nil
-	travel_time = projectile_path[#projectile_path].time_secs
-
+	local travel_time = projectile_path[#projectile_path].time_secs
 	local total_time = travel_time + self.nLatency
+
 	if total_time > self.nMaxTime then
 		return nil
 	end
 
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+
 	if not player_positions or #player_positions == 0 then
 		return nil
 	end
 
-	-- 🔁 Recalculate aim_dir towards predicted position
+	-- final aim calculation towards predicted position
 	local predicted_target_pos = player_positions[#player_positions]
-	local aim_dir = nil
+	local aim_dir
 	if gravity > 0 then
-		aim_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
+		aim_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, iprojectile_speed, gravity)
 	else
-		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
+		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	end
 
-	if not aim_dir then
+	projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime)
+
+	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end
 
@@ -838,11 +880,7 @@ local position_samples = {}
 ---@type Vector3
 local velocity_samples = {}
 
----@type Vector3
-local acceleration_samples = {}
-
 local MAX_ALLOWED_SPEED = 2000 -- HU/sec
-local MAX_ALLOWED_ACCELERATION = 5000 -- HU/sec²
 local SAMPLE_COUNT = 16
 
 ---@class Sample
@@ -858,8 +896,6 @@ local function AddPositionSample(pEntity)
 		position_samples[index] = {}
 		---@type Vector3[]
 		velocity_samples[index] = {}
-		---@type Vector3[]
-		acceleration_samples[index] = {}
 	end
 
 	local current_time = globals.CurTime()
@@ -893,12 +929,6 @@ local function AddPositionSample(pEntity)
 	if #velocity_samples[index] > SAMPLE_COUNT - 1 then
 		for i = 1, #velocity_samples[index] - (SAMPLE_COUNT - 1) do
 			table.remove(velocity_samples[index], 1)
-		end
-	end
-
-	if #acceleration_samples[index] > SAMPLE_COUNT - 2 then
-		for i = 1, #acceleration_samples[index] - (SAMPLE_COUNT - 2) do
-			table.remove(acceleration_samples[index], 1)
 		end
 	end
 end

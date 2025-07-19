@@ -7,11 +7,7 @@ local position_samples = {}
 ---@type Vector3
 local velocity_samples = {}
 
----@type Vector3
-local acceleration_samples = {}
-
 local MAX_ALLOWED_SPEED = 2000 -- HU/sec
-local MAX_ALLOWED_ACCELERATION = 5000 -- HU/sec²
 local SAMPLE_COUNT = 16
 
 ---@class Sample
@@ -27,8 +23,6 @@ local function AddPositionSample(pEntity)
 		position_samples[index] = {}
 		---@type Vector3[]
 		velocity_samples[index] = {}
-		---@type Vector3[]
-		acceleration_samples[index] = {}
 	end
 
 	local current_time = globals.CurTime()
@@ -62,12 +56,6 @@ local function AddPositionSample(pEntity)
 	if #velocity_samples[index] > SAMPLE_COUNT - 1 then
 		for i = 1, #velocity_samples[index] - (SAMPLE_COUNT - 1) do
 			table.remove(velocity_samples[index], 1)
-		end
-	end
-
-	if #acceleration_samples[index] > SAMPLE_COUNT - 2 then
-		for i = 1, #acceleration_samples[index] - (SAMPLE_COUNT - 2) do
-			table.remove(acceleration_samples[index], 1)
 		end
 	end
 end

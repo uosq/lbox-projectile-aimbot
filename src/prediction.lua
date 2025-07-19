@@ -35,10 +35,21 @@ function pred:Set(
 	self.vecShootPos = vecShootPos
 	self.pTarget = pTarget
 	self.iMaxDistance = 2048
-	self.nMaxTime = 1.0
+	self.nMaxTime = 5.0
 	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
+end
+
+---@param offset Vector3
+---@param direction Vector3
+local function RotateOffsetAlongDirection(math_utils, offset, direction)
+	local forward = math_utils.NormalizeVector(direction)
+	local up = Vector3(0, 0, 1)
+	local right = math_utils.NormalizeVector(forward:Cross(up))
+	up = math_utils.NormalizeVector(right:Cross(forward))
+
+	return forward * offset.x + right * offset.y + up * offset.z
 end
 
 ---@return PredictionResult?
@@ -62,46 +73,53 @@ function pred:Run()
 	local iprojectile_speed = self.weapon_info.flForwardVelocity
 	local gravity = self.weapon_info.flGravity
 
+	local preliminary_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+	local rotated_offset = RotateOffsetAlongDirection(self.math_utils, self.weapon_info.vecOffset, preliminary_dir)
+	local vecMuzzlePos = self.vecShootPos + rotated_offset
+
 	local initial_dir = nil
 	if gravity > 0 then
-		initial_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, vecTargetOrigin, iprojectile_speed, gravity)
+		initial_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, iprojectile_speed, gravity)
 	else
-		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - vecMuzzlePos)
 	end
 
 	if not initial_dir then
 		return nil
 	end
 
-	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, self.vecShootPos, initial_dir, self.nMaxTime)
+	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, initial_dir, self.nMaxTime)
+
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end
 
-	local travel_time = nil
-	travel_time = projectile_path[#projectile_path].time_secs
-
+	local travel_time = projectile_path[#projectile_path].time_secs
 	local total_time = travel_time + self.nLatency
+
 	if total_time > self.nMaxTime then
 		return nil
 	end
 
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+
 	if not player_positions or #player_positions == 0 then
 		return nil
 	end
 
-	-- 🔁 Recalculate aim_dir towards predicted position
+	-- final aim calculation towards predicted position
 	local predicted_target_pos = player_positions[#player_positions]
-	local aim_dir = nil
+	local aim_dir
 	if gravity > 0 then
-		aim_dir = self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, iprojectile_speed, gravity)
+		aim_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, iprojectile_speed, gravity)
 	else
-		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
+		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	end
 
-	if not aim_dir then
+	projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime)
+
+	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end
 

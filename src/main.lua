@@ -158,7 +158,6 @@ local function CreateMove(uCmd)
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	local bIsFlippedViewModel = pWeapon:IsViewModelFlipped()
 	local bAimTeamMate = false
 	local bIsSandvich = false
 
@@ -169,8 +168,8 @@ local function CreateMove(uCmd)
 		bAimTeamMate = true
 	end
 
-	local vecHeadPos = pLocal:GetAbsOrigin()
-		+ (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") * (bIsFlippedViewModel and -1 or 1))
+	local offset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
+	local vecHeadPos = pLocal:GetAbsOrigin() + offset
 
 	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 	if not best_target.index then
@@ -329,6 +328,40 @@ local function CreateMove(uCmd)
 	end
 end
 
+local function DrawPlayerPath()
+	local lastpos = nil
+	local lastpos_screen = nil
+
+	for _, pos in pairs(paths.player_path) do
+		if lastpos then
+			local current = client.WorldToScreen(pos)
+			if current and lastpos_screen then
+				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
+			end
+		end
+
+		lastpos = pos
+		lastpos_screen = client.WorldToScreen(lastpos)
+	end
+end
+
+local function DrawProjPath()
+	local lastpos = nil
+	local lastpos_screen = nil
+
+	for _, pos in pairs(paths.proj_path) do
+		if lastpos then
+			local current = client.WorldToScreen(pos.pos)
+			if current and lastpos_screen then
+				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
+			end
+		end
+
+		lastpos = pos.pos
+		lastpos_screen = client.WorldToScreen(lastpos)
+	end
+end
+
 local function Draw()
 	draw.Color(255, 255, 255, 255)
 
@@ -339,20 +372,11 @@ local function Draw()
 	end
 
 	if paths.player_path then
-		local lastpos = nil
-		local lastpos_screen = nil
+		DrawPlayerPath()
+	end
 
-		for _, pos in pairs(paths.player_path) do
-			if lastpos then
-				local current = client.WorldToScreen(pos)
-				if current and lastpos_screen then
-					draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
-				end
-			end
-
-			lastpos = pos
-			lastpos_screen = client.WorldToScreen(lastpos)
-		end
+	if paths.proj_path then
+		DrawProjPath()
 	end
 end
 
