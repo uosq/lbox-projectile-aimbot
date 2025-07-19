@@ -25,7 +25,8 @@ function pred:Set(
 	math_utils,
 	multipoint,
 	vecShootPos,
-	nLatency
+	nLatency,
+	nMaxTime
 )
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
@@ -35,7 +36,7 @@ function pred:Set(
 	self.vecShootPos = vecShootPos
 	self.pTarget = pTarget
 	self.iMaxDistance = 2048
-	self.nMaxTime = 5.0
+	self.nMaxTime = nMaxTime
 	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
@@ -117,6 +118,7 @@ function pred:Run()
 		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	end
 
+	---@diagnostic disable-next-line: param-type-mismatch
 	projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime)
 
 	if not projectile_path or #projectile_path == 0 then

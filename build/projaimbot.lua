@@ -47,10 +47,16 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v3
+	Update: v4
 ]]
 
-local version = "3.2"
+local version = "4"
+
+local settings = {
+	max_sim_time = 1.0,
+	draw_proj_path = true,
+	draw_player_path = true,
+}
 
 --local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
@@ -122,6 +128,10 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 
 	for _, player in pairs(players) do
 		if not player:IsDormant() and player:IsAlive() and player:GetIndex() ~= pLocal:GetIndex() then
+			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() > max_distance then
+				goto skip
+			end
+
 			local isTeammate = player:GetTeamNumber() == localTeam
 			if bAimTeamMate ~= isTeammate then
 				goto skip
@@ -147,17 +157,15 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 				goto skip
 			end
 
-			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() < max_distance then
-				local origin = player:GetAbsOrigin()
-				local angle = math_utils.PositionAngles(shootpos, origin)
-				local fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
+			local origin = player:GetAbsOrigin()
+			local angle = math_utils.PositionAngles(shootpos, origin)
+			local fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
 
-				if fov and fov < info.fov then
-					info.angle = angle
-					info.fov = fov
-					info.index = player:GetIndex()
-					info.pos = origin
-				end
+			if fov and fov < info.fov then
+				info.angle = angle
+				info.fov = fov
+				info.index = player:GetIndex()
+				info.pos = origin
 			end
 
 			::skip::
@@ -240,7 +248,8 @@ local function CreateMove(uCmd)
 		math_utils,
 		multipoint,
 		vecHeadPos,
-		nLatency
+		nLatency,
+		settings.max_sim_time
 	)
 	local pred_result = prediction:Run()
 	if not pred_result then
@@ -372,6 +381,62 @@ local function CreateMove(uCmd)
 	end
 end
 
+---@param playerPos Vector3
+---@param mins Vector3
+---@param maxs Vector3
+local function DrawPlayerHitbox(playerPos, mins, maxs)
+	-- Calculate world space bounds
+	local worldMins = playerPos + mins
+	local worldMaxs = playerPos + maxs
+
+	-- Calculate vertices of the AABB
+	local vertices = {
+		Vector3(worldMins.x, worldMins.y, worldMins.z), -- Bottom-back-left
+		Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- Bottom-front-left
+		Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- Bottom-front-right
+		Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- Bottom-back-right
+		Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- Top-back-left
+		Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- Top-front-left
+		Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- Top-front-right
+		Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- Top-back-right
+	}
+
+	-- Convert 3D coordinates to 2D screen coordinates
+	for i, vertex in ipairs(vertices) do
+		vertices[i] = client.WorldToScreen(vertex)
+	end
+
+	-- Draw lines between vertices to visualize the box
+	if
+		vertices[1]
+		and vertices[2]
+		and vertices[3]
+		and vertices[4]
+		and vertices[5]
+		and vertices[6]
+		and vertices[7]
+		and vertices[8]
+	then
+		-- Draw front face
+		draw.Line(vertices[1][1], vertices[1][2], vertices[2][1], vertices[2][2])
+		draw.Line(vertices[2][1], vertices[2][2], vertices[3][1], vertices[3][2])
+		draw.Line(vertices[3][1], vertices[3][2], vertices[4][1], vertices[4][2])
+		draw.Line(vertices[4][1], vertices[4][2], vertices[1][1], vertices[1][2])
+
+		-- Draw back face
+		draw.Line(vertices[5][1], vertices[5][2], vertices[6][1], vertices[6][2])
+		draw.Line(vertices[6][1], vertices[6][2], vertices[7][1], vertices[7][2])
+		draw.Line(vertices[7][1], vertices[7][2], vertices[8][1], vertices[8][2])
+		draw.Line(vertices[8][1], vertices[8][2], vertices[5][1], vertices[5][2])
+
+		-- Draw connecting lines
+		draw.Line(vertices[1][1], vertices[1][2], vertices[5][1], vertices[5][2])
+		draw.Line(vertices[2][1], vertices[2][2], vertices[6][1], vertices[6][2])
+		draw.Line(vertices[3][1], vertices[3][2], vertices[7][1], vertices[7][2])
+		draw.Line(vertices[4][1], vertices[4][2], vertices[8][1], vertices[8][2])
+	end
+end
+
 local function DrawPlayerPath()
 	local lastpos = nil
 	local lastpos_screen = nil
@@ -407,19 +472,19 @@ local function DrawProjPath()
 end
 
 local function Draw()
-	draw.Color(255, 255, 255, 255)
-
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
 		return
 	end
 
-	if paths.player_path then
+	if settings.draw_player_path and paths.player_path then
+		draw.Color(136, 192, 208, 255)
 		DrawPlayerPath()
 	end
 
-	if paths.proj_path then
+	if settings.draw_proj_path and paths.proj_path then
+		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
 end
@@ -589,7 +654,8 @@ function pred:Set(
 	math_utils,
 	multipoint,
 	vecShootPos,
-	nLatency
+	nLatency,
+	nMaxTime
 )
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
@@ -599,7 +665,7 @@ function pred:Set(
 	self.vecShootPos = vecShootPos
 	self.pTarget = pTarget
 	self.iMaxDistance = 2048
-	self.nMaxTime = 5.0
+	self.nMaxTime = nMaxTime
 	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
@@ -681,6 +747,7 @@ function pred:Run()
 		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	end
 
+	---@diagnostic disable-next-line: param-type-mismatch
 	projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime)
 
 	if not projectile_path or #projectile_path == 0 then
