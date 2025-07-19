@@ -6,6 +6,8 @@
 	Update: v3
 ]]
 
+local version = "3"
+
 --local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
@@ -362,5 +364,5 @@ callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
 callbacks.Register("Draw", "ProjAimbot Draw", Draw)
 callbacks.Register("Unload", Unload)
 
-printc(252, 186, 3, 255, "Navet's Projectile Aimbot loaded")
+printc(252, 186, 3, 255, string.format("Navet's Projectile Aimbot (v%s) loaded", version))
 printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")
