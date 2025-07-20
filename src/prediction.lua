@@ -42,85 +42,89 @@ function pred:Set(
 	self.math_utils = math_utils
 end
 
----@param offset Vector3
----@param direction Vector3
-local function RotateOffsetAlongDirection(math_utils, offset, direction)
-	local forward = math_utils.NormalizeVector(direction)
-	local up = Vector3(0, 0, 1)
-	local right = math_utils.NormalizeVector(forward:Cross(up))
-	up = math_utils.NormalizeVector(right:Cross(forward))
+function pred:GetChargeTimeAndSpeed()
+	local charge_time = 0.0
+	local projectile_speed = self.weapon_info.flForwardVelocity
 
-	return forward * offset.x + right * offset.y + up * offset.z
+	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		-- check if bow is currently being charged
+		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+
+		-- if charge_begin_time is 0, the bow isn't charging
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- clamp charge time between 0 and 1 second (full charge)
+			charge_time = math.max(0, math.min(charge_time, 1.0))
+
+			-- apply charge multiplier to projectile speed
+			local charge_multiplier = 1.0 + (charge_time * 0.44) -- 44% speed increase at full charge
+			projectile_speed = projectile_speed * charge_multiplier
+		else
+			-- bow is not charging, use minimum speed
+			charge_time = 0.0
+		end
+	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
+		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			if charge_time > 4.0 then
+				charge_time = 0.0
+			end
+		end
+	end
+
+	return charge_time, projectile_speed
 end
 
 ---@return PredictionResult?
 function pred:Run()
+	if not self.pLocal or not self.pWeapon or not self.pTarget then
+		return nil
+	end
+
 	local vecTargetOrigin = self.pTarget:GetAbsOrigin()
 	local dist = (self.vecShootPos - vecTargetOrigin):Length()
-
 	if dist > self.iMaxDistance then
 		return nil
 	end
 
-	local charge_time = 0.0
-	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
-		charge_time = globals.CurTime() - self.pWeapon:GetChargeBeginTime()
-		charge_time = (charge_time > 1.0) and 0 or charge_time
-	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		charge_time = globals.CurTime() - self.pWeapon:GetChargeBeginTime()
-		charge_time = (charge_time > 4.0) and 0 or charge_time
-	end
-
-	local iprojectile_speed = self.weapon_info.flForwardVelocity
+	local charge_time, projectile_speed = self:GetChargeTimeAndSpeed()
 	local gravity = self.weapon_info.flGravity
 
-	local preliminary_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
-	local rotated_offset = RotateOffsetAlongDirection(self.math_utils, self.weapon_info.vecOffset, preliminary_dir)
-	local vecMuzzlePos = self.vecShootPos + rotated_offset
+	local shoot_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
+	local vecMuzzlePos = self.vecShootPos
+		+ self.math_utils.RotateOffsetAlongDirection(self.weapon_info.vecOffset, shoot_dir)
 
-	local initial_dir = nil
-	if gravity > 0 then
-		initial_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, iprojectile_speed, gravity)
-	else
-		initial_dir = self.math_utils.NormalizeVector(vecTargetOrigin - vecMuzzlePos)
-	end
-
-	if not initial_dir then
+	-- Estimate flight time to origin for sim
+	local flat_aim_dir = (gravity > 0)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, projectile_speed, gravity)
+		or shoot_dir
+	if not flat_aim_dir then
 		return nil
 	end
 
-	local projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, initial_dir, self.nMaxTime)
-
-	if not projectile_path or #projectile_path == 0 then
-		return nil
-	end
-
-	local travel_time = projectile_path[#projectile_path].time_secs
-	local total_time = travel_time + self.nLatency
-
+	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
+	local total_time = travel_time_est + self.nLatency
 	if total_time > self.nMaxTime then
 		return nil
 	end
 
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-
 	if not player_positions or #player_positions == 0 then
 		return nil
 	end
 
-	-- final aim calculation towards predicted position
 	local predicted_target_pos = player_positions[#player_positions]
-	local aim_dir
-	if gravity > 0 then
-		aim_dir = self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, iprojectile_speed, gravity)
-	else
-		aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	local aim_dir = (gravity > 0)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	if not aim_dir then
+		return nil
 	end
 
-	---@diagnostic disable-next-line: param-type-mismatch
-	projectile_path = self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime)
-
+	local projectile_path =
+		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime, self.weapon_info)
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end

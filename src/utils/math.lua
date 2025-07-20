@@ -117,5 +117,16 @@ function Math.DirectionToAngles(direction)
 	return Vector3(pitch, yaw, 0)
 end
 
+---@param offset Vector3
+---@param direction Vector3
+function Math.RotateOffsetAlongDirection(offset, direction)
+	local forward = NormalizeVector(direction)
+	local up = Vector3(0, 0, 1)
+	local right = NormalizeVector(forward:Cross(up))
+	up = NormalizeVector(right:Cross(forward))
+
+	return forward * offset.x + right * offset.y + up * offset.z
+end
+
 Math.NormalizeVector = NormalizeVector
 return Math

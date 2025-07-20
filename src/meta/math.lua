@@ -47,4 +47,8 @@ function Math.GetBallisticFlightTime(p0, p1, speed, gravity) end
 ---@return Vector3
 function Math.DirectionToAngles(direction) end
 
+---@param offset Vector3
+---@param direction Vector3
+function Math.RotateOffsetAlongDirection(offset, direction) end
+
 return Math

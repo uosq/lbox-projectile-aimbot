@@ -135,34 +135,45 @@ end
 ---@return number
 local function GetSmoothedAngularVelocity(pEntity)
 	local samples = position_samples[pEntity:GetIndex()]
-	if not samples or #samples < 4 then -- need more samples for better smoothing
+	if not samples or #samples < 3 then
 		return 0
 	end
 
-	local function GetYaw(vec)
-		return (vec.x == 0 and vec.y == 0) and 0 or math.deg(math.atan(vec.y, vec.x))
-	end
-
-	-- first pass: calculate raw angular velocities with movement threshold
+	local MIN_SPEED = 25 -- HU/s
 	local ang_vels = {}
-	local MIN_MOVEMENT = 1 -- ignore tiny movements that are likely noise
 
 	for i = 1, #samples - 2 do
-		local d1 = samples[i + 1].pos - samples[i].pos
-		local d2 = samples[i + 2].pos - samples[i + 1].pos
+		local s1 = samples[i]
+		local s2 = samples[i + 1]
+		local s3 = samples[i + 2]
 
-		-- skip if movement is too small (likely noise)
-		if d1:Length() < MIN_MOVEMENT or d2:Length() < MIN_MOVEMENT then
+		local dt1 = s2.time - s1.time
+		local dt2 = s3.time - s2.time
+		if dt1 <= 0 or dt2 <= 0 then
 			goto continue
 		end
 
-		local yaw1 = GetYaw(d1)
-		local yaw2 = GetYaw(d2)
-		local diff = (yaw2 - yaw1 + 180) % 360 - 180
+		-- calculate velocities between sample points
+		local vel1 = (s2.pos - s1.pos) / dt1
+		local vel2 = (s3.pos - s2.pos) / dt2
 
-		-- filter out extreme jumps (likely noise)
-		if math.abs(diff) < 120 then -- ignore impossible turns
-			ang_vels[#ang_vels + 1] = diff
+		-- skip if velocity is too low
+		if vel1:Length() < MIN_SPEED or vel2:Length() < MIN_SPEED then
+			goto continue
+		end
+
+		-- calculate yaw differences
+		local yaw1 = math.atan(vel1.y, vel1.x)
+		local yaw2 = math.atan(vel2.y, vel2.x)
+		local diff = math.deg((yaw2 - yaw1 + math.pi) % (2 * math.pi) - math.pi)
+
+		-- calculate time-weighted angular velocity (deg/s)
+		local avg_time = (dt1 + dt2) / 2
+		local angular_velocity = diff / avg_time
+
+		-- filter impossible values (> 720 deg/s)
+		if math.abs(angular_velocity) < 720 then
+			ang_vels[#ang_vels + 1] = angular_velocity
 		end
 
 		::continue::
@@ -172,46 +183,26 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return 0
 	end
 
-	-- second pass: apply median filter to remove outliers
+	-- median filtering for outlier rejection
 	if #ang_vels >= 3 then
-		local filtered_vels = {}
-		for i = 1, #ang_vels do
-			if i == 1 or i == #ang_vels then
-				-- keep edge values
-				filtered_vels[i] = ang_vels[i]
-			else
-				-- use median of 3 consecutive values
-				local window = { ang_vels[i - 1], ang_vels[i], ang_vels[i + 1] }
-				table.sort(window)
-				filtered_vels[i] = window[2] -- median
-			end
-		end
-		ang_vels = filtered_vels
+		table.sort(ang_vels)
+		local mid = math.floor(#ang_vels / 2) + 1
+		ang_vels = { ang_vels[mid] }
 	end
 
-	-- third pass: exponential smoothing with adaptive alpha
+	-- exponential smoothing
 	local grounded = IsPlayerOnGround(pEntity)
 	local base_alpha = grounded and 0.4 or 0.2
-
 	local smoothed = ang_vels[1]
+
 	for i = 2, #ang_vels do
-		-- adaptive alpha based on change magnitude
 		local change = math.abs(ang_vels[i] - smoothed)
-		local alpha = base_alpha * math.min(1, change / 45) -- reduce smoothing for large changes
-		alpha = math.max(0.1, alpha) -- minimum smoothing
-
-		smoothed = (ang_vels[i] * alpha) + (smoothed * (1 - alpha))
+		local alpha = base_alpha * math.min(1, change / 180) -- adaptive scaling
+		alpha = math.max(0.05, math.min(alpha, 0.4))
+		smoothed = smoothed * (1 - alpha) + ang_vels[i] * alpha
 	end
 
-	-- apply deadzone for very small movements
-	local DEADZONE = 4.0
-	if math.abs(smoothed) < DEADZONE then
-		smoothed = 0
-	end
-
-	-- clamp to reasonable range
-	local MAX_ANG_VEL = 45
-	return math.max(-MAX_ANG_VEL, math.min(smoothed, MAX_ANG_VEL))
+	return smoothed
 end
 
 local function GetEnemyTeam()
@@ -239,10 +230,9 @@ end
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = GetSmoothedVelocity(pTarget)
-	local angular_velocity = GetSmoothedAngularVelocity(pTarget)
 	local last_pos = pTarget:GetAbsOrigin()
-
 	local tick_interval = globals.TickInterval()
+	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
 	local gravity = client.GetConVar("sv_gravity")
 	local gravity_step = gravity * tick_interval
 	local down_vector = Vector3(0, 0, -stepSize)

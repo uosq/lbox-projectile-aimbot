@@ -9,12 +9,13 @@
 local version = "4"
 
 local settings = {
-	max_sim_time = 1.0,
+	max_sim_time = 2.0,
 	draw_proj_path = true,
 	draw_player_path = true,
+	draw_bounding_box = true,
+	draw_only = false,
 }
 
---local ent_utils = require("src.utils.entity")
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
 
@@ -35,7 +36,7 @@ local paths = {
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
-local function CanRun(pLocal, pWeapon, bIsBeggar)
+local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
 		return false
 	end
@@ -48,7 +49,7 @@ local function CanRun(pLocal, pWeapon, bIsBeggar)
 		return false
 	end
 
-	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+	if bIgnoreKey == false and input.IsButtonDown(gui.GetValue("aim key")) == false then
 		return false
 	end
 
@@ -73,7 +74,7 @@ end
 ---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
 ---@return PlayerInfo
 local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
-	local info = {
+	local best_target = {
 		angle = nil,
 		fov = gui.GetValue("aim fov"),
 		index = nil,
@@ -81,58 +82,197 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	}
 
 	local localTeam = pLocal:GetTeamNumber()
+	local localPos = pLocal:GetAbsOrigin()
+	local viewAngles = engine.GetViewAngles()
 
 	for _, player in pairs(players) do
-		if not player:IsDormant() and player:IsAlive() and player:GetIndex() ~= pLocal:GetIndex() then
-			if (player:GetAbsOrigin() - pLocal:GetAbsOrigin()):Length() > max_distance then
-				goto skip
-			end
-
-			local isTeammate = player:GetTeamNumber() == localTeam
-			if bAimTeamMate ~= isTeammate then
-				goto skip
-			end
-
-			if player:InCond(E_TFCOND.TFCond_Cloaked) and gui.GetValue("ignore cloaked") == 1 then
-				goto skip
-			end
-
-			if player:InCond(E_TFCOND.TFCond_Disguised) and gui.GetValue("ignore disguised") == 1 then
-				goto skip
-			end
-
-			if player:InCond(E_TFCOND.TFCond_Ubercharged) then
-				goto skip
-			end
-
-			if player:InCond(E_TFCOND.TFCond_Taunting) and gui.GetValue("ignore taunting") == 1 then
-				goto skip
-			end
-
-			if player:InCond(E_TFCOND.TFCond_Bonked) and gui.GetValue("ignore bonked") == 1 then
-				goto skip
-			end
-
-			local origin = player:GetAbsOrigin()
-			local angle = math_utils.PositionAngles(shootpos, origin)
-			local fov = math_utils.AngleFov(engine.GetViewAngles(), angle)
-
-			if fov and fov < info.fov then
-				info.angle = angle
-				info.fov = fov
-				info.index = player:GetIndex()
-				info.pos = origin
-			end
-
-			::skip::
+		if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
+			goto continue
 		end
+
+		-- distance check
+		local playerPos = player:GetAbsOrigin()
+		local distSq = (playerPos - localPos):Length()
+		if distSq > max_distance then
+			goto continue
+		end
+
+		-- team check
+		local isTeammate = player:GetTeamNumber() == localTeam
+		if bAimTeamMate ~= isTeammate then
+			goto continue
+		end
+
+		-- player conds
+		local cond = player:GetPropInt("m_nPlayerCond")
+		if (cond & TFCond_Cloaked) ~= 0 and gui.GetValue("ignore cloaked") == 1 then
+			goto continue
+		end
+
+		if (cond & (TFCond_Disguised | TFCond_Ubercharged | TFCond_Taunting | TFCond_Bonked)) ~= 0 then
+			if (cond & TFCond_Disguised) ~= 0 and gui.GetValue("ignore disguised") == 1 then
+				goto continue
+			end
+			if (cond & TFCond_Taunting) ~= 0 and gui.GetValue("ignore taunting") == 1 then
+				goto continue
+			end
+			if (cond & TFCond_Bonked) ~= 0 and gui.GetValue("ignore bonked") == 1 then
+				goto continue
+			end
+			if (cond & TFCond_Ubercharged) ~= 0 then
+				goto continue
+			end
+		end
+
+		-- fov check
+		local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
+		local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
+		if fov and fov < best_target.fov then
+			best_target.angle = angleToPlayer
+			best_target.fov = fov
+			best_target.index = player:GetIndex()
+			best_target.pos = playerPos
+		end
+
+		::continue::
 	end
 
-	return info
+	return best_target
+end
+
+---@param pWeapon Entity
+local function IsSplashDamageWeapon(pWeapon)
+	local projtype = pWeapon:GetWeaponProjectileType()
+	local result = projtype == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or projtype == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+	return result
+end
+
+local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players)
+	if
+		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
+	then
+		return nil
+	end
+
+	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
+	if not iCase then
+		return nil
+	end
+
+	if gui.GetValue("projectile aimbot") ~= "none" then
+		gui.SetValue("projectile aimbot", "none")
+	end
+
+	local iWeaponID = pWeapon:GetWeaponID()
+	bAimTeamMate = (iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX) or (iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW)
+
+	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
+
+	if not best_target.index then
+		return nil
+	end
+
+	local pTarget = entities.GetByIndex(best_target.index)
+	if not pTarget then
+		return nil
+	end
+
+	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+
+	prediction:Set(
+		pLocal,
+		pWeapon,
+		pTarget,
+		weapon_info,
+		proj_sim,
+		player_sim,
+		math_utils,
+		multipoint,
+		vecHeadPos,
+		nLatency,
+		settings.max_sim_time
+	)
+
+	return prediction:Run()
+end
+
+local function CreateMove_DrawOnly()
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
+		return
+	end
+
+	local pLocal = entities.GetLocalPlayer()
+	if pLocal == nil then
+		return
+	end
+
+	local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon")
+	if pWeapon == nil then
+		return
+	end
+
+	local players = entities.FindByClass("CTFPlayer")
+	player_sim.RunBackground(players)
+
+	if not CanRun(pLocal, pWeapon, true, true) then
+		return
+	end
+
+	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
+	if not iCase or not iDefinitionIndex then
+		return
+	end
+
+	if gui.GetValue("projectile aimbot") ~= "none" then
+		gui.SetValue("projectile aimbot", "none")
+	end
+
+	local iWeaponID = pWeapon:GetWeaponID()
+	local bAimTeamMate = false
+
+	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
+		bAimTeamMate = true
+	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
+		bAimTeamMate = true
+	end
+
+	local offset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
+	local vecHeadPos = pLocal:GetAbsOrigin() + offset
+
+	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
+	if not best_target.index then
+		return
+	end
+
+	local pTarget = entities.GetByIndex(best_target.index)
+	if not pTarget then
+		return
+	end
+
+	local pred_result = ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, settings.draw_only, players)
+	if not pred_result then
+		return
+	end
+
+	displayed_time = globals.CurTime() + 1
+	paths.player_path = pred_result.vecPlayerPath
+	paths.proj_path = pred_result.vecProjPath
 end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	if settings.draw_only then
+		CreateMove_DrawOnly()
+		return
+	end
+
 	local netchannel = clientstate.GetNetChannel()
 	if not netchannel then
 		return
@@ -152,7 +292,7 @@ local function CreateMove(uCmd)
 	player_sim.RunBackground(players)
 
 	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
-	if not CanRun(pLocal, pWeapon, bIsBeggar) then
+	if not CanRun(pLocal, pWeapon, bIsBeggar, false) then
 		return
 	end
 
@@ -189,25 +329,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
-
-	prediction:Set(
-		pLocal,
-		pWeapon,
-		pTarget,
-		weapon_info,
-		proj_sim,
-		player_sim,
-		math_utils,
-		multipoint,
-		vecHeadPos,
-		nLatency,
-		settings.max_sim_time
-	)
-	local pred_result = prediction:Run()
+	local pred_result = ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, settings.draw_only, players)
 	if not pred_result then
 		return
 	end
@@ -228,6 +350,12 @@ local function CreateMove(uCmd)
 		return true
 	end
 
+	local bIsSplash = IsSplashDamageWeapon(pWeapon)
+
+	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
 	multipoint:Set(
 		pLocal,
 		pTarget,
@@ -239,7 +367,8 @@ local function CreateMove(uCmd)
 		pred_result.vecPos,
 		weapon_info,
 		math_utils,
-		max_distance
+		max_distance,
+		bIsSplash
 	)
 
 	local best_pos = multipoint:GetBestHitPoint()
@@ -256,8 +385,9 @@ local function CreateMove(uCmd)
 
 	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
 
-	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 	local bAttack = false
+
+	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
 	if bIsBeggar then
 		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
@@ -289,7 +419,7 @@ local function CreateMove(uCmd)
 			end
 		else
 			-- keep charging
-			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+			if gui.GetValue("auto shoot") == 1 then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
 		end
@@ -337,6 +467,7 @@ local function CreateMove(uCmd)
 	end
 end
 
+--- Terminator (titaniummachine1) made this
 ---@param playerPos Vector3
 ---@param mins Vector3
 ---@param maxs Vector3
@@ -397,7 +528,7 @@ local function DrawPlayerPath()
 	local lastpos = nil
 	local lastpos_screen = nil
 
-	for _, pos in pairs(paths.player_path) do
+	for i, pos in pairs(paths.player_path) do
 		if lastpos then
 			local current = client.WorldToScreen(pos)
 			if current and lastpos_screen then
@@ -428,6 +559,10 @@ local function DrawProjPath()
 end
 
 local function Draw()
+	if clientstate:GetNetChannel() == nil then
+		return
+	end
+
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
@@ -437,6 +572,11 @@ local function Draw()
 	if settings.draw_player_path and paths.player_path then
 		draw.Color(136, 192, 208, 255)
 		DrawPlayerPath()
+
+		if settings.draw_bounding_box then
+			local pos = paths.player_path[#paths.player_path]
+			DrawPlayerHitbox(pos, Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0))
+		end
 	end
 
 	if settings.draw_proj_path and paths.proj_path then

@@ -2,6 +2,7 @@
 ---@field private pLocal Entity
 ---@field private pTarget Entity
 ---@field private bIsHuntsman boolean
+---@field private bIsSplash boolean
 ---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
 ---@field private players table<integer, Entity>
@@ -13,7 +14,7 @@
 local multipoint = {}
 
 local offset_multipliers = {
-	normal = {
+	splash = {
 		{ 0, 0, 0.2 }, -- legs
 		{ 0, 0, 0.5 }, -- chest
 		{ 0.6, 0, 0.5 }, -- right shoulder
@@ -27,6 +28,13 @@ local offset_multipliers = {
 		{ -0.6, 0, 0.5 }, -- left shoulder
 		{ 0, 0, 0.2 }, -- legs
 	},
+	normal = {
+		{ 0, 0, 0.5 }, -- chest
+		{ 0.6, 0, 0.5 }, -- right shoulder
+		{ -0.6, 0, 0.5 }, -- left shoulder
+		{ 0, 0, 0.9 }, -- near head
+		{ 0, 0, 0.2 }, -- legs
+	},
 }
 
 ---@return Vector3?
@@ -35,7 +43,9 @@ function multipoint:GetBestHitPoint()
 	local origin = self.pTarget:GetAbsOrigin()
 	local maxs = self.pTarget:GetMaxs()
 
-	local multipliers = self.bIsHuntsman and offset_multipliers.huntsman or offset_multipliers.normal
+	local multipliers = self.bIsHuntsman and offset_multipliers.huntsman
+		or self.bIsSplash and offset_multipliers.splash
+		or offset_multipliers.normal
 
 	for _, mult in ipairs(multipliers) do
 		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
@@ -95,7 +105,8 @@ function multipoint:Set(
 	vecPredictedPos,
 	weapon_info,
 	math_utils,
-	iMaxDistance
+	iMaxDistance,
+	bIsSplash
 )
 	self.pLocal = pLocal
 	self.pTarget = pTarget
@@ -108,6 +119,7 @@ function multipoint:Set(
 	self.math_utils = math_utils
 	self.iMaxDistance = iMaxDistance
 	self.vecPredictedPos = vecPredictedPos
+	self.bIsSplash = bIsSplash
 end
 
 return multipoint
