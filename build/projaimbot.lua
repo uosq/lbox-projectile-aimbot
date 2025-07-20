@@ -664,7 +664,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 function gui.init(settings, version)
 	local window = menu:make_window()
 	window.width = 400
-	window.height = 330
+	window.height = 355
 
 	local component_width = 260
 
