@@ -316,6 +316,8 @@ function sim.Run(stepSize, pTarget, time)
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)
 			smoothed_velocity = smoothed_velocity - normal * dot
+			last_pos = next_pos
+			positions[#positions + 1] = last_pos
 		else
 			last_pos = next_pos
 			positions[#positions + 1] = last_pos

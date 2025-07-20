@@ -1,10 +1,17 @@
----@diagnostic disable: cast-local-type
-
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
 	Update: v4
-]]
+	
+	Source: https://github.com/uosq/lbox-projectile-aimbot
+	
+	This project would take way longer to start making
+	if it weren't for them:
+	Terminator - https://github.com/titaniummachine1
+	GoodEvening - https://github.com/GoodEveningFellOff
+--]]
+
+---@diagnostic disable: cast-local-type
 
 local version = "4"
 

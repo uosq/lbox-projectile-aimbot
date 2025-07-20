@@ -42,13 +42,20 @@ local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (
 	return require, loaded, register, modules
 end)(require)
 __bundle_register("__root", function(require, _LOADED, __bundle_register, __bundle_modules)
----@diagnostic disable: cast-local-type
-
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
 	Update: v4
-]]
+	
+	Source: https://github.com/uosq/lbox-projectile-aimbot
+	
+	This project would take way longer to start making
+	if it weren't for them:
+	Terminator - https://github.com/titaniummachine1
+	GoodEvening - https://github.com/GoodEveningFellOff
+--]]
+
+---@diagnostic disable: cast-local-type
 
 local version = "4"
 
@@ -1276,6 +1283,8 @@ function sim.Run(stepSize, pTarget, time)
 			local normal = trace.plane
 			local dot = smoothed_velocity:Dot(normal)
 			smoothed_velocity = smoothed_velocity - normal * dot
+			last_pos = next_pos
+			positions[#positions + 1] = last_pos
 		else
 			last_pos = next_pos
 			positions[#positions + 1] = last_pos
