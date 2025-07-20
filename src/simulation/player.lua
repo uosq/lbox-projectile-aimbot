@@ -192,7 +192,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 
 	-- exponential smoothing
 	local grounded = IsPlayerOnGround(pEntity)
-	local base_alpha = grounded and 0.4 or 0.2
+	local base_alpha = grounded and 1 or 0.2
 	local smoothed = ang_vels[1]
 
 	for i = 2, #ang_vels do
@@ -240,8 +240,11 @@ function sim.Run(stepSize, pTarget, time)
 	local positions = {}
 	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 
-	local function shouldHitEntity(ent, contentsMask)
-		return ent:GetIndex() ~= pTarget:GetIndex()
+	local function shouldHitEntity(ent)
+		if ent:GetIndex() == client.GetLocalPlayerIndex() then
+			return false
+		end
+		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
 	local maxTicks = (time * 67) // 1

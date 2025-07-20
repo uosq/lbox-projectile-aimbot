@@ -29,6 +29,8 @@ local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
 local max_distance = 2048
 
+local font = draw.CreateFont("TF2 BUILD", 24, 500)
+
 local paths = {
 	proj_path = {},
 	player_path = {},
@@ -150,6 +152,13 @@ local function IsSplashDamageWeapon(pWeapon)
 	return result
 end
 
+---@param pLocal Entity
+---@param pWeapon Entity
+---@param bAimTeamMate boolean
+---@param netchannel NetChannel
+---@param bDrawOnly boolean
+---@param players table<integer, Entity>
+---@return PredictionResult?, Entity?
 local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
@@ -181,25 +190,25 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		return nil
 	end
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-	local nLatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, is_ducking, iCase, iDefinitionIndex, iWeaponID)
+	local nlatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
 	prediction:Set(
 		pLocal,
 		pWeapon,
 		pTarget,
-		weapon_info,
+		weaponInfo,
 		proj_sim,
 		player_sim,
 		math_utils,
 		multipoint,
 		vecHeadPos,
-		nLatency,
+		nlatency,
 		settings.max_sim_time
 	)
 
-	return prediction:Run()
+	return prediction:Run(), pTarget
 end
 
 local function CreateMove_DrawOnly()
@@ -235,28 +244,13 @@ local function CreateMove_DrawOnly()
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	local bAimTeamMate = false
+	local bAimAtTeamMates = false
 
-	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
-		bAimTeamMate = true
-	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
-		bAimTeamMate = true
+	if (iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX) or (iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW) then
+		bAimAtTeamMates = true
 	end
 
-	local offset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
-	local vecHeadPos = pLocal:GetAbsOrigin() + offset
-
-	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
-	if not best_target.index then
-		return
-	end
-
-	local pTarget = entities.GetByIndex(best_target.index)
-	if not pTarget then
-		return
-	end
-
-	local pred_result = ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, settings.draw_only, players)
+	local pred_result, _ = ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netchannel, settings.draw_only, players)
 	if not pred_result then
 		return
 	end
@@ -273,8 +267,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local netchannel = clientstate.GetNetChannel()
-	if not netchannel then
+	local netChannel = clientstate.GetNetChannel()
+	if not netChannel then
 		return
 	end
 
@@ -306,31 +300,23 @@ local function CreateMove(uCmd)
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	local bAimTeamMate = false
+	local bAimAtTeamMates = false
 	local bIsSandvich = false
 
 	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
-		bAimTeamMate = true
+		bAimAtTeamMates = true
 		bIsSandvich = true
 	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
-		bAimTeamMate = true
+		bAimAtTeamMates = true
 	end
 
-	local offset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
-	local vecHeadPos = pLocal:GetAbsOrigin() + offset
+	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
+	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
-	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
-	if not best_target.index then
-		return
-	end
+	local pred_result, pTarget =
+		ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netChannel, settings.draw_only, players)
 
-	local pTarget = entities.GetByIndex(best_target.index)
-	if not pTarget then
-		return
-	end
-
-	local pred_result = ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, settings.draw_only, players)
-	if not pred_result then
+	if not pred_result or not pTarget then
 		return
 	end
 
@@ -338,22 +324,12 @@ local function CreateMove(uCmd)
 		if ent:GetIndex() == pLocal:GetIndex() then
 			return false
 		end
-
-		if ent:GetIndex() == pTarget:GetIndex() then
-			return false
-		end
-
-		if ent:IsPlayer() == false then
-			return true
-		end
-
-		return true
+		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local bIsSplash = IsSplashDamageWeapon(pWeapon)
-
+	local bSplashWeapon = IsSplashDamageWeapon(pWeapon)
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weapon_info = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
+	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
 	multipoint:Set(
@@ -362,65 +338,62 @@ local function CreateMove(uCmd)
 		bIsHuntsman,
 		pred_result.vecAimDir,
 		players,
-		bAimTeamMate,
+		bAimAtTeamMates,
 		vecHeadPos,
 		pred_result.vecPos,
-		weapon_info,
+		weaponInfo,
 		math_utils,
 		max_distance,
-		bIsSplash
+		bSplashWeapon
 	)
 
-	local best_pos = multipoint:GetBestHitPoint()
-	if not best_pos then
+	local vec_bestPos = multipoint:GetBestHitPoint()
+	if not vec_bestPos then
 		return
 	end
 
-	local vecMins, vecMaxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
-	local trace = engine.TraceHull(vecHeadPos, best_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
+	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
 		return
 	end
 
-	local angle = math_utils.PositionAngles(vecHeadPos, best_pos)
+	local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
 
 	local bAttack = false
 
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
+	local function FireWeapon(isSandvich)
+		uCmd:SetViewAngles(angle:Unpack())
+		if not isSandvich then
+			uCmd:SetSendPacket(false)
+		end
+		return true
+	end
+
 	if bIsBeggar then
 		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
-
-		if clip < 1 and pTarget then
-			-- keep holding IN_ATTACK while charging
-			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		if clip < 1 then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 		else
-			-- release to fire
-			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
-			uCmd:SetViewAngles(angle:Unpack())
-			uCmd:SetSendPacket(false)
-
-			bAttack = true
+			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
+			bAttack = FireWeapon(false)
 		end
 	elseif bIsHuntsman then
-		if angle and pred_result.nChargeTime > 0.1 then -- smol charge required, just in case yk
+		if pred_result.nChargeTime > 0.1 then
 			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
 
-			-- release to shoot
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				uCmd.buttons = uCmd.buttons & ~IN_ATTACK
-				uCmd:SetViewAngles(angle:Unpack())
-				uCmd:SetSendPacket(false)
-
-				bAttack = true
+				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
+				bAttack = FireWeapon(false)
 			end
 		else
-			-- keep charging
 			if gui.GetValue("auto shoot") == 1 then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK
+				uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 			end
 		end
 	elseif bIsStickybombLauncher then
@@ -428,34 +401,21 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		-- release to fire
 		if pred_result.nChargeTime > 0.1 then
-			uCmd.buttons = uCmd.buttons & ~IN_ATTACK
-			uCmd:SetViewAngles(angle:Unpack())
-			uCmd:SetSendPacket(false)
-
-			bAttack = true
+			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
+			bAttack = FireWeapon(false)
 		end
-	else
-		--- epic sandvich aimbot
-		--- (isso é uma gambiarra do caraio)
-		if bIsSandvich then
-			uCmd.buttons = uCmd.buttons | IN_ATTACK2
-			uCmd:SetViewAngles(angle:Unpack())
+	elseif bIsSandvich then
+		uCmd.buttons = uCmd.buttons | IN_ATTACK2
+		bAttack = FireWeapon(true) -- special case for sandvich
+	else -- generic weapons
+		if wep_utils.CanShoot() then
+			if gui.GetValue("auto shoot") == 1 then
+				uCmd.buttons = uCmd.buttons | IN_ATTACK
+			end
 
-			bAttack = true
-		else
-			if wep_utils.CanShoot() then
-				if gui.GetValue("auto shoot") == 1 then
-					uCmd.buttons = uCmd.buttons | IN_ATTACK
-				end
-
-				if (uCmd.buttons & IN_ATTACK) ~= 0 then
-					uCmd:SetViewAngles(angle:Unpack())
-					uCmd:SetSendPacket(false)
-
-					bAttack = true
-				end
+			if (uCmd.buttons & IN_ATTACK) ~= 0 then
+				bAttack = FireWeapon(false)
 			end
 		end
 	end
@@ -558,18 +518,27 @@ local function DrawProjPath()
 	end
 end
 
-local function Draw()
-	if clientstate:GetNetChannel() == nil then
-		return
-	end
+local function DrawText(index, text)
+	local offset = 3
 
+	local x, y
+	x = 10
+	y = 24 * index + 3
+
+	draw.Color(59, 66, 82, 255)
+	draw.Text(x + offset, y + offset, text)
+
+	draw.Color(236, 239, 244, 255)
+	draw.Text(x, y, text)
+end
+
+local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
-		return
 	end
 
-	if settings.draw_player_path and paths.player_path then
+	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
 		draw.Color(136, 192, 208, 255)
 		DrawPlayerPath()
 
@@ -579,10 +548,15 @@ local function Draw()
 		end
 	end
 
-	if settings.draw_proj_path and paths.proj_path then
+	if settings.draw_proj_path and paths.proj_path and #paths.proj_path > 0 then
 		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
+
+	draw.SetFont(font)
+	DrawText(0, "navet's projectile aimbot")
+	DrawText(1, string.format("mode: %s", settings.draw_only and "draw only" or "draw + shoot"))
+	DrawText(2, string.format("max simulation time: %s", settings.max_sim_time))
 end
 
 local function Unload()
@@ -596,6 +570,7 @@ local function Unload()
 	proj_sim = nil
 	prediction = nil
 	multipoint = nil
+	font = nil
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)

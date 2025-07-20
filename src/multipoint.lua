@@ -57,19 +57,10 @@ function multipoint:GetBestHitPoint()
 	local bestFraction = 0
 
 	local function shouldHit(ent)
-		if ent:GetIndex() == client.GetLocalPlayerIndex() then
+		if ent:GetIndex() == self.pLocal:GetIndex() then
 			return false
 		end
-
-		if ent:GetIndex() == self.pTarget:GetIndex() then
-			return false
-		end
-
-		if ent:IsPlayer() == false then
-			return true
-		end
-
-		return true
+		return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
 	end
 
 	for _, mult in ipairs(multipliers) do

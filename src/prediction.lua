@@ -111,11 +111,11 @@ function pred:Run()
 
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
 	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-	if not player_positions or #player_positions == 0 then
+	if not player_positions then
 		return nil
 	end
 
-	local predicted_target_pos = player_positions[#player_positions]
+	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 	local aim_dir = (gravity > 0)
 			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
 		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
