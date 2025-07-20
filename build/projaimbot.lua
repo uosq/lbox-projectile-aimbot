@@ -73,8 +73,6 @@ local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
 local max_distance = 2048
 
-local font = draw.CreateFont("TF2 BUILD", 24, 500)
-
 local paths = {
 	proj_path = {},
 	player_path = {},
@@ -150,24 +148,24 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 		end
 
 		-- player conds
-		local cond = player:GetPropInt("m_nPlayerCond")
-		if (cond & TFCond_Cloaked) ~= 0 and gui.GetValue("ignore cloaked") == 1 then
+		if player:InCond(TFCond_Cloaked) and gui.GetValue("ignore cloaked") == 1 then
 			goto continue
 		end
 
-		if (cond & (TFCond_Disguised | TFCond_Ubercharged | TFCond_Taunting | TFCond_Bonked)) ~= 0 then
-			if (cond & TFCond_Disguised) ~= 0 and gui.GetValue("ignore disguised") == 1 then
-				goto continue
-			end
-			if (cond & TFCond_Taunting) ~= 0 and gui.GetValue("ignore taunting") == 1 then
-				goto continue
-			end
-			if (cond & TFCond_Bonked) ~= 0 and gui.GetValue("ignore bonked") == 1 then
-				goto continue
-			end
-			if (cond & TFCond_Ubercharged) ~= 0 then
-				goto continue
-			end
+		if player:InCond(TFCond_Disguised) and gui.GetValue("ignore disguised") == 1 then
+			goto continue
+		end
+
+		if player:InCond(TFCond_Taunting) and gui.GetValue("ignore taunting") == 1 then
+			goto continue
+		end
+
+		if player:InCond(TFCond_Bonked) and gui.GetValue("ignore bonked") == 1 then
+			goto continue
+		end
+
+		if player:InCond(TFCond_Ubercharged) then
+			goto continue
 		end
 
 		-- fov check
@@ -562,20 +560,6 @@ local function DrawProjPath()
 	end
 end
 
-local function DrawText(index, text)
-	local offset = 3
-
-	local x, y
-	x = 10
-	y = 24 * index + 3
-
-	draw.Color(59, 66, 82, 255)
-	draw.Text(x + offset, y + offset, text)
-
-	draw.Color(236, 239, 244, 255)
-	draw.Text(x, y, text)
-end
-
 local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
@@ -596,11 +580,6 @@ local function Draw()
 		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
-
-	draw.SetFont(font)
-	DrawText(0, "navet's projectile aimbot")
-	DrawText(1, string.format("mode: %s", settings.draw_only and "draw only" or "draw + shoot"))
-	DrawText(2, string.format("max simulation time: %s", settings.max_sim_time))
 end
 
 local function Unload()
@@ -614,7 +593,6 @@ local function Unload()
 	proj_sim = nil
 	prediction = nil
 	multipoint = nil
-	font = nil
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -667,18 +645,12 @@ local offset_multipliers = {
 
 ---@return Vector3?
 function multipoint:GetBestHitPoint()
-	local points = {}
-	local origin = self.pTarget:GetAbsOrigin()
 	local maxs = self.pTarget:GetMaxs()
+	local origin = self.pTarget:GetAbsOrigin()
 
 	local multipliers = self.bIsHuntsman and offset_multipliers.huntsman
 		or self.bIsSplash and offset_multipliers.splash
 		or offset_multipliers.normal
-
-	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		table.insert(points, origin + offset)
-	end
 
 	local vecMins, vecMaxs = -self.weapon_info.vecCollisionMax, self.weapon_info.vecCollisionMax
 	local bestPoint = nil
@@ -692,14 +664,9 @@ function multipoint:GetBestHitPoint()
 	end
 
 	for _, mult in ipairs(multipliers) do
-		local forward = self.math_utils.NormalizeVector(self.vecAimDir)
-		local right = self.math_utils.NormalizeVector(forward:Cross(Vector3(0, 0, 1)))
-		local up = self.math_utils.NormalizeVector(right:Cross(forward))
+		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+		local test_pos = self.vecPredictedPos + offset
 
-		local test_pos = self.vecPredictedPos
-			+ right * (maxs.x * mult[1])
-			+ forward * (maxs.y * mult[2])
-			+ up * (maxs.z * mult[3])
 		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
