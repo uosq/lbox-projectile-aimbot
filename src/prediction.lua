@@ -103,28 +103,44 @@ function pred:Run()
 		return nil
 	end
 
-	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
-	local total_time = travel_time_est + self.nLatency
-	if total_time > self.nMaxTime then
-		return nil
-	end
-
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-	if not player_positions then
-		return nil
-	end
+	local max_iters = 2
+	local total_time = 0.1
+	local predicted_target_pos
+	local aim_dir
+	local player_positions
 
-	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
-	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-	if not aim_dir then
-		return nil
+	for i = 1, max_iters do
+		-- run player sim with current total_time
+		player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+		if not player_positions or #player_positions == 0 then
+			return nil
+		end
+
+		predicted_target_pos = player_positions[#player_positions]
+		if not predicted_target_pos then
+			return nil
+		end
+
+		-- recalculate aim direction
+		aim_dir = (gravity > 0)
+				and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+			or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+
+		if not aim_dir then
+			return nil
+		end
+
+		-- update total_time for next iteration
+		total_time = (predicted_target_pos - vecMuzzlePos):Length() / projectile_speed + self.nLatency
+
+		if total_time > self.nMaxTime then
+			return nil
+		end
 	end
 
 	local projectile_path =
-		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime, self.weapon_info)
+		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, total_time, self.weapon_info)
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end

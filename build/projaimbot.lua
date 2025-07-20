@@ -664,7 +664,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 function gui.init(settings, version)
 	local window = menu:make_window()
 	window.width = 400
-	window.height = 355
+	window.height = 270
 
 	local component_width = 260
 
@@ -705,6 +705,83 @@ function gui.init(settings, version)
 		autoshoot_btn.enabled = settings.autoshoot
 	end
 
+	local draw_proj_path_btn = menu:make_checkbox()
+	draw_proj_path_btn.height = 20
+	draw_proj_path_btn.width = component_width
+	draw_proj_path_btn.label = "draw projectile path"
+	draw_proj_path_btn.enabled = settings.draw_proj_path
+	draw_proj_path_btn.x = 10
+	draw_proj_path_btn.y = 60
+
+	draw_proj_path_btn.func = function()
+		settings.draw_proj_path = not settings.draw_proj_path
+		draw_proj_path_btn.enabled = settings.draw_proj_path
+	end
+
+	local draw_player_path_btn = menu:make_checkbox()
+	draw_player_path_btn.height = 20
+	draw_player_path_btn.width = component_width
+	draw_player_path_btn.label = "draw player path"
+	draw_player_path_btn.enabled = settings.draw_player_path
+	draw_player_path_btn.x = 10
+	draw_player_path_btn.y = 85
+
+	draw_player_path_btn.func = function()
+		settings.draw_player_path = not settings.draw_player_path
+		draw_player_path_btn.enabled = settings.draw_player_path
+	end
+
+	local draw_bounding_btn = menu:make_checkbox()
+	draw_bounding_btn.height = 20
+	draw_bounding_btn.width = component_width
+	draw_bounding_btn.label = "draw bounding box"
+	draw_bounding_btn.enabled = settings.draw_bounding_box
+	draw_bounding_btn.x = 10
+	draw_bounding_btn.y = 110
+
+	draw_bounding_btn.func = function()
+		settings.draw_bounding_box = not settings.draw_bounding_box
+		draw_bounding_btn.enabled = settings.draw_bounding_box
+	end
+
+	local draw_only_btn = menu:make_checkbox()
+	draw_only_btn.height = 20
+	draw_only_btn.width = component_width
+	draw_only_btn.label = "draw only"
+	draw_only_btn.enabled = settings.draw_only
+	draw_only_btn.x = 10
+	draw_only_btn.y = 135
+
+	draw_only_btn.func = function()
+		settings.draw_only = not settings.draw_only
+		draw_only_btn.enabled = settings.draw_only
+	end
+
+	local method_selection = menu:make_dropdown()
+	method_selection.font = font
+	method_selection.height = 20
+	method_selection.width = component_width
+	method_selection.label = "aim method"
+	method_selection.items = { "plain", "silent", "silent+" }
+	method_selection.x = 10
+	method_selection.y = 181
+	method_selection.selected_index = 3
+
+	method_selection.func = function(index, value)
+		if value == "silent" then
+			settings.psilent = false
+			settings.silent = true
+		elseif value == "silent+" then
+			settings.psilent = true
+			settings.silent = true
+		elseif value == "plain" then
+			settings.psilent = false
+			settings.silent = false
+		end
+	end
+
+	menu:make_tab("misc")
+
 	local sim_time_slider = menu:make_slider()
 	assert(sim_time_slider, "sim time slider is nil somehow!")
 
@@ -716,7 +793,7 @@ function gui.init(settings, version)
 	sim_time_slider.value = settings.max_sim_time
 	sim_time_slider.width = component_width
 	sim_time_slider.x = 10
-	sim_time_slider.y = 80
+	sim_time_slider.y = 25
 
 	sim_time_slider.func = function()
 		settings.max_sim_time = sim_time_slider.value
@@ -733,7 +810,7 @@ function gui.init(settings, version)
 	max_distance_slider.value = settings.max_distance
 	max_distance_slider.width = component_width
 	max_distance_slider.x = 10
-	max_distance_slider.y = 125
+	max_distance_slider.y = 70
 
 	max_distance_slider.func = function()
 		settings.max_distance = max_distance_slider.value
@@ -750,88 +827,10 @@ function gui.init(settings, version)
 	fov_slider.value = settings.fov
 	fov_slider.width = component_width
 	fov_slider.x = 10
-	fov_slider.y = 170
+	fov_slider.y = 115
 
 	fov_slider.func = function()
 		settings.fov = fov_slider.value
-	end
-
-	local draw_proj_path_btn = menu:make_checkbox()
-	draw_proj_path_btn.height = 20
-	draw_proj_path_btn.width = component_width
-	draw_proj_path_btn.label = "draw projectile path"
-	draw_proj_path_btn.enabled = settings.draw_proj_path
-	draw_proj_path_btn.x = 10
-	draw_proj_path_btn.y = 200
-
-	draw_proj_path_btn.func = function()
-		settings.draw_proj_path = not settings.draw_proj_path
-		draw_proj_path_btn.enabled = settings.draw_proj_path
-	end
-
-	local draw_player_path_btn = menu:make_checkbox()
-	draw_player_path_btn.height = 20
-	draw_player_path_btn.width = component_width
-	draw_player_path_btn.label = "draw player path"
-	draw_player_path_btn.enabled = settings.draw_player_path
-	draw_player_path_btn.x = 10
-	draw_player_path_btn.y = 225
-
-	draw_player_path_btn.func = function()
-		settings.draw_player_path = not settings.draw_player_path
-		draw_player_path_btn.enabled = settings.draw_player_path
-	end
-
-	local draw_bounding_btn = menu:make_checkbox()
-	draw_bounding_btn.height = 20
-	draw_bounding_btn.width = component_width
-	draw_bounding_btn.label = "draw bounding box"
-	draw_bounding_btn.enabled = settings.draw_bounding_box
-	draw_bounding_btn.x = 10
-	draw_bounding_btn.y = 250
-
-	draw_bounding_btn.func = function()
-		settings.draw_bounding_box = not settings.draw_bounding_box
-		draw_bounding_btn.enabled = settings.draw_bounding_box
-	end
-
-	local draw_only_btn = menu:make_checkbox()
-	draw_only_btn.height = 20
-	draw_only_btn.width = component_width
-	draw_only_btn.label = "draw only"
-	draw_only_btn.enabled = settings.draw_only
-	draw_only_btn.x = 10
-	draw_only_btn.y = 275
-
-	draw_only_btn.func = function()
-		settings.draw_only = not settings.draw_only
-		draw_only_btn.enabled = settings.draw_only
-	end
-
-	local silent_btn = menu:make_checkbox()
-	silent_btn.height = 20
-	silent_btn.width = component_width
-	silent_btn.label = "silent"
-	silent_btn.enabled = settings.silent
-	silent_btn.x = 10
-	silent_btn.y = 300
-
-	silent_btn.func = function()
-		settings.silent = not settings.silent
-		silent_btn.enabled = settings.silent
-	end
-
-	local psilent_btn = menu:make_checkbox()
-	psilent_btn.height = 20
-	psilent_btn.width = component_width
-	psilent_btn.label = "silent+"
-	psilent_btn.enabled = settings.psilent
-	psilent_btn.x = 10
-	psilent_btn.y = 325
-
-	psilent_btn.func = function()
-		settings.psilent = not settings.psilent
-		psilent_btn.enabled = settings.psilent
 	end
 
 	menu:make_tab("conditions")
@@ -917,6 +916,8 @@ local draw_id = tostring(os.clock())
 local font = draw.CreateFont("TF2 BUILD", 12, 1000)
 local checkfont = draw.CreateFont("TF2 BUILD", 10, 1000)
 local last_keypress_tick = 0
+
+local deferred_dropdowns = {}
 
 ---@type table<integer, WINDOW>
 local windows = {}
@@ -1054,18 +1055,10 @@ local function handle_mouse_click()
 		end
 
 		if component.expanded then
-			for i, item in ipairs(component.items) do
-				local item_y = y2 + (i - 1) * component.height
-				if is_mouse_inside(x1, item_y, x2, item_y + component.height) and state then
-					component.selected_index = i
-					component.expanded = false
-					if component.func then
-						component.func(i, item)
-					end
-					last_keypress_tick = tick
-					break
-				end
-			end
+			table.insert(deferred_dropdowns, {
+				component = component,
+				window = window,
+			})
 		end
 	elseif component.type == COMPONENT_TYPES.LISTBOX then
 		local item_height = 20
@@ -1506,6 +1499,17 @@ local function draw_dropdown()
 			-- Draw item text
 			draw.Color(236, 239, 244, 255)
 			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
+
+			local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
+			if is_hovered and state and tick > last_keypress_tick then
+				component.selected_index = i
+				component.expanded = false
+				if component.func then
+					component.func(i, item)
+				end
+				last_keypress_tick = tick
+				break
+			end
 		end
 	end
 end
@@ -1630,6 +1634,38 @@ local function draw_window()
 			end
 		end
 	end
+
+	for _, dd in ipairs(deferred_dropdowns) do
+		local component = dd.component
+		local window = dd.window
+		local content_offset = get_content_area_offset()
+		local x = window.x + component.x + content_offset
+		local y = window.y + component.y
+		local _, text_h = draw.GetTextSize(component.label or "")
+
+		for i, item in ipairs(component.items) do
+			local iy = y + component.height + (i - 1) * component.height
+			local is_hovered = is_mouse_inside(x, iy, x + component.width, iy + component.height)
+
+			draw.Color(143, 188, 187, 255)
+			draw.FilledRect(
+				x - OUTLINE_THICKNESS,
+				iy - OUTLINE_THICKNESS,
+				x + component.width + OUTLINE_THICKNESS,
+				iy + component.height + OUTLINE_THICKNESS
+			)
+
+			if is_hovered then
+				draw.Color(76, 86, 106, 255)
+			else
+				draw.Color(67, 76, 94, 255)
+			end
+			draw.FilledRect(x, iy, x + component.width, iy + component.height)
+
+			draw.Color(236, 239, 244, 255)
+			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
+		end
+	end
 end
 
 local function draw_all_windows()
@@ -1658,6 +1694,7 @@ local function draw_all_windows()
 	end
 
 	oldmx, oldmy = mx, my
+	deferred_dropdowns = {}
 end
 
 -- =============================================================================
@@ -2102,28 +2139,44 @@ function pred:Run()
 		return nil
 	end
 
-	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
-	local total_time = travel_time_est + self.nLatency
-	if total_time > self.nMaxTime then
-		return nil
-	end
-
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-	if not player_positions then
-		return nil
-	end
+	local max_iters = 2
+	local total_time = 0.1
+	local predicted_target_pos
+	local aim_dir
+	local player_positions
 
-	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
-	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-	if not aim_dir then
-		return nil
+	for i = 1, max_iters do
+		-- run player sim with current total_time
+		player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+		if not player_positions or #player_positions == 0 then
+			return nil
+		end
+
+		predicted_target_pos = player_positions[#player_positions]
+		if not predicted_target_pos then
+			return nil
+		end
+
+		-- recalculate aim direction
+		aim_dir = (gravity > 0)
+				and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+			or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+
+		if not aim_dir then
+			return nil
+		end
+
+		-- update total_time for next iteration
+		total_time = (predicted_target_pos - vecMuzzlePos):Length() / projectile_speed + self.nLatency
+
+		if total_time > self.nMaxTime then
+			return nil
+		end
 	end
 
 	local projectile_path =
-		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime, self.weapon_info)
+		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, total_time, self.weapon_info)
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end

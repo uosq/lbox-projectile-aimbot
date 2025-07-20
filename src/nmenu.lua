@@ -31,6 +31,8 @@ local font = draw.CreateFont("TF2 BUILD", 12, 1000)
 local checkfont = draw.CreateFont("TF2 BUILD", 10, 1000)
 local last_keypress_tick = 0
 
+local deferred_dropdowns = {}
+
 ---@type table<integer, WINDOW>
 local windows = {}
 
@@ -167,18 +169,10 @@ local function handle_mouse_click()
 		end
 
 		if component.expanded then
-			for i, item in ipairs(component.items) do
-				local item_y = y2 + (i - 1) * component.height
-				if is_mouse_inside(x1, item_y, x2, item_y + component.height) and state then
-					component.selected_index = i
-					component.expanded = false
-					if component.func then
-						component.func(i, item)
-					end
-					last_keypress_tick = tick
-					break
-				end
-			end
+			table.insert(deferred_dropdowns, {
+				component = component,
+				window = window,
+			})
 		end
 	elseif component.type == COMPONENT_TYPES.LISTBOX then
 		local item_height = 20
@@ -619,6 +613,17 @@ local function draw_dropdown()
 			-- Draw item text
 			draw.Color(236, 239, 244, 255)
 			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
+
+			local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
+			if is_hovered and state and tick > last_keypress_tick then
+				component.selected_index = i
+				component.expanded = false
+				if component.func then
+					component.func(i, item)
+				end
+				last_keypress_tick = tick
+				break
+			end
 		end
 	end
 end
@@ -743,6 +748,38 @@ local function draw_window()
 			end
 		end
 	end
+
+	for _, dd in ipairs(deferred_dropdowns) do
+		local component = dd.component
+		local window = dd.window
+		local content_offset = get_content_area_offset()
+		local x = window.x + component.x + content_offset
+		local y = window.y + component.y
+		local _, text_h = draw.GetTextSize(component.label or "")
+
+		for i, item in ipairs(component.items) do
+			local iy = y + component.height + (i - 1) * component.height
+			local is_hovered = is_mouse_inside(x, iy, x + component.width, iy + component.height)
+
+			draw.Color(143, 188, 187, 255)
+			draw.FilledRect(
+				x - OUTLINE_THICKNESS,
+				iy - OUTLINE_THICKNESS,
+				x + component.width + OUTLINE_THICKNESS,
+				iy + component.height + OUTLINE_THICKNESS
+			)
+
+			if is_hovered then
+				draw.Color(76, 86, 106, 255)
+			else
+				draw.Color(67, 76, 94, 255)
+			end
+			draw.FilledRect(x, iy, x + component.width, iy + component.height)
+
+			draw.Color(236, 239, 244, 255)
+			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
+		end
+	end
 end
 
 local function draw_all_windows()
@@ -771,6 +808,7 @@ local function draw_all_windows()
 	end
 
 	oldmx, oldmy = mx, my
+	deferred_dropdowns = {}
 end
 
 -- =============================================================================

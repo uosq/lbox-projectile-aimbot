@@ -8,7 +8,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 function gui.init(settings, version)
 	local window = menu:make_window()
 	window.width = 400
-	window.height = 355
+	window.height = 270
 
 	local component_width = 260
 
@@ -49,6 +49,83 @@ function gui.init(settings, version)
 		autoshoot_btn.enabled = settings.autoshoot
 	end
 
+	local draw_proj_path_btn = menu:make_checkbox()
+	draw_proj_path_btn.height = 20
+	draw_proj_path_btn.width = component_width
+	draw_proj_path_btn.label = "draw projectile path"
+	draw_proj_path_btn.enabled = settings.draw_proj_path
+	draw_proj_path_btn.x = 10
+	draw_proj_path_btn.y = 60
+
+	draw_proj_path_btn.func = function()
+		settings.draw_proj_path = not settings.draw_proj_path
+		draw_proj_path_btn.enabled = settings.draw_proj_path
+	end
+
+	local draw_player_path_btn = menu:make_checkbox()
+	draw_player_path_btn.height = 20
+	draw_player_path_btn.width = component_width
+	draw_player_path_btn.label = "draw player path"
+	draw_player_path_btn.enabled = settings.draw_player_path
+	draw_player_path_btn.x = 10
+	draw_player_path_btn.y = 85
+
+	draw_player_path_btn.func = function()
+		settings.draw_player_path = not settings.draw_player_path
+		draw_player_path_btn.enabled = settings.draw_player_path
+	end
+
+	local draw_bounding_btn = menu:make_checkbox()
+	draw_bounding_btn.height = 20
+	draw_bounding_btn.width = component_width
+	draw_bounding_btn.label = "draw bounding box"
+	draw_bounding_btn.enabled = settings.draw_bounding_box
+	draw_bounding_btn.x = 10
+	draw_bounding_btn.y = 110
+
+	draw_bounding_btn.func = function()
+		settings.draw_bounding_box = not settings.draw_bounding_box
+		draw_bounding_btn.enabled = settings.draw_bounding_box
+	end
+
+	local draw_only_btn = menu:make_checkbox()
+	draw_only_btn.height = 20
+	draw_only_btn.width = component_width
+	draw_only_btn.label = "draw only"
+	draw_only_btn.enabled = settings.draw_only
+	draw_only_btn.x = 10
+	draw_only_btn.y = 135
+
+	draw_only_btn.func = function()
+		settings.draw_only = not settings.draw_only
+		draw_only_btn.enabled = settings.draw_only
+	end
+
+	local method_selection = menu:make_dropdown()
+	method_selection.font = font
+	method_selection.height = 20
+	method_selection.width = component_width
+	method_selection.label = "aim method"
+	method_selection.items = { "plain", "silent", "silent+" }
+	method_selection.x = 10
+	method_selection.y = 181
+	method_selection.selected_index = 3
+
+	method_selection.func = function(index, value)
+		if value == "silent" then
+			settings.psilent = false
+			settings.silent = true
+		elseif value == "silent+" then
+			settings.psilent = true
+			settings.silent = true
+		elseif value == "plain" then
+			settings.psilent = false
+			settings.silent = false
+		end
+	end
+
+	menu:make_tab("misc")
+
 	local sim_time_slider = menu:make_slider()
 	assert(sim_time_slider, "sim time slider is nil somehow!")
 
@@ -60,7 +137,7 @@ function gui.init(settings, version)
 	sim_time_slider.value = settings.max_sim_time
 	sim_time_slider.width = component_width
 	sim_time_slider.x = 10
-	sim_time_slider.y = 80
+	sim_time_slider.y = 25
 
 	sim_time_slider.func = function()
 		settings.max_sim_time = sim_time_slider.value
@@ -77,7 +154,7 @@ function gui.init(settings, version)
 	max_distance_slider.value = settings.max_distance
 	max_distance_slider.width = component_width
 	max_distance_slider.x = 10
-	max_distance_slider.y = 125
+	max_distance_slider.y = 70
 
 	max_distance_slider.func = function()
 		settings.max_distance = max_distance_slider.value
@@ -94,88 +171,10 @@ function gui.init(settings, version)
 	fov_slider.value = settings.fov
 	fov_slider.width = component_width
 	fov_slider.x = 10
-	fov_slider.y = 170
+	fov_slider.y = 115
 
 	fov_slider.func = function()
 		settings.fov = fov_slider.value
-	end
-
-	local draw_proj_path_btn = menu:make_checkbox()
-	draw_proj_path_btn.height = 20
-	draw_proj_path_btn.width = component_width
-	draw_proj_path_btn.label = "draw projectile path"
-	draw_proj_path_btn.enabled = settings.draw_proj_path
-	draw_proj_path_btn.x = 10
-	draw_proj_path_btn.y = 200
-
-	draw_proj_path_btn.func = function()
-		settings.draw_proj_path = not settings.draw_proj_path
-		draw_proj_path_btn.enabled = settings.draw_proj_path
-	end
-
-	local draw_player_path_btn = menu:make_checkbox()
-	draw_player_path_btn.height = 20
-	draw_player_path_btn.width = component_width
-	draw_player_path_btn.label = "draw player path"
-	draw_player_path_btn.enabled = settings.draw_player_path
-	draw_player_path_btn.x = 10
-	draw_player_path_btn.y = 225
-
-	draw_player_path_btn.func = function()
-		settings.draw_player_path = not settings.draw_player_path
-		draw_player_path_btn.enabled = settings.draw_player_path
-	end
-
-	local draw_bounding_btn = menu:make_checkbox()
-	draw_bounding_btn.height = 20
-	draw_bounding_btn.width = component_width
-	draw_bounding_btn.label = "draw bounding box"
-	draw_bounding_btn.enabled = settings.draw_bounding_box
-	draw_bounding_btn.x = 10
-	draw_bounding_btn.y = 250
-
-	draw_bounding_btn.func = function()
-		settings.draw_bounding_box = not settings.draw_bounding_box
-		draw_bounding_btn.enabled = settings.draw_bounding_box
-	end
-
-	local draw_only_btn = menu:make_checkbox()
-	draw_only_btn.height = 20
-	draw_only_btn.width = component_width
-	draw_only_btn.label = "draw only"
-	draw_only_btn.enabled = settings.draw_only
-	draw_only_btn.x = 10
-	draw_only_btn.y = 275
-
-	draw_only_btn.func = function()
-		settings.draw_only = not settings.draw_only
-		draw_only_btn.enabled = settings.draw_only
-	end
-
-	local silent_btn = menu:make_checkbox()
-	silent_btn.height = 20
-	silent_btn.width = component_width
-	silent_btn.label = "silent"
-	silent_btn.enabled = settings.silent
-	silent_btn.x = 10
-	silent_btn.y = 300
-
-	silent_btn.func = function()
-		settings.silent = not settings.silent
-		silent_btn.enabled = settings.silent
-	end
-
-	local psilent_btn = menu:make_checkbox()
-	psilent_btn.height = 20
-	psilent_btn.width = component_width
-	psilent_btn.label = "silent+"
-	psilent_btn.enabled = settings.psilent
-	psilent_btn.x = 10
-	psilent_btn.y = 325
-
-	psilent_btn.func = function()
-		settings.psilent = not settings.psilent
-		psilent_btn.enabled = settings.psilent
 	end
 
 	menu:make_tab("conditions")
