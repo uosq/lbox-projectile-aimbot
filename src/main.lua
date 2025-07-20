@@ -16,11 +16,27 @@
 local version = "4"
 
 local settings = {
+	enabled = true,
+	fov = 30.0,
 	max_sim_time = 2.0,
 	draw_proj_path = true,
 	draw_player_path = true,
 	draw_bounding_box = true,
 	draw_only = false,
+	max_distance = 2048,
+
+	silent = true,
+	psilent = true,
+	plain = true,
+
+	conds = {
+		cloaked = true,
+		disguised = true,
+		ubercharged = true,
+		bonked = true,
+		taunting = true,
+		friends = true,
+	},
 }
 
 local wep_utils = require("src.utils.weapon_utils")
@@ -32,9 +48,13 @@ local proj_sim = require("src.simulation.proj")
 local prediction = require("src.prediction")
 local multipoint = require("src.multipoint")
 
+local menu = require("src.gui")
+menu.init(settings, version)
+
 local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
-local max_distance = 2048
+
+local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
 
 local paths = {
 	proj_path = {},
@@ -83,7 +103,7 @@ end
 local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	local best_target = {
 		angle = nil,
-		fov = gui.GetValue("aim fov"),
+		fov = settings.fov,
 		index = nil,
 		pos = nil,
 	}
@@ -100,7 +120,11 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 		-- distance check
 		local playerPos = player:GetAbsOrigin()
 		local distSq = (playerPos - localPos):Length()
-		if distSq > max_distance then
+		if distSq > settings.max_distance then
+			goto continue
+		end
+
+		if playerlist.GetPriority(player) < 0 and settings.conds.friends then
 			goto continue
 		end
 
@@ -111,23 +135,23 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 		end
 
 		-- player conds
-		if player:InCond(TFCond_Cloaked) and gui.GetValue("ignore cloaked") == 1 then
+		if player:InCond(TFCond_Cloaked) and settings.conds.cloaked == 1 then
 			goto continue
 		end
 
-		if player:InCond(TFCond_Disguised) and gui.GetValue("ignore disguised") == 1 then
+		if player:InCond(TFCond_Disguised) and settings.conds.disguised == 1 then
 			goto continue
 		end
 
-		if player:InCond(TFCond_Taunting) and gui.GetValue("ignore taunting") == 1 then
+		if player:InCond(TFCond_Taunting) and settings.conds.taunting == 1 then
 			goto continue
 		end
 
-		if player:InCond(TFCond_Bonked) and gui.GetValue("ignore bonked") == 1 then
+		if player:InCond(TFCond_Bonked) and settings.conds.bonked == 1 then
 			goto continue
 		end
 
-		if player:InCond(TFCond_Ubercharged) then
+		if player:InCond(TFCond_Ubercharged) and settings.conds.ubercharged then
 			goto continue
 		end
 
@@ -267,6 +291,10 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	if not settings.enabled then
+		return
+	end
+
 	if settings.draw_only then
 		CreateMove_DrawOnly()
 		return
@@ -348,7 +376,7 @@ local function CreateMove(uCmd)
 		pred_result.vecPos,
 		weaponInfo,
 		math_utils,
-		max_distance,
+		settings.max_distance,
 		bSplashWeapon
 	)
 
@@ -372,9 +400,14 @@ local function CreateMove(uCmd)
 
 	local function FireWeapon(isSandvich)
 		uCmd:SetViewAngles(angle:Unpack())
-		if not isSandvich then
+		if not isSandvich and settings.psilent then
 			uCmd:SetSendPacket(false)
 		end
+
+		if not settings.silent and not settings.psilent then
+			engine.SetViewAngles(angle)
+		end
+
 		return true
 	end
 
@@ -529,13 +562,19 @@ local function Draw()
 		paths.proj_path = {}
 	end
 
+	if not settings.enabled then
+		return
+	end
+
 	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
 		draw.Color(136, 192, 208, 255)
 		DrawPlayerPath()
+	end
 
-		if settings.draw_bounding_box then
-			local pos = paths.player_path[#paths.player_path]
-			DrawPlayerHitbox(pos, Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0))
+	if settings.draw_bounding_box then
+		local pos = paths.player_path[#paths.player_path]
+		if pos then
+			DrawPlayerHitbox(pos, PLAYER_MIN_HULL, PLAYER_MAX_HULL)
 		end
 	end
 
@@ -548,7 +587,10 @@ end
 local function Unload()
 	callbacks.Unregister("CreateMove", "ProjAimbot CreateMove")
 	callbacks.Unregister("Draw", "ProjAimbot Draw")
+	menu.unload()
+
 	gui.SetValue("projectile aimbot", original_gui_value)
+
 	paths = nil
 	wep_utils = nil
 	math_utils = nil
