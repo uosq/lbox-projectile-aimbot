@@ -36,6 +36,19 @@ function gui.init(settings, version)
 		enabled_btn.enabled = settings.enabled
 	end
 
+	local autoshoot_btn = menu:make_checkbox()
+	autoshoot_btn.height = 20
+	autoshoot_btn.width = component_width
+	autoshoot_btn.label = "autoshoot"
+	autoshoot_btn.enabled = settings.autoshoot
+	autoshoot_btn.x = 10
+	autoshoot_btn.y = 35
+
+	autoshoot_btn.func = function()
+		settings.autoshoot = not settings.autoshoot
+		autoshoot_btn.enabled = settings.autoshoot
+	end
+
 	local sim_time_slider = menu:make_slider()
 	assert(sim_time_slider, "sim time slider is nil somehow!")
 
@@ -47,7 +60,7 @@ function gui.init(settings, version)
 	sim_time_slider.value = settings.max_sim_time
 	sim_time_slider.width = component_width
 	sim_time_slider.x = 10
-	sim_time_slider.y = 55
+	sim_time_slider.y = 80
 
 	sim_time_slider.func = function()
 		settings.max_sim_time = sim_time_slider.value
@@ -64,7 +77,7 @@ function gui.init(settings, version)
 	max_distance_slider.value = settings.max_distance
 	max_distance_slider.width = component_width
 	max_distance_slider.x = 10
-	max_distance_slider.y = 100
+	max_distance_slider.y = 125
 
 	max_distance_slider.func = function()
 		settings.max_distance = max_distance_slider.value
@@ -81,7 +94,7 @@ function gui.init(settings, version)
 	fov_slider.value = settings.fov
 	fov_slider.width = component_width
 	fov_slider.x = 10
-	fov_slider.y = 145
+	fov_slider.y = 170
 
 	fov_slider.func = function()
 		settings.fov = fov_slider.value
@@ -93,7 +106,7 @@ function gui.init(settings, version)
 	draw_proj_path_btn.label = "draw projectile path"
 	draw_proj_path_btn.enabled = settings.draw_proj_path
 	draw_proj_path_btn.x = 10
-	draw_proj_path_btn.y = 175
+	draw_proj_path_btn.y = 200
 
 	draw_proj_path_btn.func = function()
 		settings.draw_proj_path = not settings.draw_proj_path
@@ -106,7 +119,7 @@ function gui.init(settings, version)
 	draw_player_path_btn.label = "draw player path"
 	draw_player_path_btn.enabled = settings.draw_player_path
 	draw_player_path_btn.x = 10
-	draw_player_path_btn.y = 200
+	draw_player_path_btn.y = 225
 
 	draw_player_path_btn.func = function()
 		settings.draw_player_path = not settings.draw_player_path
@@ -119,7 +132,7 @@ function gui.init(settings, version)
 	draw_bounding_btn.label = "draw bounding box"
 	draw_bounding_btn.enabled = settings.draw_bounding_box
 	draw_bounding_btn.x = 10
-	draw_bounding_btn.y = 225
+	draw_bounding_btn.y = 250
 
 	draw_bounding_btn.func = function()
 		settings.draw_bounding_box = not settings.draw_bounding_box
@@ -132,7 +145,7 @@ function gui.init(settings, version)
 	draw_only_btn.label = "draw only"
 	draw_only_btn.enabled = settings.draw_only
 	draw_only_btn.x = 10
-	draw_only_btn.y = 250
+	draw_only_btn.y = 275
 
 	draw_only_btn.func = function()
 		settings.draw_only = not settings.draw_only
@@ -145,7 +158,7 @@ function gui.init(settings, version)
 	silent_btn.label = "silent"
 	silent_btn.enabled = settings.silent
 	silent_btn.x = 10
-	silent_btn.y = 275
+	silent_btn.y = 300
 
 	silent_btn.func = function()
 		settings.silent = not settings.silent
@@ -158,7 +171,7 @@ function gui.init(settings, version)
 	psilent_btn.label = "silent+"
 	psilent_btn.enabled = settings.psilent
 	psilent_btn.x = 10
-	psilent_btn.y = 300
+	psilent_btn.y = 325
 
 	psilent_btn.func = function()
 		settings.psilent = not settings.psilent

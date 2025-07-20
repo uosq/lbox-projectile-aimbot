@@ -17,6 +17,7 @@ local version = "4"
 
 local settings = {
 	enabled = true,
+	autoshoot = true,
 	fov = 30.0,
 	max_sim_time = 2.0,
 	draw_proj_path = true,
@@ -421,7 +422,7 @@ local function CreateMove(uCmd)
 		end
 	elseif bIsHuntsman then
 		if pred_result.nChargeTime > 0.1 then
-			if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+			if settings.autoshoot and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
 
@@ -430,12 +431,12 @@ local function CreateMove(uCmd)
 				bAttack = FireWeapon(false)
 			end
 		else
-			if gui.GetValue("auto shoot") == 1 then
+			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 			end
 		end
 	elseif bIsStickybombLauncher then
-		if gui.GetValue("auto shoot") == 1 and wep_utils.CanShoot() then
+		if settings.autoshoot and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
@@ -448,7 +449,7 @@ local function CreateMove(uCmd)
 		bAttack = FireWeapon(true) -- special case for sandvich
 	else -- generic weapons
 		if wep_utils.CanShoot() then
-			if gui.GetValue("auto shoot") == 1 then
+			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
 
