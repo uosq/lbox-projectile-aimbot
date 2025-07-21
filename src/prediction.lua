@@ -1,3 +1,5 @@
+local multipoint = require("src.multipoint")
+
 ---@class Prediction
 ---@field pLocal Entity
 ---@field pWeapon Entity
@@ -6,11 +8,9 @@
 ---@field proj_sim ProjectileSimulation
 ---@field player_sim table
 ---@field vecShootPos Vector3
----@field iMaxDistance integer
 ---@field math_utils MathLib
----@field nMaxTime number
 ---@field nLatency number
----@field multipoint Multipoint
+---@field settings table
 ---@field private __index table
 local pred = {}
 pred.__index = pred
@@ -23,10 +23,11 @@ function pred:Set(
 	proj_sim,
 	player_sim,
 	math_utils,
-	multipoint,
 	vecShootPos,
 	nLatency,
-	nMaxTime
+	settings,
+	bIsHuntsman,
+	bAimAtTeamMates
 )
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
@@ -35,11 +36,11 @@ function pred:Set(
 	self.player_sim = player_sim
 	self.vecShootPos = vecShootPos
 	self.pTarget = pTarget
-	self.iMaxDistance = 2048
-	self.nMaxTime = nMaxTime
-	self.multipoint = multipoint
 	self.nLatency = nLatency
 	self.math_utils = math_utils
+	self.settings = settings
+	self.bIsHuntsman = bIsHuntsman
+	self.bAimAtTeamMates = bAimAtTeamMates
 end
 
 function pred:GetChargeTimeAndSpeed()
@@ -76,6 +77,16 @@ function pred:GetChargeTimeAndSpeed()
 	return charge_time, projectile_speed
 end
 
+---@param pWeapon Entity
+local function IsSplashDamageWeapon(pWeapon)
+	local projtype = pWeapon:GetWeaponProjectileType()
+	local result = projtype == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or projtype == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+	return result
+end
+
 ---@return PredictionResult?
 function pred:Run()
 	if not self.pLocal or not self.pWeapon or not self.pTarget then
@@ -84,7 +95,7 @@ function pred:Run()
 
 	local vecTargetOrigin = self.pTarget:GetAbsOrigin()
 	local dist = (self.vecShootPos - vecTargetOrigin):Length()
-	if dist > self.iMaxDistance then
+	if dist > self.settings.max_distance then
 		return nil
 	end
 
@@ -105,7 +116,7 @@ function pred:Run()
 
 	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
 	local total_time = travel_time_est + self.nLatency
-	if total_time > self.nMaxTime then
+	if total_time > self.settings.max_sim_time then
 		return nil
 	end
 
@@ -123,8 +134,43 @@ function pred:Run()
 		return nil
 	end
 
-	local projectile_path =
-		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime, self.weapon_info)
+	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
+	multipoint:Set(
+		self.pLocal,
+		self.pTarget,
+		self.bIsHuntsman,
+		aim_dir,
+		self.bAimAtTeamMates,
+		vecMuzzlePos,
+		predicted_target_pos,
+		self.weapon_info,
+		self.math_utils,
+		self.settings.max_distance,
+		bSplashWeapon
+	)
+
+	---@diagnostic disable-next-line: cast-local-type
+	predicted_target_pos = multipoint:GetBestHitPoint()
+
+	if not predicted_target_pos then
+		return nil
+	end
+
+	aim_dir = (gravity > 0)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	if not aim_dir then
+		return nil
+	end
+
+	local projectile_path = self.proj_sim.Run(
+		self.pLocal,
+		self.pWeapon,
+		vecMuzzlePos,
+		aim_dir,
+		self.settings.max_sim_time,
+		self.weapon_info
+	)
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end

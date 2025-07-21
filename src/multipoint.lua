@@ -39,7 +39,6 @@ local offset_multipliers = {
 ---@return Vector3?
 function multipoint:GetBestHitPoint()
 	local maxs = self.pTarget:GetMaxs()
-	local origin = self.pTarget:GetAbsOrigin()
 
 	local multipliers = self.bIsHuntsman and offset_multipliers.huntsman
 		or self.bIsSplash and offset_multipliers.splash

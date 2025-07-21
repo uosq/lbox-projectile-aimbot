@@ -67,7 +67,6 @@ local player_sim = require("src.simulation.player")
 local proj_sim = require("src.simulation.proj")
 
 local prediction = require("src.prediction")
-local multipoint = require("src.multipoint")
 
 local menu = require("src.gui")
 menu.init(settings, version)
@@ -285,24 +284,15 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	return best_target
 end
 
----@param pWeapon Entity
-local function IsSplashDamageWeapon(pWeapon)
-	local projtype = pWeapon:GetWeaponProjectileType()
-	local result = projtype == E_ProjectileType.TF_PROJECTILE_ROCKET
-		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-		or projtype == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-	return result
-end
-
 ---@param pLocal Entity
 ---@param pWeapon Entity
 ---@param bAimTeamMate boolean
 ---@param netchannel NetChannel
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
+---@param bIsHuntsman boolean
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players)
+local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
@@ -345,10 +335,11 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		proj_sim,
 		player_sim,
 		math_utils,
-		multipoint,
 		vecHeadPos,
 		nlatency,
-		settings.max_sim_time
+		settings,
+		bIsHuntsman,
+		bAimTeamMate
 	)
 
 	local pred_result, ptarget = prediction:Run(), pTarget
@@ -356,59 +347,9 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 	return pred_result, ptarget
 end
 
-local function CreateMove_DrawOnly()
-	local netchannel = clientstate.GetNetChannel()
-	if not netchannel then
-		return
-	end
-
-	local pLocal = entities.GetLocalPlayer()
-	if pLocal == nil then
-		return
-	end
-
-	local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon")
-	if pWeapon == nil then
-		return
-	end
-
-	local players = entities.FindByClass("CTFPlayer")
-	player_sim.RunBackground(players)
-
-	if not CanRun(pLocal, pWeapon, true, true) then
-		return
-	end
-
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase or not iDefinitionIndex then
-		return
-	end
-
-	local iWeaponID = pWeapon:GetWeaponID()
-	local bAimAtTeamMates = false
-
-	if (iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX) or (iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW) then
-		bAimAtTeamMates = true
-	end
-
-	local pred_result, _ = ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netchannel, settings.draw_only, players)
-	if not pred_result then
-		return
-	end
-
-	displayed_time = globals.CurTime() + 1
-	paths.player_path = pred_result.vecPlayerPath
-	paths.proj_path = pred_result.vecProjPath
-end
-
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
 	if not settings.enabled then
-		return
-	end
-
-	if settings.draw_only then
-		CreateMove_DrawOnly()
 		return
 	end
 
@@ -460,8 +401,9 @@ local function CreateMove(uCmd)
 	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 	local pred_result, pTarget =
-		ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netChannel, settings.draw_only, players)
+		ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netChannel, settings.draw_only, players, bIsHuntsman)
 
 	if not pred_result or not pTarget then
 		return
@@ -474,33 +416,9 @@ local function CreateMove(uCmd)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local bSplashWeapon = IsSplashDamageWeapon(pWeapon)
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 	local vec_bestPos = pred_result.vecPos
-
-	if settings.multipointing then
-		multipoint:Set(
-			pLocal,
-			pTarget,
-			bIsHuntsman,
-			pred_result.vecAimDir,
-			bAimAtTeamMates,
-			vecHeadPos,
-			pred_result.vecPos,
-			weaponInfo,
-			math_utils,
-			settings.max_distance,
-			bSplashWeapon
-		)
-
-		vec_bestPos = multipoint:GetBestHitPoint()
-
-		if not vec_bestPos then
-			return
-		end
-	end
 
 	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
 	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
