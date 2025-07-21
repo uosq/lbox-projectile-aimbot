@@ -10,38 +10,25 @@ env:SetSimulationTimestep(globals.TickInterval())
 
 local MASK_SHOT_HULL = MASK_SHOT_HULL
 
+---@type table<integer, PhysicsObject>
+local projectiles = {}
+
 local PROJECTILE_MODELS = {
 	[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER] = [[models/weapons/w_models/w_rocket.mdl]],
 	[E_WeaponBaseID.TF_WEAPON_GRENADELAUNCHER] = [[models/weapons/w_models/w_grenade_grenadelauncher.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_STICKBOMB] = [[models/weapons/w_models/w_stickybomb.mdl]],
+	[E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER] = [[models/weapons/w_models/w_stickybomb.mdl]],
+	[E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW] = [[models/weapons/w_models/w_arrow.mdl]],
+	[E_WeaponBaseID.TF_WEAPON_CANNON] = [[models/weapons/w_models/w_cannonball.mdl]],
+	[E_WeaponBaseID.TF_WEAPON_FLAREGUN] = [[models/weapons/w_models/w_flaregun_shell.mdl]],
+	[E_WeaponBaseID.TF_WEAPON_DRG_POMSON] = [[models/weapons/w_models/w_drg_ball.mdl]],
 }
 
--- Cache parsed models to avoid repeated parsing
-local modelCache = {}
-
----@param pWeapon Entity
-local function GetProjectileModel(pWeapon)
-	local weaponID = pWeapon:GetWeaponID()
-	return PROJECTILE_MODELS[weaponID] or PROJECTILE_MODELS[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER]
-end
-
-local function CreateProjectile(pWeapon)
-	local projModel = GetProjectileModel(pWeapon)
-
-	if not modelCache[projModel] then
-		local solid, collisionModel = physics.ParseModelByName(projModel)
-		modelCache[projModel] = {
-			solid = solid,
-			collisionModel = collisionModel,
-			surfaceProp = solid:GetSurfacePropName(),
-			objectParams = solid:GetObjectParameters(),
-		}
-	end
-
-	local cached = modelCache[projModel]
-	local projectile = env:CreatePolyObject(cached.collisionModel, cached.surfaceProp, cached.objectParams)
-	projectile:Wake()
-	return projectile
+for i, model in pairs(PROJECTILE_MODELS) do
+	local solid, collisionModel = physics.ParseModelByName(model)
+	local surfaceProp = solid:GetSurfacePropName()
+	local objectParams = solid:GetObjectParameters()
+	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
+	projectiles[i] = projectile
 end
 
 ---@param pLocal Entity The localplayer
@@ -54,12 +41,15 @@ end
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local positions = {}
 
-	local projectile = CreateProjectile(pWeapon)
+	local projectile = projectiles[pWeapon:GetWeaponID()] or projectiles[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER]
+	projectile:Wake()
+
 	local mins, maxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
 	local speed = weapon_info.flForwardVelocity
 	local velocity = vecForward * speed
 
 	local gravity = weapon_info.flGravity
+
 	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)
 	projectile:SetVelocity(velocity, Vector3())
@@ -82,16 +72,15 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 				time_secs = env:GetSimulationTime(),
 			}
 
-			table.insert(positions, record)
+			positions[#positions + 1] = record
 			shootPos = currentPos
 		else
 			break
 		end
 	end
 
-	env:DestroyObject(projectile)
 	env:ResetSimulationClock()
-
+	projectile:Sleep()
 	return positions
 end
 
