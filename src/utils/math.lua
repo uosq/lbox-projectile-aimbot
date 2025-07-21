@@ -51,25 +51,30 @@ local function NormalizeVector(vec)
 	return vec / vec:Length()
 end
 
+---@param p0 Vector3
+---@param p1 Vector3
+---@param speed number
+---@param gravity number
+---@return Vector3|nil
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
 	local dx = math.sqrt(diff.x ^ 2 + diff.y ^ 2)
 	local dy = diff.z
-
 	local speed2 = speed * speed
 	local g = gravity
-	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
 
+	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
 	if root < 0 then
-		return nil
-	end -- no solution
+		return nil -- no solution
+	end
 
 	local sqrt_root = math.sqrt(root)
-	local angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
+	local angle
+
+	angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
 
 	local dir_xy = NormalizeVector(Vector3(diff.x, diff.y, 0))
 	local aim = Vector3(dir_xy.x * math.cos(angle), dir_xy.y * math.cos(angle), math.sin(angle))
-
 	return NormalizeVector(aim)
 end
 
@@ -78,7 +83,7 @@ end
 ---@param speed number
 ---@return number
 function Math.EstimateTravelTime(shootPos, targetPos, speed)
-	local distance = (targetPos - shootPos):Length()
+	local distance = (targetPos - shootPos):Length2D()
 	return distance / speed
 end
 

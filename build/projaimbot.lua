@@ -335,8 +335,9 @@ end
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
 ---@param bIsHuntsman boolean
+---@param vecHeadPos Vector3
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
+local function ProcessPrediction(pLocal, pWeapon, vecHeadPos, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
@@ -353,8 +354,6 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-
-	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
 	if not best_target.index then
@@ -386,9 +385,7 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		bAimTeamMate
 	)
 
-	local pred_result, ptarget = prediction:Run(), pTarget
-
-	return pred_result, ptarget
+	return prediction:Run(), pTarget
 end
 
 ---@param uCmd UserCmd
@@ -442,12 +439,22 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
+	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	local pred_result, pTarget =
-		ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netChannel, settings.draw_only, players, bIsHuntsman)
+	local pred_result, pTarget = ProcessPrediction(
+		pLocal,
+		pWeapon,
+		vecHeadPos,
+		bAimAtTeamMates,
+		netChannel,
+		settings.draw_only,
+		players,
+		bIsHuntsman
+	)
 
 	if not pred_result or not pTarget then
 		return
@@ -460,10 +467,9 @@ local function CreateMove(uCmd)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local vec_bestPos = pred_result.vecPos
 
+	-- Use the muzzle position for the trace check instead of the head position
 	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
 	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
@@ -471,7 +477,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
+	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
+	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
 
 	local bAttack = false
 
@@ -484,7 +491,7 @@ local function CreateMove(uCmd)
 		end
 
 		if not settings.silent and not settings.psilent then
-			engine.SetViewAngles(angle)
+			engine.SetViewAngles(EulerAngles(angle:Unpack()))
 		end
 
 		return true
@@ -2140,35 +2147,33 @@ function pred:Run()
 		return nil
 	end
 
-	if self.settings.multipointing then
-		local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
-		multipoint:Set(
-			self.pLocal,
-			self.pTarget,
-			self.bIsHuntsman,
-			aim_dir,
-			self.bAimAtTeamMates,
-			vecMuzzlePos,
-			predicted_target_pos,
-			self.weapon_info,
-			self.math_utils,
-			self.settings.max_distance,
-			bSplashWeapon
-		)
+	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
+	multipoint:Set(
+		self.pLocal,
+		self.pTarget,
+		self.bIsHuntsman,
+		aim_dir,
+		self.bAimAtTeamMates,
+		vecMuzzlePos,
+		predicted_target_pos,
+		self.weapon_info,
+		self.math_utils,
+		self.settings.max_distance,
+		bSplashWeapon
+	)
 
-		---@diagnostic disable-next-line: cast-local-type
-		predicted_target_pos = multipoint:GetBestHitPoint()
+	---@diagnostic disable-next-line: cast-local-type
+	predicted_target_pos = multipoint:GetBestHitPoint()
 
-		if not predicted_target_pos then
-			return nil
-		end
+	if not predicted_target_pos then
+		return nil
+	end
 
-		aim_dir = (gravity > 0)
-				and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-			or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-		if not aim_dir then
-			return nil
-		end
+	aim_dir = (gravity > 0)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	if not aim_dir then
+		return nil
 	end
 
 	local projectile_path = self.proj_sim.Run(
@@ -2213,6 +2218,7 @@ local multipoint = {}
 
 local offset_multipliers = {
 	splash = {
+		{ 0, 0, 0 }, -- legs
 		{ 0, 0, 0.2 }, -- legs
 		{ 0, 0, 0.5 }, -- chest
 		{ 0.6, 0, 0.5 }, -- right shoulder
@@ -2228,9 +2234,9 @@ local offset_multipliers = {
 	},
 	normal = {
 		{ 0, 0, 0.5 }, -- chest
+		{ 0, 0, 0.9 }, -- near head
 		{ 0.6, 0, 0.5 }, -- right shoulder
 		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.9 }, -- near head
 		{ 0, 0, 0.2 }, -- legs
 	},
 }
@@ -2262,7 +2268,7 @@ function multipoint:GetBestHitPoint()
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
 			bestFraction = trace.fraction
-			if bestFraction >= 0.95 then
+			if bestFraction >= 1 then
 				break
 			end
 		end
@@ -2792,25 +2798,30 @@ local function NormalizeVector(vec)
 	return vec / vec:Length()
 end
 
+---@param p0 Vector3
+---@param p1 Vector3
+---@param speed number
+---@param gravity number
+---@return Vector3|nil
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
 	local dx = math.sqrt(diff.x ^ 2 + diff.y ^ 2)
 	local dy = diff.z
-
 	local speed2 = speed * speed
 	local g = gravity
-	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
 
+	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
 	if root < 0 then
-		return nil
-	end -- no solution
+		return nil -- no solution
+	end
 
 	local sqrt_root = math.sqrt(root)
-	local angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
+	local angle
+
+	angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
 
 	local dir_xy = NormalizeVector(Vector3(diff.x, diff.y, 0))
 	local aim = Vector3(dir_xy.x * math.cos(angle), dir_xy.y * math.cos(angle), math.sin(angle))
-
 	return NormalizeVector(aim)
 end
 
@@ -2819,7 +2830,7 @@ end
 ---@param speed number
 ---@return number
 function Math.EstimateTravelTime(shootPos, targetPos, speed)
-	local distance = (targetPos - shootPos):Length()
+	local distance = (targetPos - shootPos):Length2D()
 	return distance / speed
 end
 

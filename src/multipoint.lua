@@ -14,6 +14,7 @@ local multipoint = {}
 
 local offset_multipliers = {
 	splash = {
+		{ 0, 0, 0 }, -- legs
 		{ 0, 0, 0.2 }, -- legs
 		{ 0, 0, 0.5 }, -- chest
 		{ 0.6, 0, 0.5 }, -- right shoulder
@@ -29,9 +30,9 @@ local offset_multipliers = {
 	},
 	normal = {
 		{ 0, 0, 0.5 }, -- chest
+		{ 0, 0, 0.9 }, -- near head
 		{ 0.6, 0, 0.5 }, -- right shoulder
 		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.9 }, -- near head
 		{ 0, 0, 0.2 }, -- legs
 	},
 }
@@ -63,7 +64,7 @@ function multipoint:GetBestHitPoint()
 		if trace and trace.fraction > bestFraction then
 			bestPoint = test_pos
 			bestFraction = trace.fraction
-			if bestFraction >= 0.95 then
+			if bestFraction >= 1 then
 				break
 			end
 		end

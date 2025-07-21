@@ -291,8 +291,9 @@ end
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
 ---@param bIsHuntsman boolean
+---@param vecHeadPos Vector3
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
+local function ProcessPrediction(pLocal, pWeapon, vecHeadPos, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
@@ -309,8 +310,6 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-
-	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
 	if not best_target.index then
@@ -342,9 +341,7 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		bAimTeamMate
 	)
 
-	local pred_result, ptarget = prediction:Run(), pTarget
-
-	return pred_result, ptarget
+	return prediction:Run(), pTarget
 end
 
 ---@param uCmd UserCmd
@@ -398,12 +395,22 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
+	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
+	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	local pred_result, pTarget =
-		ProcessPrediction(pLocal, pWeapon, bAimAtTeamMates, netChannel, settings.draw_only, players, bIsHuntsman)
+	local pred_result, pTarget = ProcessPrediction(
+		pLocal,
+		pWeapon,
+		vecHeadPos,
+		bAimAtTeamMates,
+		netChannel,
+		settings.draw_only,
+		players,
+		bIsHuntsman
+	)
 
 	if not pred_result or not pTarget then
 		return
@@ -416,10 +423,9 @@ local function CreateMove(uCmd)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local vec_bestPos = pred_result.vecPos
 
+	-- Use the muzzle position for the trace check instead of the head position
 	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
 	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
@@ -427,7 +433,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
+	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
+	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
 
 	local bAttack = false
 
@@ -440,7 +447,7 @@ local function CreateMove(uCmd)
 		end
 
 		if not settings.silent and not settings.psilent then
-			engine.SetViewAngles(angle)
+			engine.SetViewAngles(EulerAngles(angle:Unpack()))
 		end
 
 		return true
