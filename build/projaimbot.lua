@@ -166,19 +166,19 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 end
 
 local function ShouldSkipPlayer(pPlayer)
-	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked then
 		return true
 	end
 
@@ -676,7 +676,6 @@ local function Unload()
 	player_sim = nil
 	proj_sim = nil
 	prediction = nil
-	multipoint = nil
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -2141,33 +2140,35 @@ function pred:Run()
 		return nil
 	end
 
-	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
-	multipoint:Set(
-		self.pLocal,
-		self.pTarget,
-		self.bIsHuntsman,
-		aim_dir,
-		self.bAimAtTeamMates,
-		vecMuzzlePos,
-		predicted_target_pos,
-		self.weapon_info,
-		self.math_utils,
-		self.settings.max_distance,
-		bSplashWeapon
-	)
+	if self.settings.multipointing then
+		local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
+		multipoint:Set(
+			self.pLocal,
+			self.pTarget,
+			self.bIsHuntsman,
+			aim_dir,
+			self.bAimAtTeamMates,
+			vecMuzzlePos,
+			predicted_target_pos,
+			self.weapon_info,
+			self.math_utils,
+			self.settings.max_distance,
+			bSplashWeapon
+		)
 
-	---@diagnostic disable-next-line: cast-local-type
-	predicted_target_pos = multipoint:GetBestHitPoint()
+		---@diagnostic disable-next-line: cast-local-type
+		predicted_target_pos = multipoint:GetBestHitPoint()
 
-	if not predicted_target_pos then
-		return nil
-	end
+		if not predicted_target_pos then
+			return nil
+		end
 
-	aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-	if not aim_dir then
-		return nil
+		aim_dir = (gravity > 0)
+				and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+			or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+		if not aim_dir then
+			return nil
+		end
 	end
 
 	local projectile_path = self.proj_sim.Run(

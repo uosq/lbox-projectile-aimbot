@@ -122,19 +122,19 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 end
 
 local function ShouldSkipPlayer(pPlayer)
-	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting then
 		return true
 	end
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked then
 		return true
 	end
 
@@ -632,7 +632,6 @@ local function Unload()
 	player_sim = nil
 	proj_sim = nil
 	prediction = nil
-	multipoint = nil
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
