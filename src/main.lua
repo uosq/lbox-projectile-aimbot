@@ -2,7 +2,6 @@
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
 	Update: v4
-	
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -68,6 +67,11 @@ local multipoint = require("src.multipoint")
 local menu = require("src.gui")
 menu.init(settings, version)
 
+local draw = draw
+local entities = entities
+local engine = engine
+local E_TFCOND = E_TFCOND
+
 local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
 
@@ -114,23 +118,23 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 end
 
 local function ShouldSkipPlayer(pPlayer)
-	if pPlayer:InCond(TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
+	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
+	if pPlayer:InCond(E_TFCOND.TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
 		return true
 	end
 
@@ -138,15 +142,15 @@ local function ShouldSkipPlayer(pPlayer)
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Jarated) and settings.ignore_conds.jarated then
+	if pPlayer:InCond(E_TFCOND.TFCond_Jarated) and settings.ignore_conds.jarated then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_Milked) and settings.ignore_conds.milked then
+	if pPlayer:InCond(E_TFCOND.TFCond_Milked) and settings.ignore_conds.milked then
 		return true
 	end
 
-	if pPlayer:InCond(TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
+	if pPlayer:InCond(E_TFCOND.TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
 		return true
 	end
 
@@ -190,7 +194,7 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local function loop_entity_class(class_table)
 		for _, ent in pairs(class_table) do
 			local origin = ent:GetAbsOrigin()
-			local dist = (origin - localPos):Length()
+			local dist = (origin - localPos):Length2D()
 			if dist > settings.max_distance then
 				goto continue
 			end
@@ -338,7 +342,9 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		settings.max_sim_time
 	)
 
-	return prediction:Run(), pTarget
+	local pred_result, ptarget = prediction:Run(), pTarget
+
+	return pred_result, ptarget
 end
 
 local function CreateMove_DrawOnly()
@@ -367,10 +373,6 @@ local function CreateMove_DrawOnly()
 	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
 	if not iCase or not iDefinitionIndex then
 		return
-	end
-
-	if gui.GetValue("projectile aimbot") ~= "none" then
-		gui.SetValue("projectile aimbot", "none")
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
@@ -485,6 +487,7 @@ local function CreateMove(uCmd)
 		)
 
 		vec_bestPos = multipoint:GetBestHitPoint()
+
 		if not vec_bestPos then
 			return
 		end
@@ -711,3 +714,7 @@ callbacks.Register("Unload", Unload)
 
 printc(252, 186, 3, 255, string.format("Navet's Projectile Aimbot (v%s) loaded", version))
 printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")
+
+if gui.GetValue("projectile aimbot") ~= "none" then
+	gui.SetValue("projectile aimbot", "none")
+end
