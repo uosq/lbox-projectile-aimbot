@@ -57,7 +57,7 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 
 ---@diagnostic disable: cast-local-type
 
-local version = "4"
+local version = "5"
 
 local settings = {
 	enabled = true,
@@ -69,18 +69,34 @@ local settings = {
 	draw_bounding_box = true,
 	draw_only = false,
 	max_distance = 2048,
+	multipointing = true,
+	allow_aim_at_teammates = true,
+	ping_compensation = true,
+
+	ents = {
+		["aim players"] = true,
+		["aim sentries"] = true,
+		["aim dispensers"] = true,
+		["aim teleporters"] = true,
+	},
 
 	silent = true,
 	psilent = true,
 	plain = true,
 
-	conds = {
+	ignore_conds = {
 		cloaked = true,
 		disguised = true,
 		ubercharged = true,
 		bonked = true,
 		taunting = true,
 		friends = true,
+		bumper_karts = false,
+		kritzkrieged = false,
+		jarated = false,
+		milked = false,
+		vaccinator = false,
+		ghost = true,
 	},
 }
 
@@ -99,7 +115,8 @@ menu.init(settings, version)
 local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
 
-local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
+--local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
+local target_min_hull, target_max_hull = Vector3(), Vector3()
 
 local paths = {
 	proj_path = {},
@@ -140,12 +157,69 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	return true
 end
 
+local function ShouldSkipPlayer(pPlayer)
+	if pPlayer:InCond(TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
+		return true
+	end
+
+	if pPlayer:InCond(E_TFCOND.TFCond_Kritzkrieged) and settings.ignore_conds.kritzkrieged then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Jarated) and settings.ignore_conds.jarated then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Milked) and settings.ignore_conds.milked then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
+		return true
+	end
+
+	if settings.ignore_conds.vaccinator then
+		local resist_table = {
+			TFCond_UberBulletResist = 58,
+			TFCond_UberBlastResist = 59,
+			TFCond_UberFireResist = 60,
+			TFCond_SmallBulletResist = 61,
+			TFCond_SmallBlastResist = 62,
+			TFCond_SmallFireResist = 63,
+		}
+
+		for _, resist in pairs(resist_table) do
+			if pPlayer:InCond(resist) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
 ---@param shootpos Vector3
 ---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
 ---@return PlayerInfo
-local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
+local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local best_target = {
 		angle = nil,
 		fov = settings.fov,
@@ -157,60 +231,86 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	local localPos = pLocal:GetAbsOrigin()
 	local viewAngles = engine.GetViewAngles()
 
-	for _, player in pairs(players) do
-		if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
-			goto continue
-		end
+	local function loop_entity_class(class_table)
+		for _, ent in pairs(class_table) do
+			local origin = ent:GetAbsOrigin()
+			local dist = (origin - localPos):Length()
+			if dist > settings.max_distance then
+				goto continue
+			end
 
-		-- distance check
-		local playerPos = player:GetAbsOrigin()
-		local distSq = (playerPos - localPos):Length()
-		if distSq > settings.max_distance then
-			goto continue
-		end
+			local angleToEntity = math_utils.PositionAngles(shootpos, origin)
+			local fov = math_utils.AngleFov(viewAngles, angleToEntity)
+			if fov and fov < best_target.fov then
+				best_target.angle = angleToEntity
+				best_target.fov = fov
+				best_target.index = ent:GetIndex()
+				best_target.pos = origin
 
-		if playerlist.GetPriority(player) < 0 and settings.conds.friends then
-			goto continue
-		end
+				target_max_hull = ent:GetMaxs()
+				target_min_hull = ent:GetMins()
+			end
 
-		-- team check
-		local isTeammate = player:GetTeamNumber() == localTeam
-		if bAimTeamMate ~= isTeammate then
-			goto continue
+			::continue::
 		end
+	end
 
-		-- player conds
-		if player:InCond(TFCond_Cloaked) and settings.conds.cloaked == 1 then
-			goto continue
+	if settings.ents["aim teleporters"] then
+		local teles = entities.FindByClass("CObjectTeleporter")
+		loop_entity_class(teles)
+	end
+
+	if settings.ents["aim dispensers"] then
+		loop_entity_class(entities.FindByClass("CObjectDispenser"))
+	end
+
+	if settings.ents["aim sentries"] then
+		loop_entity_class(entities.FindByClass("CObjectSentrygun"))
+	end
+
+	if settings.ents["aim players"] then
+		for _, player in pairs(players) do
+			if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
+				goto continue
+			end
+
+			-- distance check
+			local playerPos = player:GetAbsOrigin()
+			local dist = (playerPos - localPos):Length()
+			if dist > settings.max_distance then
+				goto continue
+			end
+
+			if playerlist.GetPriority(player) < 0 and settings.ignore_conds.friends then
+				goto continue
+			end
+
+			-- team check
+			local isTeammate = player:GetTeamNumber() == localTeam
+			if bAimTeamMate ~= isTeammate then
+				goto continue
+			end
+
+			-- player conds
+			if ShouldSkipPlayer(player) then
+				goto continue
+			end
+
+			-- fov check
+			local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
+			local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
+			if fov and fov < best_target.fov then
+				best_target.angle = angleToPlayer
+				best_target.fov = fov
+				best_target.index = player:GetIndex()
+				best_target.pos = playerPos
+
+				target_max_hull = player:GetMaxs()
+				target_min_hull = player:GetMins()
+			end
+
+			::continue::
 		end
-
-		if player:InCond(TFCond_Disguised) and settings.conds.disguised == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Taunting) and settings.conds.taunting == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Bonked) and settings.conds.bonked == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Ubercharged) and settings.conds.ubercharged then
-			goto continue
-		end
-
-		-- fov check
-		local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
-		local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
-		if fov and fov < best_target.fov then
-			best_target.angle = angleToPlayer
-			best_target.fov = fov
-			best_target.index = player:GetIndex()
-			best_target.pos = playerPos
-		end
-
-		::continue::
 	end
 
 	return best_target
@@ -250,10 +350,9 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	bAimTeamMate = (iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX) or (iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW)
 
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
+	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
 	if not best_target.index then
 		return nil
@@ -266,7 +365,8 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 
 	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, is_ducking, iCase, iDefinitionIndex, iWeaponID)
-	local nlatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
 	prediction:Set(
 		pLocal,
@@ -388,6 +488,8 @@ local function CreateMove(uCmd)
 		bAimAtTeamMates = true
 	end
 
+	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
+
 	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
@@ -409,25 +511,27 @@ local function CreateMove(uCmd)
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local vec_bestPos = pred_result.vecPos
 
-	multipoint:Set(
-		pLocal,
-		pTarget,
-		bIsHuntsman,
-		pred_result.vecAimDir,
-		players,
-		bAimAtTeamMates,
-		vecHeadPos,
-		pred_result.vecPos,
-		weaponInfo,
-		math_utils,
-		settings.max_distance,
-		bSplashWeapon
-	)
+	if settings.multipointing then
+		multipoint:Set(
+			pLocal,
+			pTarget,
+			bIsHuntsman,
+			pred_result.vecAimDir,
+			bAimAtTeamMates,
+			vecHeadPos,
+			pred_result.vecPos,
+			weaponInfo,
+			math_utils,
+			settings.max_distance,
+			bSplashWeapon
+		)
 
-	local vec_bestPos = multipoint:GetBestHitPoint()
-	if not vec_bestPos then
-		return
+		vec_bestPos = multipoint:GetBestHitPoint()
+		if not vec_bestPos then
+			return
+		end
 	end
 
 	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
@@ -619,7 +723,7 @@ local function Draw()
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
-			DrawPlayerHitbox(pos, PLAYER_MIN_HULL, PLAYER_MAX_HULL)
+			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
 		end
 	end
 
@@ -663,7 +767,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 ---@param version string
 function gui.init(settings, version)
 	local window = menu:make_window()
-	window.width = 400
+	window.width = 670
 	window.height = 270
 
 	local component_width = 260
@@ -780,6 +884,72 @@ function gui.init(settings, version)
 		end
 	end
 
+	--- right side
+	local multipoint_btn = menu:make_checkbox()
+	multipoint_btn.height = 20
+	multipoint_btn.width = component_width
+	multipoint_btn.label = "multipoint"
+	multipoint_btn.enabled = settings.multipointing
+	multipoint_btn.x = component_width + 20
+	multipoint_btn.y = 10
+
+	multipoint_btn.func = function()
+		settings.multipointing = not settings.multipointing
+		multipoint_btn.enabled = settings.multipointing
+	end
+
+	local allow_aim_at_teammates_btn = menu:make_checkbox()
+	allow_aim_at_teammates_btn.height = 20
+	allow_aim_at_teammates_btn.width = component_width
+	allow_aim_at_teammates_btn.label = "allow aim at teammates"
+	allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	allow_aim_at_teammates_btn.x = component_width + 20
+	allow_aim_at_teammates_btn.y = 35
+
+	allow_aim_at_teammates_btn.func = function()
+		settings.allow_aim_at_teammates = not settings.allow_aim_at_teammates
+		allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	end
+
+	local lag_comp_btn = menu:make_checkbox()
+	lag_comp_btn.height = 20
+	lag_comp_btn.width = component_width
+	lag_comp_btn.label = "ping compensation"
+	lag_comp_btn.enabled = settings.ping_compensation
+	lag_comp_btn.x = component_width + 20
+	lag_comp_btn.y = 60
+
+	lag_comp_btn.func = function()
+		settings.ping_compensation = not settings.ping_compensation
+		lag_comp_btn.enabled = settings.ping_compensation
+	end
+
+	do
+		local i = 0
+		local starty = 85
+		local gap = 5
+
+		for name, enabled in pairs(settings.ents) do
+			local btn = menu:make_checkbox()
+			assert(btn, string.format("Button %s is nil!", name))
+
+			btn.enabled = enabled
+			btn.width = component_width
+			btn.height = 20
+			btn.x = component_width + 20
+			btn.y = (btn.height * i) + starty + (gap * i)
+			btn.label = name
+
+			btn.func = function()
+				settings.ents[name] = not settings.ents[name]
+				btn.enabled = settings.ents[name]
+			end
+
+			i = i + 1
+		end
+	end
+	---
+
 	menu:make_tab("misc")
 
 	local sim_time_slider = menu:make_slider()
@@ -791,7 +961,7 @@ function gui.init(settings, version)
 	sim_time_slider.max = 10
 	sim_time_slider.min = 0.5
 	sim_time_slider.value = settings.max_sim_time
-	sim_time_slider.width = component_width
+	sim_time_slider.width = component_width * 2
 	sim_time_slider.x = 10
 	sim_time_slider.y = 25
 
@@ -808,7 +978,7 @@ function gui.init(settings, version)
 	max_distance_slider.max = 4096
 	max_distance_slider.min = 0
 	max_distance_slider.value = settings.max_distance
-	max_distance_slider.width = component_width
+	max_distance_slider.width = component_width * 2
 	max_distance_slider.x = 10
 	max_distance_slider.y = 70
 
@@ -825,7 +995,7 @@ function gui.init(settings, version)
 	fov_slider.max = 180
 	fov_slider.min = 0
 	fov_slider.value = settings.fov
-	fov_slider.width = component_width
+	fov_slider.width = component_width * 2
 	fov_slider.x = 10
 	fov_slider.y = 115
 
@@ -842,36 +1012,25 @@ function gui.init(settings, version)
 
 		--- im too lazy to make them one by one
 		--- i just didnt do the same with the other ones because i want them ordered
-		for name, enabled in pairs(settings.conds) do
+		for name, enabled in pairs(settings.ignore_conds) do
 			local btn = menu:make_checkbox()
 			assert(btn, string.format("Button %s is nil!", name))
 
 			btn.enabled = enabled
 			btn.width = component_width
 			btn.height = 20
-			btn.x = 10
-			btn.y = (btn.height * i) + starty + (gap * i)
+			btn.x = i >= 10 and component_width + 20 or 10
+			btn.y = (btn.height * (i >= 10 and i - 10 or i)) + starty + (gap * (i >= 10 and i - 10 or i))
 			btn.label = string.format("ignore %s", name)
 
 			btn.func = function()
-				settings.conds[name] = not settings.conds[name]
-				btn.enabled = settings.conds[name]
+				settings.ignore_conds[name] = not settings.ignore_conds[name]
+				btn.enabled = settings.ignore_conds[name]
 			end
 
 			i = i + 1
 		end
 	end
-
-	local soon_btn = menu:make_button()
-	assert(soon_btn, "soon button is nil! wtf")
-
-	local half_content_offset = 61
-
-	soon_btn.width = 100
-	soon_btn.height = 20
-	soon_btn.label = "more soon?"
-	soon_btn.x = (window.width // 2) - (soon_btn.width // 2) - half_content_offset
-	soon_btn.y = 200
 
 	menu:register()
 end
@@ -1933,7 +2092,6 @@ __bundle_register("src.multipoint", function(require, _LOADED, __bundle_register
 ---@field private bIsSplash boolean
 ---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
----@field private players table<integer, Entity>
 ---@field private bAimTeamMate boolean
 ---@field private vecHeadPos Vector3
 ---@field private weapon_info WeaponInfo
@@ -2007,7 +2165,6 @@ function multipoint:Set(
 	pTarget,
 	bIsHuntsman,
 	vecAimDir,
-	players,
 	bAimTeamMate,
 	vecHeadPos,
 	vecPredictedPos,
@@ -2020,7 +2177,6 @@ function multipoint:Set(
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
 	self.vecAimDir = vecAimDir
-	self.players = players
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info
@@ -2139,44 +2295,28 @@ function pred:Run()
 		return nil
 	end
 
+	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
+	local total_time = travel_time_est + self.nLatency
+	if total_time > self.nMaxTime then
+		return nil
+	end
+
 	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local max_iters = 2
-	local total_time = 0.1
-	local predicted_target_pos
-	local aim_dir
-	local player_positions
+	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
+	if not player_positions then
+		return nil
+	end
 
-	for i = 1, max_iters do
-		-- run player sim with current total_time
-		player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-		if not player_positions or #player_positions == 0 then
-			return nil
-		end
-
-		predicted_target_pos = player_positions[#player_positions]
-		if not predicted_target_pos then
-			return nil
-		end
-
-		-- recalculate aim direction
-		aim_dir = (gravity > 0)
-				and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-			or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-
-		if not aim_dir then
-			return nil
-		end
-
-		-- update total_time for next iteration
-		total_time = (predicted_target_pos - vecMuzzlePos):Length() / projectile_speed + self.nLatency
-
-		if total_time > self.nMaxTime then
-			return nil
-		end
+	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
+	local aim_dir = (gravity > 0)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	if not aim_dir then
+		return nil
 	end
 
 	local projectile_path =
-		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, total_time, self.weapon_info)
+		self.proj_sim.Run(self.pLocal, self.pWeapon, vecMuzzlePos, aim_dir, self.nMaxTime, self.weapon_info)
 	if not projectile_path or #projectile_path == 0 then
 		return nil
 	end

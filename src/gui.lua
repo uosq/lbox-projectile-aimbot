@@ -7,7 +7,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 ---@param version string
 function gui.init(settings, version)
 	local window = menu:make_window()
-	window.width = 400
+	window.width = 670
 	window.height = 270
 
 	local component_width = 260
@@ -124,6 +124,72 @@ function gui.init(settings, version)
 		end
 	end
 
+	--- right side
+	local multipoint_btn = menu:make_checkbox()
+	multipoint_btn.height = 20
+	multipoint_btn.width = component_width
+	multipoint_btn.label = "multipoint"
+	multipoint_btn.enabled = settings.multipointing
+	multipoint_btn.x = component_width + 20
+	multipoint_btn.y = 10
+
+	multipoint_btn.func = function()
+		settings.multipointing = not settings.multipointing
+		multipoint_btn.enabled = settings.multipointing
+	end
+
+	local allow_aim_at_teammates_btn = menu:make_checkbox()
+	allow_aim_at_teammates_btn.height = 20
+	allow_aim_at_teammates_btn.width = component_width
+	allow_aim_at_teammates_btn.label = "allow aim at teammates"
+	allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	allow_aim_at_teammates_btn.x = component_width + 20
+	allow_aim_at_teammates_btn.y = 35
+
+	allow_aim_at_teammates_btn.func = function()
+		settings.allow_aim_at_teammates = not settings.allow_aim_at_teammates
+		allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	end
+
+	local lag_comp_btn = menu:make_checkbox()
+	lag_comp_btn.height = 20
+	lag_comp_btn.width = component_width
+	lag_comp_btn.label = "ping compensation"
+	lag_comp_btn.enabled = settings.ping_compensation
+	lag_comp_btn.x = component_width + 20
+	lag_comp_btn.y = 60
+
+	lag_comp_btn.func = function()
+		settings.ping_compensation = not settings.ping_compensation
+		lag_comp_btn.enabled = settings.ping_compensation
+	end
+
+	do
+		local i = 0
+		local starty = 85
+		local gap = 5
+
+		for name, enabled in pairs(settings.ents) do
+			local btn = menu:make_checkbox()
+			assert(btn, string.format("Button %s is nil!", name))
+
+			btn.enabled = enabled
+			btn.width = component_width
+			btn.height = 20
+			btn.x = component_width + 20
+			btn.y = (btn.height * i) + starty + (gap * i)
+			btn.label = name
+
+			btn.func = function()
+				settings.ents[name] = not settings.ents[name]
+				btn.enabled = settings.ents[name]
+			end
+
+			i = i + 1
+		end
+	end
+	---
+
 	menu:make_tab("misc")
 
 	local sim_time_slider = menu:make_slider()
@@ -135,7 +201,7 @@ function gui.init(settings, version)
 	sim_time_slider.max = 10
 	sim_time_slider.min = 0.5
 	sim_time_slider.value = settings.max_sim_time
-	sim_time_slider.width = component_width
+	sim_time_slider.width = component_width * 2
 	sim_time_slider.x = 10
 	sim_time_slider.y = 25
 
@@ -152,7 +218,7 @@ function gui.init(settings, version)
 	max_distance_slider.max = 4096
 	max_distance_slider.min = 0
 	max_distance_slider.value = settings.max_distance
-	max_distance_slider.width = component_width
+	max_distance_slider.width = component_width * 2
 	max_distance_slider.x = 10
 	max_distance_slider.y = 70
 
@@ -169,7 +235,7 @@ function gui.init(settings, version)
 	fov_slider.max = 180
 	fov_slider.min = 0
 	fov_slider.value = settings.fov
-	fov_slider.width = component_width
+	fov_slider.width = component_width * 2
 	fov_slider.x = 10
 	fov_slider.y = 115
 
@@ -186,36 +252,25 @@ function gui.init(settings, version)
 
 		--- im too lazy to make them one by one
 		--- i just didnt do the same with the other ones because i want them ordered
-		for name, enabled in pairs(settings.conds) do
+		for name, enabled in pairs(settings.ignore_conds) do
 			local btn = menu:make_checkbox()
 			assert(btn, string.format("Button %s is nil!", name))
 
 			btn.enabled = enabled
 			btn.width = component_width
 			btn.height = 20
-			btn.x = 10
-			btn.y = (btn.height * i) + starty + (gap * i)
+			btn.x = i >= 10 and component_width + 20 or 10
+			btn.y = (btn.height * (i >= 10 and i - 10 or i)) + starty + (gap * (i >= 10 and i - 10 or i))
 			btn.label = string.format("ignore %s", name)
 
 			btn.func = function()
-				settings.conds[name] = not settings.conds[name]
-				btn.enabled = settings.conds[name]
+				settings.ignore_conds[name] = not settings.ignore_conds[name]
+				btn.enabled = settings.ignore_conds[name]
 			end
 
 			i = i + 1
 		end
 	end
-
-	local soon_btn = menu:make_button()
-	assert(soon_btn, "soon button is nil! wtf")
-
-	local half_content_offset = 61
-
-	soon_btn.width = 100
-	soon_btn.height = 20
-	soon_btn.label = "more soon?"
-	soon_btn.x = (window.width // 2) - (soon_btn.width // 2) - half_content_offset
-	soon_btn.y = 200
 
 	menu:register()
 end

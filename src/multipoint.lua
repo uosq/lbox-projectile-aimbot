@@ -5,7 +5,6 @@
 ---@field private bIsSplash boolean
 ---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
----@field private players table<integer, Entity>
 ---@field private bAimTeamMate boolean
 ---@field private vecHeadPos Vector3
 ---@field private weapon_info WeaponInfo
@@ -79,7 +78,6 @@ function multipoint:Set(
 	pTarget,
 	bIsHuntsman,
 	vecAimDir,
-	players,
 	bAimTeamMate,
 	vecHeadPos,
 	vecPredictedPos,
@@ -92,7 +90,6 @@ function multipoint:Set(
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
 	self.vecAimDir = vecAimDir
-	self.players = players
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info

@@ -13,7 +13,7 @@
 
 ---@diagnostic disable: cast-local-type
 
-local version = "4"
+local version = "5"
 
 local settings = {
 	enabled = true,
@@ -25,18 +25,34 @@ local settings = {
 	draw_bounding_box = true,
 	draw_only = false,
 	max_distance = 2048,
+	multipointing = true,
+	allow_aim_at_teammates = true,
+	ping_compensation = true,
+
+	ents = {
+		["aim players"] = true,
+		["aim sentries"] = true,
+		["aim dispensers"] = true,
+		["aim teleporters"] = true,
+	},
 
 	silent = true,
 	psilent = true,
 	plain = true,
 
-	conds = {
+	ignore_conds = {
 		cloaked = true,
 		disguised = true,
 		ubercharged = true,
 		bonked = true,
 		taunting = true,
 		friends = true,
+		bumper_karts = false,
+		kritzkrieged = false,
+		jarated = false,
+		milked = false,
+		vaccinator = false,
+		ghost = true,
 	},
 }
 
@@ -55,7 +71,8 @@ menu.init(settings, version)
 local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
 
-local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
+--local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
+local target_min_hull, target_max_hull = Vector3(), Vector3()
 
 local paths = {
 	proj_path = {},
@@ -96,12 +113,69 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	return true
 end
 
+local function ShouldSkipPlayer(pPlayer)
+	if pPlayer:InCond(TFCond_Cloaked) and settings.ignore_conds.cloaked == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Disguised) and settings.ignore_conds.disguised == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Taunting) and settings.ignore_conds.taunting == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Bonked) and settings.ignore_conds.bonked == 1 then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
+		return true
+	end
+
+	if pPlayer:InCond(E_TFCOND.TFCond_Kritzkrieged) and settings.ignore_conds.kritzkrieged then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Jarated) and settings.ignore_conds.jarated then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_Milked) and settings.ignore_conds.milked then
+		return true
+	end
+
+	if pPlayer:InCond(TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
+		return true
+	end
+
+	if settings.ignore_conds.vaccinator then
+		local resist_table = {
+			TFCond_UberBulletResist = 58,
+			TFCond_UberBlastResist = 59,
+			TFCond_UberFireResist = 60,
+			TFCond_SmallBulletResist = 61,
+			TFCond_SmallBlastResist = 62,
+			TFCond_SmallFireResist = 63,
+		}
+
+		for _, resist in pairs(resist_table) do
+			if pPlayer:InCond(resist) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
 ---@param shootpos Vector3
 ---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
 ---@return PlayerInfo
-local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
+local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local best_target = {
 		angle = nil,
 		fov = settings.fov,
@@ -113,60 +187,86 @@ local function GetClosestPlayerToFov(pLocal, shootpos, players, bAimTeamMate)
 	local localPos = pLocal:GetAbsOrigin()
 	local viewAngles = engine.GetViewAngles()
 
-	for _, player in pairs(players) do
-		if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
-			goto continue
-		end
+	local function loop_entity_class(class_table)
+		for _, ent in pairs(class_table) do
+			local origin = ent:GetAbsOrigin()
+			local dist = (origin - localPos):Length()
+			if dist > settings.max_distance then
+				goto continue
+			end
 
-		-- distance check
-		local playerPos = player:GetAbsOrigin()
-		local distSq = (playerPos - localPos):Length()
-		if distSq > settings.max_distance then
-			goto continue
-		end
+			local angleToEntity = math_utils.PositionAngles(shootpos, origin)
+			local fov = math_utils.AngleFov(viewAngles, angleToEntity)
+			if fov and fov < best_target.fov then
+				best_target.angle = angleToEntity
+				best_target.fov = fov
+				best_target.index = ent:GetIndex()
+				best_target.pos = origin
 
-		if playerlist.GetPriority(player) < 0 and settings.conds.friends then
-			goto continue
-		end
+				target_max_hull = ent:GetMaxs()
+				target_min_hull = ent:GetMins()
+			end
 
-		-- team check
-		local isTeammate = player:GetTeamNumber() == localTeam
-		if bAimTeamMate ~= isTeammate then
-			goto continue
+			::continue::
 		end
+	end
 
-		-- player conds
-		if player:InCond(TFCond_Cloaked) and settings.conds.cloaked == 1 then
-			goto continue
+	if settings.ents["aim teleporters"] then
+		local teles = entities.FindByClass("CObjectTeleporter")
+		loop_entity_class(teles)
+	end
+
+	if settings.ents["aim dispensers"] then
+		loop_entity_class(entities.FindByClass("CObjectDispenser"))
+	end
+
+	if settings.ents["aim sentries"] then
+		loop_entity_class(entities.FindByClass("CObjectSentrygun"))
+	end
+
+	if settings.ents["aim players"] then
+		for _, player in pairs(players) do
+			if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
+				goto continue
+			end
+
+			-- distance check
+			local playerPos = player:GetAbsOrigin()
+			local dist = (playerPos - localPos):Length()
+			if dist > settings.max_distance then
+				goto continue
+			end
+
+			if playerlist.GetPriority(player) < 0 and settings.ignore_conds.friends then
+				goto continue
+			end
+
+			-- team check
+			local isTeammate = player:GetTeamNumber() == localTeam
+			if bAimTeamMate ~= isTeammate then
+				goto continue
+			end
+
+			-- player conds
+			if ShouldSkipPlayer(player) then
+				goto continue
+			end
+
+			-- fov check
+			local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
+			local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
+			if fov and fov < best_target.fov then
+				best_target.angle = angleToPlayer
+				best_target.fov = fov
+				best_target.index = player:GetIndex()
+				best_target.pos = playerPos
+
+				target_max_hull = player:GetMaxs()
+				target_min_hull = player:GetMins()
+			end
+
+			::continue::
 		end
-
-		if player:InCond(TFCond_Disguised) and settings.conds.disguised == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Taunting) and settings.conds.taunting == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Bonked) and settings.conds.bonked == 1 then
-			goto continue
-		end
-
-		if player:InCond(TFCond_Ubercharged) and settings.conds.ubercharged then
-			goto continue
-		end
-
-		-- fov check
-		local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
-		local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
-		if fov and fov < best_target.fov then
-			best_target.angle = angleToPlayer
-			best_target.fov = fov
-			best_target.index = player:GetIndex()
-			best_target.pos = playerPos
-		end
-
-		::continue::
 	end
 
 	return best_target
@@ -206,10 +306,9 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
-	bAimTeamMate = (iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX) or (iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW)
 
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local best_target = GetClosestPlayerToFov(pLocal, vecHeadPos, players, bAimTeamMate)
+	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
 	if not best_target.index then
 		return nil
@@ -222,7 +321,8 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 
 	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, is_ducking, iCase, iDefinitionIndex, iWeaponID)
-	local nlatency = netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
 	prediction:Set(
 		pLocal,
@@ -344,6 +444,8 @@ local function CreateMove(uCmd)
 		bAimAtTeamMates = true
 	end
 
+	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
+
 	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
 
@@ -365,25 +467,27 @@ local function CreateMove(uCmd)
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local vec_bestPos = pred_result.vecPos
 
-	multipoint:Set(
-		pLocal,
-		pTarget,
-		bIsHuntsman,
-		pred_result.vecAimDir,
-		players,
-		bAimAtTeamMates,
-		vecHeadPos,
-		pred_result.vecPos,
-		weaponInfo,
-		math_utils,
-		settings.max_distance,
-		bSplashWeapon
-	)
+	if settings.multipointing then
+		multipoint:Set(
+			pLocal,
+			pTarget,
+			bIsHuntsman,
+			pred_result.vecAimDir,
+			bAimAtTeamMates,
+			vecHeadPos,
+			pred_result.vecPos,
+			weaponInfo,
+			math_utils,
+			settings.max_distance,
+			bSplashWeapon
+		)
 
-	local vec_bestPos = multipoint:GetBestHitPoint()
-	if not vec_bestPos then
-		return
+		vec_bestPos = multipoint:GetBestHitPoint()
+		if not vec_bestPos then
+			return
+		end
 	end
 
 	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
@@ -575,7 +679,7 @@ local function Draw()
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
-			DrawPlayerHitbox(pos, PLAYER_MIN_HULL, PLAYER_MAX_HULL)
+			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
 		end
 	end
 
