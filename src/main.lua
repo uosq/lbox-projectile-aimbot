@@ -12,6 +12,11 @@
 
 ---@diagnostic disable: cast-local-type
 
+if engine.GetServerIP() == "" then
+	printc(255, 0, 0, 255, "Gotta load the script in a match!")
+	return
+end
+
 local version = "5"
 
 local settings = {
@@ -193,6 +198,10 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 
 	local function loop_entity_class(class_table)
 		for _, ent in pairs(class_table) do
+			if ent:GetTeamNumber() == pLocal:GetTeamNumber() and not bAimTeamMate then
+				goto continue
+			end
+
 			local origin = ent:GetAbsOrigin()
 			local dist = (origin - localPos):Length2D()
 			if dist > settings.max_distance then

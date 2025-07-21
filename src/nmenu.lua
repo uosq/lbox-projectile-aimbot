@@ -23,9 +23,6 @@ local COMPONENT_TYPES = {
 -- MODULE STATE
 -- =============================================================================
 
-local enabled = true
-local toggle_key = E_ButtonCode.KEY_HOME
-
 local draw_id = tostring(os.clock())
 local font = draw.CreateFont("TF2 BUILD", 12, 1000)
 local checkfont = draw.CreateFont("TF2 BUILD", 10, 1000)
@@ -783,19 +780,8 @@ local function draw_window()
 end
 
 local function draw_all_windows()
-	local state, tick = input.IsButtonPressed(toggle_key)
-	if state and tick > last_keypress_tick then
-		last_keypress_tick = tick
-		enabled = not enabled
-	end
-
-	if not enabled or engine.IsTakingScreenshot() then
-		if input.IsMouseInputEnabled() and not gui.IsMenuOpen() then
-			input.SetMouseInputEnabled(false)
-		end
+	if not gui.IsMenuOpen() then
 		return
-	else
-		input.SetMouseInputEnabled(true)
 	end
 
 	local mouse = input.GetMousePos()

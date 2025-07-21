@@ -56,6 +56,11 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 
 ---@diagnostic disable: cast-local-type
 
+if engine.GetServerIP() == "" then
+	printc(255, 0, 0, 255, "Gotta load the script in a match!")
+	return
+end
+
 local version = "5"
 
 local settings = {
@@ -237,6 +242,10 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 
 	local function loop_entity_class(class_table)
 		for _, ent in pairs(class_table) do
+			if ent:GetTeamNumber() == pLocal:GetTeamNumber() and not bAimTeamMate then
+				goto continue
+			end
+
 			local origin = ent:GetAbsOrigin()
 			local dist = (origin - localPos):Length2D()
 			if dist > settings.max_distance then
@@ -1075,9 +1084,6 @@ local COMPONENT_TYPES = {
 -- MODULE STATE
 -- =============================================================================
 
-local enabled = true
-local toggle_key = E_ButtonCode.KEY_HOME
-
 local draw_id = tostring(os.clock())
 local font = draw.CreateFont("TF2 BUILD", 12, 1000)
 local checkfont = draw.CreateFont("TF2 BUILD", 10, 1000)
@@ -1835,19 +1841,8 @@ local function draw_window()
 end
 
 local function draw_all_windows()
-	local state, tick = input.IsButtonPressed(toggle_key)
-	if state and tick > last_keypress_tick then
-		last_keypress_tick = tick
-		enabled = not enabled
-	end
-
-	if not enabled or engine.IsTakingScreenshot() then
-		if input.IsMouseInputEnabled() and not gui.IsMenuOpen() then
-			input.SetMouseInputEnabled(false)
-		end
+	if not gui.IsMenuOpen() then
 		return
-	else
-		input.SetMouseInputEnabled(true)
 	end
 
 	local mouse = input.GetMousePos()
