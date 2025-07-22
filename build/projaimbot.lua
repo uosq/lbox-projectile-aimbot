@@ -541,7 +541,7 @@ local function CreateMove(uCmd)
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = FireWeapon(true) -- special case for sandvich
-	else                     -- generic weapons
+	else -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
@@ -2150,7 +2150,7 @@ function pred:Run()
 
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, -gravity)
 		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	if not aim_dir then
 		return nil
@@ -2179,7 +2179,7 @@ function pred:Run()
 	end
 
 	aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, -gravity)
 		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	if not aim_dir then
 		return nil
