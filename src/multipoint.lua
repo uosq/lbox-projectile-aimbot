@@ -45,7 +45,7 @@ function multipoint:GetBestHitPoint()
 		or self.bIsSplash and offset_multipliers.splash
 		or offset_multipliers.normal
 
-	local vecMins, vecMaxs = -self.weapon_info.vecCollisionMax, self.weapon_info.vecCollisionMax
+	local vecMins, vecMaxs = self.weapon_info.m_vecMins, self.weapon_info.m_vecMaxs
 	local bestPoint = nil
 	local bestFraction = 0
 
@@ -88,7 +88,6 @@ end
 ---@param pLocal Entity
 ---@param pTarget Entity
 ---@param bIsHuntsman boolean
----@param vecAimDir Vector3
 ---@param bAimTeamMate boolean
 ---@param vecHeadPos Vector3
 ---@param vecPredictedPos Vector3
@@ -101,7 +100,6 @@ function multipoint:Set(
 	pLocal,
 	pTarget,
 	bIsHuntsman,
-	vecAimDir,
 	bAimTeamMate,
 	vecHeadPos,
 	vecPredictedPos,
@@ -114,7 +112,6 @@ function multipoint:Set(
 	self.pLocal = pLocal
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
-	self.vecAimDir = vecAimDir
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info

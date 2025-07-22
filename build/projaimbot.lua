@@ -90,7 +90,7 @@ local settings = {
 
 	ignore_conds = {
 		cloaked = true,
-		disguised = true,
+		disguised = false,
 		ubercharged = true,
 		bonked = true,
 		taunting = true,
@@ -112,6 +112,8 @@ local player_sim = require("src.simulation.player")
 local proj_sim = require("src.simulation.proj")
 
 local prediction = require("src.prediction")
+
+local GetProjectileInformation = require("src.projectile_info")
 
 local menu = require("src.gui")
 menu.init(settings, version)
@@ -332,34 +334,33 @@ end
 ---@param pLocal Entity
 ---@param pWeapon Entity
 ---@param bAimTeamMate boolean
+---@param vecHeadPos Vector3
 ---@param netchannel NetChannel
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
 ---@param bIsHuntsman boolean
 ---@param weaponInfo WeaponInfo
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman, weaponInfo)
+local function ProcessPrediction(
+	pLocal,
+	pWeapon,
+	vecHeadPos,
+	bAimTeamMate,
+	netchannel,
+	bDrawOnly,
+	players,
+	bIsHuntsman,
+	weaponInfo
+)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
 		return nil
 	end
 
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase then
-		return nil
-	end
-
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
 	end
-
-	local iWeaponID = pWeapon:GetWeaponID()
-
-	-- Calculate proper shoot position with flipped viewmodel support
-	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
-	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
 
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
@@ -372,7 +373,6 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		return nil
 	end
 
-	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	-- weaponInfo is now passed as parameter, no need to recalculate
 	local nlatency = settings.ping_compensation and 0
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
@@ -425,11 +425,6 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase or not iDefinitionIndex then
-		return
-	end
-
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
 	end
@@ -447,18 +442,15 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-
-	-- Check if viewmodels are flipped
-	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
+	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
-
+	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, viewAngles)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
 	local pred_result, pTarget = ProcessPrediction(
 		pLocal,
 		pWeapon,
+		vecHeadPos,
 		bAimAtTeamMates,
 		netChannel,
 		settings.draw_only,
@@ -481,7 +473,7 @@ local function CreateMove(uCmd)
 	local vec_bestPos = pred_result.vecPos
 
 	-- Use the muzzle position for the trace check instead of the head position
-	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
@@ -490,6 +482,7 @@ local function CreateMove(uCmd)
 
 	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
 	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+		- weaponInfo:GetAngleOffset(pred_result.nChargeTime)
 
 	local bAttack = false
 
@@ -517,7 +510,7 @@ local function CreateMove(uCmd)
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsHuntsman then
-		if pred_result.nChargeTime > 0.1 then
+		if pred_result.nChargeTime > 0.0 then
 			if settings.autoshoot and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
@@ -536,7 +529,7 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if pred_result.nChargeTime > 0.1 then
+		if pred_result.nChargeTime > 0.0 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			bAttack = FireWeapon(false)
 		end
@@ -2021,6 +2014,657 @@ end
 return menu
 
 end)
+__bundle_register("src.projectile_info", function(require, _LOADED, __bundle_register, __bundle_modules)
+--[[
+    This is a port of the GetProjectileInformation function
+    from GoodEvening's Visualize Arc Trajectories
+    
+    His Github: https://github.com/GoodEveningFellOff
+    Source: https://github.com/GoodEveningFellOff/Lmaobox-Scripts/blob/main/Visualize%20Arc%20Trajectories/dev.lua
+--]]
+
+local TRACE_HULL = engine.TraceHull
+local CLAMP = function(a, b, c)
+	return (a < b) and b or (a > c) and c or a
+end
+local VEC_ROT = function(a, b)
+	return (b:Forward() * a.x) + (b:Right() * a.y) + (b:Up() * a.z)
+end
+
+local aProjectileInfo = {}
+local aItemDefinitions = {}
+
+local PROJECTILE_TYPE_BASIC = 0
+local PROJECTILE_TYPE_PSEUDO = 1
+local PROJECTILE_TYPE_SIMUL = 2
+
+local COLLISION_NORMAL = 0
+local COLLISION_HEAL_TEAMMATES = 1
+local COLLISION_HEAL_BUILDINGS = 2
+local COLLISION_HEAL_HURT = 3
+local COLLISION_NONE = 4
+
+local function AppendItemDefinitions(iType, ...)
+	for _, i in pairs({ ... }) do
+		aItemDefinitions[i] = iType
+	end
+end
+
+---@return WeaponInfo
+function GetProjectileInformation(i)
+	return aProjectileInfo[aItemDefinitions[i or 0]]
+end
+
+---@return WeaponInfo?
+local function DefineProjectileDefinition(tbl)
+	return {
+		m_iType = PROJECTILE_TYPE_BASIC,
+		m_vecOffset = tbl.vecOffset or Vector3(0, 0, 0),
+		m_vecAbsoluteOffset = tbl.vecAbsoluteOffset or Vector3(0, 0, 0),
+		m_vecAngleOffset = tbl.vecAngleOffset or Vector3(0, 0, 0),
+		m_vecVelocity = tbl.vecVelocity or Vector3(0, 0, 0),
+		m_vecAngularVelocity = tbl.vecAngularVelocity or Vector3(0, 0, 0),
+		m_vecMins = tbl.vecMins or (not tbl.vecMaxs) and Vector3(0, 0, 0) or -tbl.vecMaxs,
+		m_vecMaxs = tbl.vecMaxs or (not tbl.vecMins) and Vector3(0, 0, 0) or -tbl.vecMins,
+		m_flGravity = tbl.flGravity or 0.001,
+		m_flDrag = tbl.flDrag or 0,
+		m_flElasticity = tbl.flElasticity or 0,
+		m_iAlignDistance = tbl.iAlignDistance or 0,
+		m_iTraceMask = tbl.iTraceMask or 33570827, -- MASK_SOLID
+		m_iCollisionType = tbl.iCollisionType or COLLISION_NORMAL,
+		m_flCollideWithTeammatesDelay = tbl.flCollideWithTeammatesDelay or 0.25,
+		m_flLifetime = tbl.flLifetime or 99999,
+		m_flDamageRadius = tbl.flDamageRadius or 0,
+		m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false,
+		m_bCharges = tbl.bCharges or false,
+		m_sModelName = tbl.sModelName or "",
+
+		GetOffset = not tbl.GetOffset
+				and function(self, bDucking, bIsFlipped)
+					return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
+						or self.m_vecOffset
+				end
+			or tbl.GetOffset, -- self, bDucking, bIsFlipped
+
+		GetAngleOffset = (not tbl.GetAngleOffset) and function(self, flChargeBeginTime)
+			return self.m_vecAngleOffset
+		end or tbl.GetAngleOffset, -- self, flChargeBeginTime
+
+		GetFirePosition = tbl.GetFirePosition or function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+			local resultTrace = TRACE_HULL(
+				vecLocalView,
+				vecLocalView
+					+ VEC_ROT(
+						self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped),
+						vecViewAngles
+					),
+				-Vector3(8, 8, 8),
+				Vector3(8, 8, 8),
+				100679691
+			) -- MASK_SOLID_BRUSHONLY
+
+			return (not resultTrace.startsolid) and resultTrace.endpos or nil
+		end,
+
+		GetVelocity = (not tbl.GetVelocity) and function(self, ...)
+			return self.m_vecVelocity
+		end or tbl.GetVelocity, -- self, flChargeBeginTime
+
+		GetAngularVelocity = (not tbl.GetAngularVelocity) and function(self, ...)
+			return self.m_vecAngularVelocity
+		end or tbl.GetAngularVelocity, -- self, flChargeBeginTime
+
+		GetGravity = (not tbl.GetGravity) and function(self, ...)
+			return self.m_flGravity
+		end or tbl.GetGravity, -- self, flChargeBeginTime
+
+		GetLifetime = (not tbl.GetLifetime) and function(self, ...)
+			return self.m_flLifetime
+		end or tbl.GetLifetime, -- self, flChargeBeginTime
+	}
+end
+
+local function DefineBasicProjectileDefinition(tbl)
+	local stReturned = DefineProjectileDefinition(tbl)
+	stReturned.m_iType = PROJECTILE_TYPE_BASIC
+
+	return stReturned
+end
+
+local function DefinePseudoProjectileDefinition(tbl)
+	local stReturned = DefineProjectileDefinition(tbl)
+	stReturned.m_iType = PROJECTILE_TYPE_PSEUDO
+
+	return stReturned
+end
+
+local function DefineSimulProjectileDefinition(tbl)
+	local stReturned = DefineProjectileDefinition(tbl)
+	stReturned.m_iType = PROJECTILE_TYPE_SIMUL
+
+	return stReturned
+end
+
+local function DefineDerivedProjectileDefinition(def, tbl)
+	local stReturned = {}
+	for k, v in pairs(def) do
+		stReturned[k] = v
+	end
+	for k, v in pairs(tbl) do
+		stReturned[((type(v) ~= "function") and "m_" or "") .. k] = v
+	end
+
+	if not tbl.GetOffset and tbl.vecOffset then
+		stReturned.GetOffset = function(self, bDucking, bIsFlipped)
+			return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
+				or self.m_vecOffset
+		end
+	end
+
+	if not tbl.GetAngleOffset and tbl.vecAngleOffset then
+		stReturned.GetAngleOffset = function(self, flChargeBeginTime)
+			return self.m_vecAngleOffset
+		end
+	end
+
+	if not tbl.GetVelocity and tbl.vecVelocity then
+		stReturned.GetVelocity = function(self, ...)
+			return self.m_vecVelocity
+		end
+	end
+
+	if not tbl.GetAngularVelocity and tbl.vecAngularVelocity then
+		stReturned.GetAngularVelocity = function(self, ...)
+			return self.m_vecAngularVelocity
+		end
+	end
+
+	if not tbl.GetGravity and tbl.flGravity then
+		stReturned.GetGravity = function(self, ...)
+			return self.m_flGravity
+		end
+	end
+
+	if not tbl.GetLifetime and tbl.flLifetime then
+		stReturned.GetLifetime = function(self, ...)
+			return self.m_flLifetime
+		end
+	end
+
+	return stReturned
+end
+
+AppendItemDefinitions(
+	1,
+	18, -- Rocket Launcher
+	205, -- Rocket Launcher (Renamed/Strange)
+	228, -- The Black Box
+	658, -- Festive Rocket Launcher
+	800, -- Silver Botkiller Rocket Launcher Mk.I
+	809, -- Gold Botkiller Rocket Launcher Mk.I
+	889, -- Rust Botkiller Rocket Launcher Mk.I
+	898, -- Blood Botkiller Rocket Launcher Mk.I
+	907, -- Carbonado Botkiller Rocket Launcher Mk.I
+	916, -- Diamond Botkiller Rocket Launcher Mk.I
+	965, -- Silver Botkiller Rocket Launcher Mk.II
+	974, -- Gold Botkiller Rocket Launcher Mk.II
+	1085, -- Festive Black Box
+	15006, -- Woodland Warrior
+	15014, -- Sand Cannon
+	15028, -- American Pastoral
+	15043, -- Smalltown Bringdown
+	15052, -- Shell Shocker
+	15057, -- Aqua Marine
+	15081, -- Autumn
+	15104, -- Blue Mew
+	15105, -- Brain Candy
+	15129, -- Coffin Nail
+	15130, -- High Roller's
+	15150 -- Warhawk
+)
+aProjectileInfo[1] = DefineBasicProjectileDefinition({
+	vecVelocity = Vector3(1100, 0, 0),
+	vecMaxs = Vector3(0, 0, 0),
+	iAlignDistance = 2000,
+	flDamageRadius = 146,
+
+	GetOffset = function(self, bDucking, bIsFlipped)
+		return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
+	end,
+})
+
+AppendItemDefinitions(
+	2,
+	237 -- Rocket Jumper
+)
+aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	iCollisionType = COLLISION_NONE,
+})
+
+AppendItemDefinitions(
+	3,
+	730 -- The Beggar's Bazooka
+)
+aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	flDamageRadius = 116.8,
+})
+
+AppendItemDefinitions(
+	4,
+	1104 -- The Air Strike
+)
+aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	flDamageRadius = 131.4,
+})
+
+AppendItemDefinitions(
+	5,
+	127 -- The Direct Hit
+)
+aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	vecVelocity = Vector3(2000, 0, 0),
+	flDamageRadius = 44,
+})
+
+AppendItemDefinitions(
+	6,
+	414 -- The Liberty Launcher
+)
+aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	vecVelocity = Vector3(1550, 0, 0),
+})
+
+AppendItemDefinitions(
+	7,
+	513 -- The Original
+)
+aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	GetOffset = function(self, bDucking)
+		return Vector3(23.5, 0, bDucking and 8 or -3)
+	end,
+})
+
+-- https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/tf/tf_weapon_dragons_fury.cpp
+AppendItemDefinitions(
+	8,
+	1178 -- Dragon's Fury
+)
+aProjectileInfo[8] = DefineBasicProjectileDefinition({
+	vecVelocity = Vector3(600, 0, 0),
+	vecMaxs = Vector3(1, 1, 1),
+
+	GetOffset = function(self, bDucking, bIsFlipped)
+		return Vector3(3, 7, -9)
+	end,
+})
+
+AppendItemDefinitions(
+	9,
+	442 -- The Righteous Bison
+)
+aProjectileInfo[9] = DefineBasicProjectileDefinition({
+	vecVelocity = Vector3(1200, 0, 0),
+	vecMaxs = Vector3(1, 1, 1),
+	iAlignDistance = 2000,
+
+	GetOffset = function(self, bDucking, bIsFlipped)
+		return Vector3(23.5, -8 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
+	end,
+})
+
+AppendItemDefinitions(
+	10,
+	20, -- Stickybomb Launcher
+	207, -- Stickybomb Launcher (Renamed/Strange)
+	661, -- Festive Stickybomb Launcher
+	797, -- Silver Botkiller Stickybomb Launcher Mk.I
+	806, -- Gold Botkiller Stickybomb Launcher Mk.I
+	886, -- Rust Botkiller Stickybomb Launcher Mk.I
+	895, -- Blood Botkiller Stickybomb Launcher Mk.I
+	904, -- Carbonado Botkiller Stickybomb Launcher Mk.I
+	913, -- Diamond Botkiller Stickybomb Launcher Mk.I
+	962, -- Silver Botkiller Stickybomb Launcher Mk.II
+	971, -- Gold Botkiller Stickybomb Launcher Mk.II
+	15009, -- Sudden Flurry
+	15012, -- Carpet Bomber
+	15024, -- Blasted Bombardier
+	15038, -- Rooftop Wrangler
+	15045, -- Liquid Asset
+	15048, -- Pink Elephant
+	15082, -- Autumn
+	15083, -- Pumpkin Patch
+	15084, -- Macabre Web
+	15113, -- Sweet Dreams
+	15137, -- Coffin Nail
+	15138, -- Dressed to Kill
+	15155 -- Blitzkrieg
+)
+aProjectileInfo[10] = DefineSimulProjectileDefinition({
+	vecOffset = Vector3(16, 8, -6),
+	vecAngularVelocity = Vector3(600, 0, 0),
+	vecMaxs = Vector3(3.5, 3.5, 3.5),
+	bCharges = true,
+	flDamageRadius = 150,
+	sModelName = "models/weapons/w_models/w_stickybomb.mdl",
+	flGravity = 0.25,
+
+	GetVelocity = function(self, flChargeBeginTime)
+		return Vector3(900 + CLAMP(flChargeBeginTime / 4, 0, 1) * 1500, 0, 200)
+	end,
+})
+
+AppendItemDefinitions(
+	11,
+	1150 -- The Quickiebomb Launcher
+)
+aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	sModelName = "models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl",
+	flGravity = 0.25,
+	GetVelocity = function(self, flChargeBeginTime)
+		return Vector3(900 + CLAMP(flChargeBeginTime / 1.2, 0, 1) * 1500, 0, 200)
+	end,
+})
+
+AppendItemDefinitions(
+	12,
+	130 -- The Scottish Resistance
+)
+aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	sModelName = "models/weapons/w_models/w_stickybomb_d.mdl",
+	flGravity = 0.25,
+})
+
+AppendItemDefinitions(
+	13,
+	265 -- Sticky Jumper
+)
+aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[12], {
+	iCollisionType = COLLISION_NONE,
+	flGravity = 0.25,
+})
+
+AppendItemDefinitions(
+	14,
+	19, -- Grenade Launcher
+	206, -- Grenade Launcher (Renamed/Strange)
+	1007, -- Festive Grenade Launcher
+	15077, -- Autumn
+	15079, -- Macabre Web
+	15091, -- Rainbow
+	15092, -- Sweet Dreams
+	15116, -- Coffin Nail
+	15117, -- Top Shelf
+	15142, -- Warhawk
+	15158 -- Butcher Bird
+)
+aProjectileInfo[14] = DefineSimulProjectileDefinition({
+	vecOffset = Vector3(16, 8, -6),
+	vecVelocity = Vector3(1200, 0, 200),
+	vecAngularVelocity = Vector3(600, 0, 0),
+	flGravity = 0.25,
+	vecMaxs = Vector3(2, 2, 2),
+	flElasticity = 0.45,
+	flLifetime = 2.175,
+	flDamageRadius = 146,
+	sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl",
+})
+
+AppendItemDefinitions(
+	15,
+	1151 -- The Iron Bomber
+)
+aProjectileInfo[15] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
+	flElasticity = 0.09,
+	flLifetime = 1.6,
+	flDamageRadius = 124,
+})
+
+AppendItemDefinitions(
+	16,
+	308 -- The Loch-n-Load
+)
+aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
+	iType = PROJECTILE_TYPE_PSEUDO,
+	vecVelocity = Vector3(1500, 0, 200),
+	flGravity = 1,
+	flDrag = 0.225,
+	flLifetime = 2.3,
+	flDamageRadius = 0,
+})
+
+AppendItemDefinitions(
+	17,
+	996 -- The Loose Cannon
+)
+aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
+	vecVelocity = Vector3(1440, 0, 200),
+	vecMaxs = Vector3(6, 6, 6),
+	bStopOnHittingEnemy = false,
+	bCharges = true,
+	sModelName = "models/weapons/w_models/w_cannonball.mdl",
+
+	GetLifetime = function(self, flChargeBeginTime)
+		return 1 * flChargeBeginTime
+	end,
+})
+
+AppendItemDefinitions(
+	18,
+	56, -- The Huntsman
+	1005, -- Festive Huntsman
+	1092 -- The Fortified Compound
+)
+aProjectileInfo[18] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(23.5, -8, -3),
+	vecMaxs = Vector3(0, 0, 0),
+	iAlignDistance = 2000,
+	bCharges = true,
+
+	GetVelocity = function(self, flChargeBeginTime)
+		return Vector3(1800 + CLAMP(flChargeBeginTime, 0, 1) * 800, 0, 0)
+	end,
+
+	GetGravity = function(self, flChargeBeginTime)
+		return 0.5 - CLAMP(flChargeBeginTime, 0, 1) * 0.4
+	end,
+})
+
+AppendItemDefinitions(
+	19,
+	39, -- The Flare Gun
+	351, -- The Detonator
+	595, -- The Manmelter
+	1081 -- Festive Flare Gun
+)
+aProjectileInfo[19] = DefinePseudoProjectileDefinition({
+	vecVelocity = Vector3(2000, 0, 0),
+	vecMaxs = Vector3(0, 0, 0),
+	flGravity = 0.3,
+	iAlignDistance = 2000,
+	flCollideWithTeammatesDelay = 0.25,
+
+	GetOffset = function(self, bDucking, bIsFlipped)
+		return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
+	end,
+})
+
+AppendItemDefinitions(
+	20,
+	740 -- The Scorch Shot
+)
+aProjectileInfo[20] = DefineDerivedProjectileDefinition(aProjectileInfo[19], {
+	flDamageRadius = 110,
+})
+
+AppendItemDefinitions(
+	21,
+	305, -- Crusader's Crossbow
+	1079 -- Festive Crusader's Crossbow
+)
+aProjectileInfo[21] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(23.5, -8, -3),
+	vecVelocity = Vector3(2400, 0, 0),
+	vecMaxs = Vector3(3, 3, 3),
+	flGravity = 0.2,
+	iAlignDistance = 2000,
+	iCollisionType = COLLISION_HEAL_TEAMMATES,
+})
+
+AppendItemDefinitions(
+	22,
+	997 -- The Rescue Ranger
+)
+aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
+	vecMaxs = Vector3(1, 1, 1),
+	iCollisionType = COLLISION_HEAL_BUILDINGS,
+})
+
+AppendItemDefinitions(
+	23,
+	17, -- Syringe Gun
+	36, -- The Blutsauger
+	204, -- Syringe Gun (Renamed/Strange)
+	412 -- The Overdose
+)
+aProjectileInfo[23] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(16, 6, -8),
+	vecVelocity = Vector3(1000, 0, 0),
+	vecMaxs = Vector3(1, 1, 1),
+	flGravity = 0.3,
+	flCollideWithTeammatesDelay = 0,
+})
+
+AppendItemDefinitions(
+	24,
+	58, -- Jarate
+	222, -- Mad Milk
+	1083, -- Festive Jarate
+	1105, -- The Self-Aware Beauty Mark
+	1121 -- Mutated Milk
+)
+aProjectileInfo[24] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(16, 8, -6),
+	vecVelocity = Vector3(1000, 0, 200),
+	vecMaxs = Vector3(8, 8, 8),
+	flGravity = 1.125,
+	flDamageRadius = 200,
+})
+
+AppendItemDefinitions(
+	25,
+	812, -- The Flying Guillotine
+	833 -- The Flying Guillotine (Genuine)
+)
+aProjectileInfo[25] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(23.5, 8, -3),
+	vecVelocity = Vector3(3000, 0, 300),
+	vecMaxs = Vector3(2, 2, 2),
+	flGravity = 2.25,
+	flDrag = 1.3,
+})
+
+AppendItemDefinitions(
+	26,
+	44 -- The Sandman
+)
+aProjectileInfo[26] = DefineSimulProjectileDefinition({
+	vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359),
+	vecAngularVelocity = Vector3(0, 50, 0),
+	vecMaxs = Vector3(4.25, 4.25, 4.25),
+	flElasticity = 0.45,
+	sModelName = "models/weapons/w_models/w_baseball.mdl",
+
+	GetFirePosition = function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+		--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_bat.cpp#L232
+		local vecFirePos = pLocalPlayer:GetAbsOrigin()
+			+ ((Vector3(0, 0, 50) + (vecViewAngles:Forward() * 32)) * pLocalPlayer:GetPropFloat("m_flModelScale"))
+
+		local resultTrace = TRACE_HULL(vecLocalView, vecFirePos, -Vector3(8, 8, 8), Vector3(8, 8, 8), 100679691) -- MASK_SOLID_BRUSHONLY
+
+		return (resultTrace.fraction == 1) and resultTrace.endpos or nil
+	end,
+})
+
+AppendItemDefinitions(
+	27,
+	648 -- The Wrap Assassin
+)
+aProjectileInfo[27] = DefineDerivedProjectileDefinition(aProjectileInfo[26], {
+	vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809),
+	vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904),
+	flElasticity = 0,
+	flDamageRadius = 50,
+	sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl",
+})
+
+AppendItemDefinitions(
+	28,
+	441 -- The Cow Mangler 5000
+)
+aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	GetOffset = function(self, bDucking, bIsFlipped)
+		return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3)
+	end,
+})
+
+--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_raygun.cpp#L249
+AppendItemDefinitions(
+	29,
+	588 -- The Pomson 6000
+)
+aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
+	vecAbsoluteOffset = Vector3(0, 0, -13),
+	flCollideWithTeammatesDelay = 0,
+})
+
+AppendItemDefinitions(
+	30,
+	1180 -- Gas Passer
+)
+aProjectileInfo[30] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(16, 8, -6),
+	vecVelocity = Vector3(2000, 0, 200),
+	vecMaxs = Vector3(8, 8, 8),
+	flGravity = 1,
+	flDrag = 1.32,
+	flDamageRadius = 200,
+})
+
+AppendItemDefinitions(
+	31,
+	528 -- The Short Circuit
+)
+aProjectileInfo[31] = DefineBasicProjectileDefinition({
+	vecOffset = Vector3(40, 15, -10),
+	vecVelocity = Vector3(700, 0, 0),
+	vecMaxs = Vector3(1, 1, 1),
+	flCollideWithTeammatesDelay = 99999,
+	flLifetime = 1.25,
+})
+
+AppendItemDefinitions(
+	32,
+	42, -- Sandvich
+	159, -- The Dalokohs Bar
+	311, -- The Buffalo Steak Sandvich
+	433, -- Fishcake
+	863, -- Robo-Sandvich
+	1002, -- Festive Sandvich
+	1190 -- Second Banana
+)
+aProjectileInfo[32] = DefinePseudoProjectileDefinition({
+	vecOffset = Vector3(0, 0, -8),
+	vecAngleOffset = Vector3(-10, 0, 0),
+	vecVelocity = Vector3(500, 0, 0),
+	vecMaxs = Vector3(17, 17, 10),
+	flGravity = 1.02,
+	iTraceMask = 33636363, -- MASK_PLAYERSOLID
+	iCollisionType = COLLISION_HEAL_HURT,
+})
+
+return GetProjectileInformation
+
+end)
 __bundle_register("src.prediction", function(require, _LOADED, __bundle_register, __bundle_modules)
 local multipoint = require("src.multipoint")
 
@@ -2072,11 +2716,12 @@ end
 
 function pred:GetChargeTimeAndSpeed()
 	local charge_time = 0.0
-	local projectile_speed = self.weapon_info.flForwardVelocity
+	local projectile_speed = self.weapon_info:GetVelocity(0):Length()
 
 	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		-- check if bow is currently being charged
 		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
 
 		-- if charge_begin_time is 0, the bow isn't charging
 		if charge_begin_time > 0 then
@@ -2093,6 +2738,8 @@ function pred:GetChargeTimeAndSpeed()
 		end
 	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
+
 		if charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			if charge_time > 4.0 then
@@ -2127,25 +2774,12 @@ function pred:Run()
 	end
 
 	local charge_time, projectile_speed = self:GetChargeTimeAndSpeed()
-	local gravity = -self.weapon_info.flGravity
-
-	local shoot_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
-	local vecMuzzlePos = self.vecShootPos
-		+ self.math_utils.RotateOffsetAlongDirection(self.weapon_info.vecOffset, shoot_dir)
-
-	-- Estimate flight time to origin for sim
-	local flat_aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, projectile_speed, gravity)
-		or shoot_dir
-	if not flat_aim_dir then
-		return nil
-	end
+	local gravity = self.weapon_info:GetGravity(charge_time) * 800 --- example: 200
 
 	local detonate_time = self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
-
-	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
+	local travel_time_est = (vecTargetOrigin - self.vecShootPos):Length() / projectile_speed
 	local total_time = travel_time_est + self.nLatency + detonate_time
-	if total_time > self.settings.max_sim_time then
+	if total_time > self.settings.max_sim_time or total_time > self.weapon_info.m_flLifetime then
 		return nil
 	end
 
@@ -2156,21 +2790,14 @@ function pred:Run()
 	end
 
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
-	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-	if not aim_dir then
-		return nil
-	end
 
 	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
 	multipoint:Set(
 		self.pLocal,
 		self.pTarget,
 		self.bIsHuntsman,
-		aim_dir,
 		self.bAimAtTeamMates,
-		vecMuzzlePos,
+		self.vecShootPos,
 		predicted_target_pos,
 		self.weapon_info,
 		self.math_utils,
@@ -2186,17 +2813,24 @@ function pred:Run()
 		return nil
 	end
 
-	aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	local aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
 	if not aim_dir then
 		return nil
+	end
+
+	if gravity > 0 then
+		local ballistic_dir =
+			self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, projectile_speed, gravity)
+		if not ballistic_dir then
+			return nil
+		end
+		aim_dir = ballistic_dir
 	end
 
 	local projectile_path = self.proj_sim.Run(
 		self.pLocal,
 		self.pWeapon,
-		vecMuzzlePos,
+		self.vecShootPos,
 		aim_dir,
 		self.settings.max_sim_time,
 		self.weapon_info
@@ -2266,7 +2900,7 @@ function multipoint:GetBestHitPoint()
 		or self.bIsSplash and offset_multipliers.splash
 		or offset_multipliers.normal
 
-	local vecMins, vecMaxs = -self.weapon_info.vecCollisionMax, self.weapon_info.vecCollisionMax
+	local vecMins, vecMaxs = self.weapon_info.m_vecMins, self.weapon_info.m_vecMaxs
 	local bestPoint = nil
 	local bestFraction = 0
 
@@ -2309,7 +2943,6 @@ end
 ---@param pLocal Entity
 ---@param pTarget Entity
 ---@param bIsHuntsman boolean
----@param vecAimDir Vector3
 ---@param bAimTeamMate boolean
 ---@param vecHeadPos Vector3
 ---@param vecPredictedPos Vector3
@@ -2322,7 +2955,6 @@ function multipoint:Set(
 	pLocal,
 	pTarget,
 	bIsHuntsman,
-	vecAimDir,
 	bAimTeamMate,
 	vecHeadPos,
 	vecPredictedPos,
@@ -2335,7 +2967,6 @@ function multipoint:Set(
 	self.pLocal = pLocal
 	self.pTarget = pTarget
 	self.bIsHuntsman = bIsHuntsman
-	self.vecAimDir = vecAimDir
 	self.bAimTeamMate = bAimTeamMate
 	self.vecHeadPos = vecHeadPos
 	self.weapon_info = weapon_info
@@ -2365,23 +2996,24 @@ local MASK_SHOT_HULL = MASK_SHOT_HULL
 ---@type table<integer, PhysicsObject>
 local projectiles = {}
 
-local PROJECTILE_MODELS = {
-	[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER] = [[models/weapons/w_models/w_rocket.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_GRENADELAUNCHER] = [[models/weapons/w_models/w_grenade_grenadelauncher.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER] = [[models/weapons/w_models/w_stickybomb.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW] = [[models/weapons/w_models/w_arrow.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_CANNON] = [[models/weapons/w_models/w_cannonball.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_FLAREGUN] = [[models/weapons/w_models/w_flaregun_shell.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_DRG_POMSON] = [[models/weapons/w_models/w_drg_ball.mdl]],
-}
-
-for i, model in pairs(PROJECTILE_MODELS) do
+--[[for i, model in pairs(PROJECTILE_MODELS) do
 	local solid, collisionModel = physics.ParseModelByName(model)
 	local surfaceProp = solid:GetSurfacePropName()
 	local objectParams = solid:GetObjectParameters()
 	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
 	projectiles[i] = projectile
+end]]
+
+local function CreateProjectile(model, i)
+	local solid, collisionModel = physics.ParseModelByName(model)
+	local surfaceProp = solid:GetSurfacePropName()
+	local objectParams = solid:GetObjectParameters()
+	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
+	projectiles[i] = projectile
+	return projectile
 end
+
+CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
 
 ---@param pLocal Entity The localplayer
 ---@param pWeapon Entity The localplayer's weapon
@@ -2393,18 +3025,28 @@ end
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local positions = {}
 
-	local projectile = projectiles[pWeapon:GetWeaponID()] or projectiles[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER]
+	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
+	if not projectile then
+		if weapon_info.m_sModelName and weapon_info.m_sModelName ~= "" then
+			projectile = CreateProjectile(weapon_info.m_sModelName, pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+		else
+			projectile = projectiles[-1]
+		end
+	end
+
 	projectile:Wake()
 
-	local mins, maxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
-	local speed = weapon_info.flForwardVelocity
-	local velocity = vecForward * speed
+	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
+	local speed, gravity
 
-	local gravity = weapon_info.flGravity
+	speed = weapon_info:GetVelocity(pWeapon:GetChargeBeginTime() or 0):Length()
+	gravity = 800 * weapon_info:GetGravity(pWeapon:GetChargeBeginTime() or 0)
+
+	local velocity = vecForward * speed
 
 	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)
-	projectile:SetVelocity(velocity, Vector3())
+	projectile:SetVelocity(velocity, weapon_info.m_vecAngularVelocity)
 
 	local tickInterval = globals.TickInterval()
 	local running = true
@@ -3261,17 +3903,17 @@ end
 
 ---@param pLocal Entity
 ---@param weapon_info WeaponInfo
----@param bIsFlippedViewModel boolean
 ---@param eAngle EulerAngles
----@return Vector3, Vector3 The normal shoot position
-function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, eAngle)
+---@return Vector3
+function wep_utils.GetShootPos(pLocal, weapon_info, eAngle)
 	-- i stole this from terminator
 	local vStartPosition = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local vOffset = (eAngle:Forward() * weapon_info.vecOffset.x)
-		+ (eAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
-		+ (eAngle:Up() * weapon_info.vecOffset.z)
-
-	return vStartPosition - vOffset, vOffset
+	return weapon_info:GetFirePosition(
+		pLocal,
+		vStartPosition,
+		eAngle:Forward(),
+		client.GetConVar("cl_flipviewmodels") == 1
+	) --vStartPosition + vOffset, vOffset
 end
 
 return wep_utils

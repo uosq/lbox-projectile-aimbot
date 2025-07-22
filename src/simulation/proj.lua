@@ -13,23 +13,24 @@ local MASK_SHOT_HULL = MASK_SHOT_HULL
 ---@type table<integer, PhysicsObject>
 local projectiles = {}
 
-local PROJECTILE_MODELS = {
-	[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER] = [[models/weapons/w_models/w_rocket.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_GRENADELAUNCHER] = [[models/weapons/w_models/w_grenade_grenadelauncher.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER] = [[models/weapons/w_models/w_stickybomb.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW] = [[models/weapons/w_models/w_arrow.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_CANNON] = [[models/weapons/w_models/w_cannonball.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_FLAREGUN] = [[models/weapons/w_models/w_flaregun_shell.mdl]],
-	[E_WeaponBaseID.TF_WEAPON_DRG_POMSON] = [[models/weapons/w_models/w_drg_ball.mdl]],
-}
-
-for i, model in pairs(PROJECTILE_MODELS) do
+--[[for i, model in pairs(PROJECTILE_MODELS) do
 	local solid, collisionModel = physics.ParseModelByName(model)
 	local surfaceProp = solid:GetSurfacePropName()
 	local objectParams = solid:GetObjectParameters()
 	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
 	projectiles[i] = projectile
+end]]
+
+local function CreateProjectile(model, i)
+	local solid, collisionModel = physics.ParseModelByName(model)
+	local surfaceProp = solid:GetSurfacePropName()
+	local objectParams = solid:GetObjectParameters()
+	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
+	projectiles[i] = projectile
+	return projectile
 end
+
+CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
 
 ---@param pLocal Entity The localplayer
 ---@param pWeapon Entity The localplayer's weapon
@@ -41,18 +42,28 @@ end
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local positions = {}
 
-	local projectile = projectiles[pWeapon:GetWeaponID()] or projectiles[E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER]
+	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
+	if not projectile then
+		if weapon_info.m_sModelName and weapon_info.m_sModelName ~= "" then
+			projectile = CreateProjectile(weapon_info.m_sModelName, pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+		else
+			projectile = projectiles[-1]
+		end
+	end
+
 	projectile:Wake()
 
-	local mins, maxs = -weapon_info.vecCollisionMax, weapon_info.vecCollisionMax
-	local speed = weapon_info.flForwardVelocity
-	local velocity = vecForward * speed
+	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
+	local speed, gravity
 
-	local gravity = weapon_info.flGravity
+	speed = weapon_info:GetVelocity(pWeapon:GetChargeBeginTime() or 0):Length()
+	gravity = 800 * weapon_info:GetGravity(pWeapon:GetChargeBeginTime() or 0)
+
+	local velocity = vecForward * speed
 
 	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)
-	projectile:SetVelocity(velocity, Vector3())
+	projectile:SetVelocity(velocity, weapon_info.m_vecAngularVelocity)
 
 	local tickInterval = globals.TickInterval()
 	local running = true

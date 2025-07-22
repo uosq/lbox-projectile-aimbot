@@ -48,11 +48,12 @@ end
 
 function pred:GetChargeTimeAndSpeed()
 	local charge_time = 0.0
-	local projectile_speed = self.weapon_info.flForwardVelocity
+	local projectile_speed = self.weapon_info:GetVelocity(0):Length()
 
 	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		-- check if bow is currently being charged
 		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
 
 		-- if charge_begin_time is 0, the bow isn't charging
 		if charge_begin_time > 0 then
@@ -69,6 +70,8 @@ function pred:GetChargeTimeAndSpeed()
 		end
 	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
+		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
+
 		if charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			if charge_time > 4.0 then
@@ -103,25 +106,12 @@ function pred:Run()
 	end
 
 	local charge_time, projectile_speed = self:GetChargeTimeAndSpeed()
-	local gravity = -self.weapon_info.flGravity
-
-	local shoot_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
-	local vecMuzzlePos = self.vecShootPos
-		+ self.math_utils.RotateOffsetAlongDirection(self.weapon_info.vecOffset, shoot_dir)
-
-	-- Estimate flight time to origin for sim
-	local flat_aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, vecTargetOrigin, projectile_speed, gravity)
-		or shoot_dir
-	if not flat_aim_dir then
-		return nil
-	end
+	local gravity = self.weapon_info:GetGravity(charge_time) * 800 --- example: 200
 
 	local detonate_time = self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
-
-	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
+	local travel_time_est = (vecTargetOrigin - self.vecShootPos):Length() / projectile_speed
 	local total_time = travel_time_est + self.nLatency + detonate_time
-	if total_time > self.settings.max_sim_time then
+	if total_time > self.settings.max_sim_time or total_time > self.weapon_info.m_flLifetime then
 		return nil
 	end
 
@@ -132,21 +122,14 @@ function pred:Run()
 	end
 
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
-	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
-	if not aim_dir then
-		return nil
-	end
 
 	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
 	multipoint:Set(
 		self.pLocal,
 		self.pTarget,
 		self.bIsHuntsman,
-		aim_dir,
 		self.bAimAtTeamMates,
-		vecMuzzlePos,
+		self.vecShootPos,
 		predicted_target_pos,
 		self.weapon_info,
 		self.math_utils,
@@ -162,17 +145,24 @@ function pred:Run()
 		return nil
 	end
 
-	aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
-		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
+	local aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
 	if not aim_dir then
 		return nil
+	end
+
+	if gravity > 0 then
+		local ballistic_dir =
+			self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, projectile_speed, gravity)
+		if not ballistic_dir then
+			return nil
+		end
+		aim_dir = ballistic_dir
 	end
 
 	local projectile_path = self.proj_sim.Run(
 		self.pLocal,
 		self.pWeapon,
-		vecMuzzlePos,
+		self.vecShootPos,
 		aim_dir,
 		self.settings.max_sim_time,
 		self.weapon_info

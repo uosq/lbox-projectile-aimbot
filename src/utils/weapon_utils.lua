@@ -255,17 +255,17 @@ end
 
 ---@param pLocal Entity
 ---@param weapon_info WeaponInfo
----@param bIsFlippedViewModel boolean
 ---@param eAngle EulerAngles
----@return Vector3, Vector3 The normal shoot position
-function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, eAngle)
+---@return Vector3
+function wep_utils.GetShootPos(pLocal, weapon_info, eAngle)
 	-- i stole this from terminator
 	local vStartPosition = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local vOffset = (eAngle:Forward() * weapon_info.vecOffset.x)
-		+ (eAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
-		+ (eAngle:Up() * weapon_info.vecOffset.z)
-
-	return vStartPosition - vOffset, vOffset
+	return weapon_info:GetFirePosition(
+		pLocal,
+		vStartPosition,
+		eAngle:Forward(),
+		client.GetConVar("cl_flipviewmodels") == 1
+	) --vStartPosition + vOffset, vOffset
 end
 
 return wep_utils

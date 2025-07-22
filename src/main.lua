@@ -46,7 +46,7 @@ local settings = {
 
 	ignore_conds = {
 		cloaked = true,
-		disguised = true,
+		disguised = false,
 		ubercharged = true,
 		bonked = true,
 		taunting = true,
@@ -68,6 +68,8 @@ local player_sim = require("src.simulation.player")
 local proj_sim = require("src.simulation.proj")
 
 local prediction = require("src.prediction")
+
+local GetProjectileInformation = require("src.projectile_info")
 
 local menu = require("src.gui")
 menu.init(settings, version)
@@ -288,34 +290,33 @@ end
 ---@param pLocal Entity
 ---@param pWeapon Entity
 ---@param bAimTeamMate boolean
+---@param vecHeadPos Vector3
 ---@param netchannel NetChannel
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
 ---@param bIsHuntsman boolean
 ---@param weaponInfo WeaponInfo
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman, weaponInfo)
+local function ProcessPrediction(
+	pLocal,
+	pWeapon,
+	vecHeadPos,
+	bAimTeamMate,
+	netchannel,
+	bDrawOnly,
+	players,
+	bIsHuntsman,
+	weaponInfo
+)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
 		return nil
 	end
 
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase then
-		return nil
-	end
-
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
 	end
-
-	local iWeaponID = pWeapon:GetWeaponID()
-
-	-- Calculate proper shoot position with flipped viewmodel support
-	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
-	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
 
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
@@ -328,7 +329,6 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		return nil
 	end
 
-	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	-- weaponInfo is now passed as parameter, no need to recalculate
 	local nlatency = settings.ping_compensation and 0
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
@@ -381,11 +381,6 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local iCase, iDefinitionIndex = wep_utils.GetWeaponDefinition(pWeapon)
-	if not iCase or not iDefinitionIndex then
-		return
-	end
-
 	if gui.GetValue("projectile aimbot") ~= "none" then
 		gui.SetValue("projectile aimbot", "none")
 	end
@@ -403,18 +398,15 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-
-	-- Check if viewmodels are flipped
-	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
+	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
-
+	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, viewAngles)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
 	local pred_result, pTarget = ProcessPrediction(
 		pLocal,
 		pWeapon,
+		vecHeadPos,
 		bAimAtTeamMates,
 		netChannel,
 		settings.draw_only,
@@ -437,7 +429,7 @@ local function CreateMove(uCmd)
 	local vec_bestPos = pred_result.vecPos
 
 	-- Use the muzzle position for the trace check instead of the head position
-	local vecMins, vecMaxs = -weaponInfo.vecCollisionMax, weaponInfo.vecCollisionMax
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
@@ -446,6 +438,7 @@ local function CreateMove(uCmd)
 
 	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
 	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+		- weaponInfo:GetAngleOffset(pred_result.nChargeTime)
 
 	local bAttack = false
 
@@ -473,7 +466,7 @@ local function CreateMove(uCmd)
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsHuntsman then
-		if pred_result.nChargeTime > 0.1 then
+		if pred_result.nChargeTime > 0.0 then
 			if settings.autoshoot and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
@@ -492,7 +485,7 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if pred_result.nChargeTime > 0.1 then
+		if pred_result.nChargeTime > 0.0 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			bAttack = FireWeapon(false)
 		end
