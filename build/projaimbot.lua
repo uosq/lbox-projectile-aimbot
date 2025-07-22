@@ -2122,7 +2122,7 @@ function pred:Run()
 	end
 
 	local charge_time, projectile_speed = self:GetChargeTimeAndSpeed()
-	local gravity = self.weapon_info.flGravity
+	local gravity = -self.weapon_info.flGravity
 
 	local shoot_dir = self.math_utils.NormalizeVector(vecTargetOrigin - self.vecShootPos)
 	local vecMuzzlePos = self.vecShootPos
@@ -2150,7 +2150,7 @@ function pred:Run()
 
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 	local aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, -gravity)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
 		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	if not aim_dir then
 		return nil
@@ -2179,7 +2179,7 @@ function pred:Run()
 	end
 
 	aim_dir = (gravity > 0)
-			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, -gravity)
+			and self.math_utils.SolveBallisticArc(vecMuzzlePos, predicted_target_pos, projectile_speed, gravity)
 		or self.math_utils.NormalizeVector(predicted_target_pos - vecMuzzlePos)
 	if not aim_dir then
 		return nil
