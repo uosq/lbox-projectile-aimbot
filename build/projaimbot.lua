@@ -1,4 +1,3 @@
--- Bundled by luabundle {"version":"1.7.0"}
 local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (function(superRequire)
 	local loadingPlaceholder = {[{}] = true}
 
@@ -335,9 +334,9 @@ end
 ---@param bDrawOnly boolean
 ---@param players table<integer, Entity>
 ---@param bIsHuntsman boolean
----@param vecHeadPos Vector3
+---@param weaponInfo WeaponInfo
 ---@return PredictionResult?, Entity?
-local function ProcessPrediction(pLocal, pWeapon, vecHeadPos, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman)
+local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDrawOnly, players, bIsHuntsman, weaponInfo)
 	if
 		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
 	then
@@ -354,6 +353,12 @@ local function ProcessPrediction(pLocal, pWeapon, vecHeadPos, bAimTeamMate, netc
 	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
+
+	-- Calculate proper shoot position with flipped viewmodel support
+	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
+	local viewAngles = engine.GetViewAngles()
+	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
+
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
 
 	if not best_target.index then
@@ -366,7 +371,7 @@ local function ProcessPrediction(pLocal, pWeapon, vecHeadPos, bAimTeamMate, netc
 	end
 
 	local is_ducking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
-	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, is_ducking, iCase, iDefinitionIndex, iWeaponID)
+	-- weaponInfo is now passed as parameter, no need to recalculate
 	local nlatency = settings.ping_compensation and 0
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
@@ -441,19 +446,22 @@ local function CreateMove(uCmd)
 
 	local bDucking = (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0
 	local weaponInfo = wep_utils.GetWeaponInfo(pWeapon, bDucking, iCase, iDefinitionIndex, iWeaponID)
-	local vecOffset = (pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"))
-	local vecHeadPos = pLocal:GetAbsOrigin() + vecOffset
+
+	-- Check if viewmodels are flipped
+	local bIsFlippedViewModel = client.GetConVar("cl_flipviewmodels") == 1
+	local viewAngles = engine.GetViewAngles()
+	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, bIsFlippedViewModel, viewAngles)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 	local pred_result, pTarget = ProcessPrediction(
 		pLocal,
 		pWeapon,
-		vecHeadPos,
 		bAimAtTeamMates,
 		netChannel,
 		settings.draw_only,
 		players,
-		bIsHuntsman
+		bIsHuntsman,
+		weaponInfo
 	)
 
 	if not pred_result or not pTarget then
@@ -532,7 +540,7 @@ local function CreateMove(uCmd)
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = FireWeapon(true) -- special case for sandvich
-	else -- generic weapons
+	else                     -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
