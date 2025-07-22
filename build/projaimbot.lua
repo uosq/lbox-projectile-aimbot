@@ -3161,7 +3161,7 @@ function wep_utils.GetShootPos(pLocal, weapon_info, bIsFlippedViewModel, eAngle)
 		+ (eAngle:Right() * (weapon_info.vecOffset.y * (bIsFlippedViewModel and -1 or 1)))
 		+ (eAngle:Up() * weapon_info.vecOffset.z)
 
-	return vStartPosition + vOffset, vOffset
+	return vStartPosition - vOffset, vOffset
 end
 
 return wep_utils
