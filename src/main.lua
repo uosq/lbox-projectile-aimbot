@@ -62,6 +62,7 @@ local settings = {
 
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
+local ent_utils = require("src.utils.entity")
 
 local player_sim = require("src.simulation.player")
 local proj_sim = require("src.simulation.proj")
@@ -344,7 +345,8 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		nlatency,
 		settings,
 		bIsHuntsman,
-		bAimTeamMate
+		bAimTeamMate,
+		ent_utils
 	)
 
 	return prediction:Run(), pTarget

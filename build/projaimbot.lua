@@ -106,6 +106,7 @@ local settings = {
 
 local wep_utils = require("src.utils.weapon_utils")
 local math_utils = require("src.utils.math")
+local ent_utils = require("src.utils.entity")
 
 local player_sim = require("src.simulation.player")
 local proj_sim = require("src.simulation.proj")
@@ -388,7 +389,8 @@ local function ProcessPrediction(pLocal, pWeapon, bAimTeamMate, netchannel, bDra
 		nlatency,
 		settings,
 		bIsHuntsman,
-		bAimTeamMate
+		bAimTeamMate,
+		ent_utils
 	)
 
 	return prediction:Run(), pTarget
@@ -2034,6 +2036,7 @@ local multipoint = require("src.multipoint")
 ---@field nLatency number
 ---@field settings table
 ---@field private __index table
+---@field ent_utils table
 local pred = {}
 pred.__index = pred
 
@@ -2049,7 +2052,8 @@ function pred:Set(
 	nLatency,
 	settings,
 	bIsHuntsman,
-	bAimAtTeamMates
+	bAimAtTeamMates,
+	ent_utils
 )
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
@@ -2063,6 +2067,7 @@ function pred:Set(
 	self.settings = settings
 	self.bIsHuntsman = bIsHuntsman
 	self.bAimAtTeamMates = bAimAtTeamMates
+	self.ent_utils = ent_utils
 end
 
 function pred:GetChargeTimeAndSpeed()
@@ -2136,8 +2141,10 @@ function pred:Run()
 		return nil
 	end
 
+	local detonate_time = self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+
 	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
-	local total_time = travel_time_est + self.nLatency
+	local total_time = travel_time_est + self.nLatency + detonate_time
 	if total_time > self.settings.max_sim_time then
 		return nil
 	end
@@ -2168,7 +2175,8 @@ function pred:Run()
 		self.weapon_info,
 		self.math_utils,
 		self.settings.max_distance,
-		bSplashWeapon
+		bSplashWeapon,
+		self.ent_utils
 	)
 
 	---@diagnostic disable-next-line: cast-local-type
@@ -2235,7 +2243,7 @@ local offset_multipliers = {
 		{ 0, 0, 0.9 }, -- near head
 	},
 	huntsman = {
-		{ 0, 0, 0.9 }, -- near head
+		--{ 0, 0, 0.9 }, -- near head
 		{ 0, 0, 0.5 }, -- chest
 		{ 0.6, 0, 0.5 }, -- right shoulder
 		{ -0.6, 0, 0.5 }, -- left shoulder
@@ -2269,6 +2277,18 @@ function multipoint:GetBestHitPoint()
 		return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
 	end
 
+	if self.bIsHuntsman then
+		local origin = self.pTarget:GetAbsOrigin()
+		local head_pos = self.ent_utils.GetBones(self.pTarget)[1]
+		local diff = head_pos - origin
+		local test_pos = self.vecPredictedPos + diff
+
+		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if trace and trace.fraction >= 1 then
+			return test_pos
+		end
+	end
+
 	for _, mult in ipairs(multipliers) do
 		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
 		local test_pos = self.vecPredictedPos + offset
@@ -2286,6 +2306,18 @@ function multipoint:GetBestHitPoint()
 	return bestPoint
 end
 
+---@param pLocal Entity
+---@param pTarget Entity
+---@param bIsHuntsman boolean
+---@param vecAimDir Vector3
+---@param bAimTeamMate boolean
+---@param vecHeadPos Vector3
+---@param vecPredictedPos Vector3
+---@param weapon_info WeaponInfo
+---@param math_utils MathLib
+---@param iMaxDistance integer
+---@param bIsSplash boolean
+---@param ent_utils table
 function multipoint:Set(
 	pLocal,
 	pTarget,
@@ -2297,7 +2329,8 @@ function multipoint:Set(
 	weapon_info,
 	math_utils,
 	iMaxDistance,
-	bIsSplash
+	bIsSplash,
+	ent_utils
 )
 	self.pLocal = pLocal
 	self.pTarget = pTarget
@@ -2310,6 +2343,7 @@ function multipoint:Set(
 	self.iMaxDistance = iMaxDistance
 	self.vecPredictedPos = vecPredictedPos
 	self.bIsSplash = bIsSplash
+	self.ent_utils = ent_utils
 end
 
 return multipoint
@@ -2751,6 +2785,82 @@ function sim.Run(stepSize, pTarget, time)
 end
 
 return sim
+
+end)
+__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
+local ent_utils = {}
+
+---@param plocal Entity
+function ent_utils.GetShootPosition(plocal)
+	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+end
+
+---@param entity Entity
+---@return table<integer, Vector3>
+function ent_utils.GetBones(entity)
+	local model = entity:GetModel()
+	local studioHdr = models.GetStudioModel(model)
+
+	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
+	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
+	local hitboxes = hitboxSet:GetHitboxes()
+
+	--boneMatrices is an array of 3x4 float matrices
+	local boneMatrices = entity:SetupBones()
+
+    local bones = {}
+
+	for i = 1, #hitboxes do
+		local hitbox = hitboxes[i]
+		local bone = hitbox:GetBone()
+
+		local boneMatrix = boneMatrices[bone]
+
+		if boneMatrix == nil then
+			goto continue
+		end
+
+		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
+
+        bones[i] = bonePos
+		::continue::
+	end
+
+    return bones
+end
+
+---@param player Entity
+---@param shootpos Vector3
+---@param viewangle EulerAngles
+---@param PREFERRED_BONES table
+function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
+	local bones = ent_utils.GetBones(player)
+	local info = {}
+	info.fov = math.huge
+	info.angle = nil
+	info.index = nil
+	info.pos = nil
+
+	for _, preferred_bone in ipairs(PREFERRED_BONES) do
+		local bonePos = bones[preferred_bone]
+		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
+
+		if trace and trace.fraction >= 0.6 then
+			local angle = utils.PositionAngles(shootpos, bonePos)
+			local fov = utils.AngleFov(angle, viewangle)
+
+			if fov < info.fov then
+				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
+				info.pos = bonePos
+				break --- found a suitable bone, no need to check the other ones
+			end
+		end
+	end
+
+	return info
+end
+
+return ent_utils
 
 end)
 __bundle_register("src.utils.math", function(require, _LOADED, __bundle_register, __bundle_modules)

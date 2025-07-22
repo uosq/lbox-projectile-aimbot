@@ -22,7 +22,7 @@ local offset_multipliers = {
 		{ 0, 0, 0.9 }, -- near head
 	},
 	huntsman = {
-		{ 0, 0, 0.9 }, -- near head
+		--{ 0, 0, 0.9 }, -- near head
 		{ 0, 0, 0.5 }, -- chest
 		{ 0.6, 0, 0.5 }, -- right shoulder
 		{ -0.6, 0, 0.5 }, -- left shoulder
@@ -56,6 +56,18 @@ function multipoint:GetBestHitPoint()
 		return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
 	end
 
+	if self.bIsHuntsman then
+		local origin = self.pTarget:GetAbsOrigin()
+		local head_pos = self.ent_utils.GetBones(self.pTarget)[1]
+		local diff = head_pos - origin
+		local test_pos = self.vecPredictedPos + diff
+
+		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if trace and trace.fraction >= 1 then
+			return test_pos
+		end
+	end
+
 	for _, mult in ipairs(multipliers) do
 		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
 		local test_pos = self.vecPredictedPos + offset
@@ -73,6 +85,18 @@ function multipoint:GetBestHitPoint()
 	return bestPoint
 end
 
+---@param pLocal Entity
+---@param pTarget Entity
+---@param bIsHuntsman boolean
+---@param vecAimDir Vector3
+---@param bAimTeamMate boolean
+---@param vecHeadPos Vector3
+---@param vecPredictedPos Vector3
+---@param weapon_info WeaponInfo
+---@param math_utils MathLib
+---@param iMaxDistance integer
+---@param bIsSplash boolean
+---@param ent_utils table
 function multipoint:Set(
 	pLocal,
 	pTarget,
@@ -84,7 +108,8 @@ function multipoint:Set(
 	weapon_info,
 	math_utils,
 	iMaxDistance,
-	bIsSplash
+	bIsSplash,
+	ent_utils
 )
 	self.pLocal = pLocal
 	self.pTarget = pTarget
@@ -97,6 +122,7 @@ function multipoint:Set(
 	self.iMaxDistance = iMaxDistance
 	self.vecPredictedPos = vecPredictedPos
 	self.bIsSplash = bIsSplash
+	self.ent_utils = ent_utils
 end
 
 return multipoint

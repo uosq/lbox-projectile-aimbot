@@ -12,6 +12,7 @@ local multipoint = require("src.multipoint")
 ---@field nLatency number
 ---@field settings table
 ---@field private __index table
+---@field ent_utils table
 local pred = {}
 pred.__index = pred
 
@@ -27,7 +28,8 @@ function pred:Set(
 	nLatency,
 	settings,
 	bIsHuntsman,
-	bAimAtTeamMates
+	bAimAtTeamMates,
+	ent_utils
 )
 	self.pLocal = pLocal
 	self.pWeapon = pWeapon
@@ -41,6 +43,7 @@ function pred:Set(
 	self.settings = settings
 	self.bIsHuntsman = bIsHuntsman
 	self.bAimAtTeamMates = bAimAtTeamMates
+	self.ent_utils = ent_utils
 end
 
 function pred:GetChargeTimeAndSpeed()
@@ -114,8 +117,10 @@ function pred:Run()
 		return nil
 	end
 
+	local detonate_time = self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+
 	local travel_time_est = (vecTargetOrigin - vecMuzzlePos):Length() / projectile_speed
-	local total_time = travel_time_est + self.nLatency
+	local total_time = travel_time_est + self.nLatency + detonate_time
 	if total_time > self.settings.max_sim_time then
 		return nil
 	end
@@ -146,7 +151,8 @@ function pred:Run()
 		self.weapon_info,
 		self.math_utils,
 		self.settings.max_distance,
-		bSplashWeapon
+		bSplashWeapon,
+		self.ent_utils
 	)
 
 	---@diagnostic disable-next-line: cast-local-type
