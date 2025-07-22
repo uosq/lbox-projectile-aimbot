@@ -34,7 +34,7 @@ function WeaponInfo:GetAngleOffset(flChargeBeginTime) end
 
 ---@param pLocalPlayer Entity
 ---@param vecLocalView Vector3
----@param vecViewAngles Vector3
+---@param vecViewAngles EulerAngles
 ---@param bIsFlipped boolean
 ---@return Vector3
 function WeaponInfo:GetFirePosition(pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped) end

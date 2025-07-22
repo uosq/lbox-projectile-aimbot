@@ -3908,12 +3908,7 @@ end
 function wep_utils.GetShootPos(pLocal, weapon_info, eAngle)
 	-- i stole this from terminator
 	local vStartPosition = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	return weapon_info:GetFirePosition(
-		pLocal,
-		vStartPosition,
-		eAngle:Forward(),
-		client.GetConVar("cl_flipviewmodels") == 1
-	) --vStartPosition + vOffset, vOffset
+	return weapon_info:GetFirePosition(pLocal, vStartPosition, eAngle, client.GetConVar("cl_flipviewmodels") == 1) --vStartPosition + vOffset, vOffset
 end
 
 return wep_utils
