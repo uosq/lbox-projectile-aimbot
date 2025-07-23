@@ -61,6 +61,8 @@ if engine.GetServerIP() == "" then
 	return
 end
 
+printc(186, 97, 255, 255, "The projectile aimbot is loading...")
+
 local version = "5"
 
 local settings = {
@@ -105,15 +107,32 @@ local settings = {
 }
 
 local wep_utils = require("src.utils.weapon_utils")
+assert(wep_utils, "[PROJ AIMBOT] Weapon utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Weapon utils loaded")
+
 local math_utils = require("src.utils.math")
+assert(math_utils, "[PROJ AIMBOT] Math utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Math utils loaded")
+
 local ent_utils = require("src.utils.entity")
+assert(ent_utils, "[PROJ AIMBOT] Entity utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Entity utils loaded")
 
 local player_sim = require("src.simulation.player")
+assert(player_sim, "[PROJ AIMBOT] Player prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Player prediction module loaded")
+
 local proj_sim = require("src.simulation.proj")
+assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
 
 local prediction = require("src.prediction")
+assert(prediction, "[PROJ AIMBOT] Prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Mrediction module loaded")
 
 local GetProjectileInformation = require("src.projectile_info")
+assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
 local menu = require("src.gui")
 menu.init(settings, version)
@@ -443,8 +462,13 @@ local function CreateMove(uCmd)
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
-	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, viewAngles)
+	local vecHeadPos = weaponInfo:GetFirePosition(
+		pLocal,
+		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
+		engine.GetViewAngles(),
+		pWeapon:IsViewModelFlipped()
+	) + weaponInfo.m_vecAbsoluteOffset
+
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
 	local pred_result, pTarget = ProcessPrediction(
@@ -480,12 +504,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
 	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
-		- weaponInfo:GetAngleOffset(pred_result.nChargeTime)
-
 	local bAttack = false
-
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
 	local function FireWeapon(isSandvich)
@@ -704,7 +724,15 @@ end)
 __bundle_register("src.gui", function(require, _LOADED, __bundle_register, __bundle_modules)
 local gui = {}
 
-local menu = require("src.nmenu")
+local menu
+do
+	local content = http.Get("https://raw.githubusercontent.com/uosq/lbox-menu/refs/heads/main/src/nmenu.lua")
+	if content then
+		menu = load(content)()
+		assert(menu, "Menu is nil!")
+	end
+end
+
 local font = draw.CreateFont("TF2 BUILD", 16, 500)
 
 ---@param settings table
@@ -977,6 +1005,7 @@ function gui.init(settings, version)
 	end
 
 	menu:register()
+	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end
 
 function gui.unload()
@@ -984,1034 +1013,6 @@ function gui.unload()
 end
 
 return gui
-
-end)
-__bundle_register("src.nmenu", function(require, _LOADED, __bundle_register, __bundle_modules)
----@diagnostic disable: duplicate-set-field, undefined-field, redefined-local, cast-local-type
-
----@module "meta"
-
--- =============================================================================
--- CONSTANTS AND CONFIGURATION
--- =============================================================================
-
-local OUTLINE_THICKNESS = 1
-local TAB_BUTTON_WIDTH = 120
-local TAB_BUTTON_HEIGHT = 25
-local TAB_BUTTON_MARGIN = 2
-local HEADER_SIZE = 25
-local COMPONENT_TYPES = {
-	BUTTON = 1,
-	CHECKBOX = 2,
-	SLIDER = 3,
-	DROPDOWN = 4,
-	LISTBOX = 5,
-}
-
--- =============================================================================
--- MODULE STATE
--- =============================================================================
-
-local draw_id = tostring(os.clock())
-local font = draw.CreateFont("TF2 BUILD", 12, 1000)
-local checkfont = draw.CreateFont("TF2 BUILD", 10, 1000)
-local last_keypress_tick = 0
-
-local deferred_dropdowns = {}
-
----@type table<integer, WINDOW>
-local windows = {}
-
----@type WINDOW?
-local current_window_context = nil
-
----@type BUTTON|CHECKBOX|SLIDER|DROPDOWN|LISTBOX
-local current_component = nil
-
----@type SLIDER?
-local dragging_slider = nil
-
----@type WINDOW?
-local dragging_window = nil
-local oldmx, oldmy = 0, 0
-local dx, dy = 0, 0
-
--- =============================================================================
--- UTILITY FUNCTIONS
--- =============================================================================
-
-local function clamp(value, min_val, max_val)
-	return math.max(min_val, math.min(max_val, value))
-end
-
-local function is_mouse_inside(x1, y1, x2, y2)
-	local mouse = input.GetMousePos()
-	local mx, my = table.unpack(mouse)
-	return mx >= x1 and mx <= x2 and my >= y1 and my <= y2
-end
-
-local function get_current_window_tab()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return nil
-	end
-
-	-- If no tabs exist, return 0 (will be handled by make_new_component)
-	if #window.tabs == 0 then
-		return 0
-	end
-
-	return #window.tabs
-end
-
-local function get_content_area_offset()
-	local window = current_window_context
-	if not window or #window.tabs <= 1 then
-		return 0
-	end
-	return TAB_BUTTON_WIDTH + TAB_BUTTON_MARGIN
-end
-
-local function get_new_component_index()
-	local window = current_window_context
-	assert(window, "Window context is nil!")
-
-	-- If no tabs exist, create a default one
-	if #window.tabs == 0 then
-		table.insert(window.tabs, {
-			name = "",
-			components = {},
-		})
-	end
-
-	return #window.tabs[#window.tabs].components + 1
-end
-
-local function make_new_component(component)
-	local window = current_window_context
-	if not window then
-		return nil
-	end
-
-	-- If no tabs exist, create a default one
-	if #window.tabs == 0 then
-		table.insert(window.tabs, {
-			name = "",
-			components = {},
-		})
-	end
-
-	local current_tab = get_current_window_tab()
-	local index = get_new_component_index()
-
-	window.tabs[current_tab].components[index] = component
-	return window.tabs[current_tab].components[index]
-end
-
--- =============================================================================
--- INPUT HANDLING
--- =============================================================================
-
-local function handle_tab_button_click(window, tab_index)
-	local tab_x = window.x
-	local tab_y = window.y + (tab_index - 1) * (TAB_BUTTON_HEIGHT + TAB_BUTTON_MARGIN)
-	local tab_x2 = tab_x + TAB_BUTTON_WIDTH
-	local tab_y2 = tab_y + TAB_BUTTON_HEIGHT
-
-	if is_mouse_inside(tab_x, tab_y, tab_x2, tab_y2) then
-		local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-		if state and tick > last_keypress_tick then
-			-- Set active tab for THIS specific window (my stupid brain is stupid)
-			window.active_tab_index = tab_index
-			last_keypress_tick = tick
-		end
-		return true
-	end
-	return false
-end
-
-local function handle_mouse_click()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return
-	end
-
-	local component = current_component
-	local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-	local content_offset = get_content_area_offset()
-
-	local x1 = component.x + window.x + content_offset
-	local y1 = component.y + window.y
-	local x2 = component.x + component.width + window.x + content_offset
-	local y2 = component.y + component.height + window.y
-
-	if component.type == COMPONENT_TYPES.DROPDOWN then
-		if is_mouse_inside(x1, y1, x2, y2) and state and tick > last_keypress_tick then
-			component.expanded = not component.expanded
-			last_keypress_tick = tick
-			return
-		end
-
-		if component.expanded then
-			table.insert(deferred_dropdowns, {
-				component = component,
-				window = window,
-			})
-		end
-	elseif component.type == COMPONENT_TYPES.LISTBOX then
-		local item_height = 20
-		local content_offset = get_content_area_offset()
-		local listbox_x = window.x + component.x + content_offset
-		local listbox_y = window.y + component.y
-
-		for i, item in ipairs(component.items) do
-			local iy = listbox_y + (i - 1) * item_height
-			if iy + item_height > listbox_y + component.height then
-				break
-			end
-			if
-				is_mouse_inside(listbox_x, iy, listbox_x + component.width, iy + item_height)
-				and state
-				and tick > last_keypress_tick
-			then
-				component.selected_index = i
-				if component.func then
-					component.func(i, item)
-				end
-				last_keypress_tick = tick
-				break
-			end
-		end
-	else
-		if is_mouse_inside(x1, y1, x2, y2) then
-			if component.func and state and tick > last_keypress_tick then
-				---@diagnostic disable-next-line: missing-parameter
-				component.func()
-				last_keypress_tick = tick
-			end
-
-			if input.IsButtonDown(E_ButtonCode.MOUSE_LEFT) then
-				draw.Color(76, 86, 106, 255)
-			end
-		end
-	end
-end
-
-local function handle_mouse_hover()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return
-	end
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-	local x1 = component.x + window.x - OUTLINE_THICKNESS + content_offset
-	local y1 = component.y + window.y - OUTLINE_THICKNESS
-	local x2 = component.x + window.x + component.width + OUTLINE_THICKNESS + content_offset
-	local y2 = component.y + window.y + component.height + OUTLINE_THICKNESS
-
-	if is_mouse_inside(x1, y1, x2, y2) then
-		draw.Color(67, 76, 94, 255)
-	end
-end
-
-local function handle_slider_drag()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return
-	end
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-
-	local slider_x = component.x + window.x + content_offset
-	local slider_y = component.y + window.y
-	local slider_w = component.width
-	local slider_h = component.height
-
-	-- Check if mouse is over the slider area
-	if is_mouse_inside(slider_x, slider_y, slider_x + slider_w, slider_y + slider_h) then
-		-- Start dragging if mouse is pressed and no other slider is being dragged
-		if input.IsButtonDown(E_ButtonCode.MOUSE_LEFT) and dragging_slider == nil then
-			dragging_slider = component
-		end
-	end
-
-	-- Handle dragging
-	if dragging_slider == component and input.IsButtonDown(E_ButtonCode.MOUSE_LEFT) then
-		local mouse = input.GetMousePos()
-		local mx = mouse[1]
-
-		-- Calculate new value based on mouse position
-		local relative_x = mx - slider_x
-		local progress = clamp(relative_x / slider_w, 0, 1)
-
-		-- Update slider value
-		component.value = component.min + progress * (component.max - component.min)
-
-		-- Call callback if exists
-		if component.func then
-			---@diagnostic disable-next-line: missing-parameter
-			component.func(component.value)
-		end
-	end
-
-	-- Stop dragging when mouse is released
-	if dragging_slider == component and not input.IsButtonDown(E_ButtonCode.MOUSE_LEFT) then
-		dragging_slider = nil
-	end
-end
-
-local function handle_window_drag()
-	local window = current_window_context
-	assert(window, "Window context is nil! WTF")
-
-	if input.IsButtonReleased(E_ButtonCode.MOUSE_LEFT) and dragging_window == window then
-		dragging_window = nil
-	end
-
-	local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-
-	if
-		not dragging_slider
-		and state
-		and tick > last_keypress_tick
-		and is_mouse_inside(window.x, window.y - HEADER_SIZE, window.x + window.width, window.y)
-	then
-		last_keypress_tick = tick
-		dragging_window = window
-	end
-
-	if dragging_window == window then
-		window.x = window.x + dx
-		window.y = window.y + dy
-	end
-end
-
--- =============================================================================
--- COMPONENT RENDERING
--- =============================================================================
-
-local function draw_button()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return
-	end
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-
-	-- Draw outline
-	draw.Color(143, 188, 187, 255)
-	draw.FilledRect(
-		component.x + window.x - OUTLINE_THICKNESS + content_offset,
-		component.y + window.y - OUTLINE_THICKNESS,
-		component.x + component.width + window.x + OUTLINE_THICKNESS + content_offset,
-		component.y + component.height + window.y + OUTLINE_THICKNESS
-	)
-
-	-- Default background color
-	draw.Color(59, 66, 82, 255)
-
-	handle_mouse_hover()
-	handle_mouse_click()
-
-	-- Draw button background
-	draw.FilledRect(
-		component.x + window.x + content_offset,
-		component.y + window.y,
-		component.x + component.width + window.x + content_offset,
-		component.y + component.height + window.y
-	)
-
-	-- Draw button text
-	if component.label and component.label ~= "" then
-		draw.SetFont(component.font or font)
-		local tw, th = draw.GetTextSize(component.label)
-
-		draw.Color(236, 239, 244, 255)
-		draw.Text(
-			window.x + component.x + (component.width // 2) - (tw // 2) + content_offset,
-			window.y + component.y + (component.height // 2) - (th // 2),
-			component.label
-		)
-	end
-end
-
-local function draw_checkbox()
-	local window = current_window_context
-	assert(window, "Window context is nil!")
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-	local check_char = "x"
-
-	draw.SetFont(checkfont)
-	local tw, th = draw.GetTextSize(check_char)
-
-	-- Draw outline
-	draw.Color(143, 188, 187, 255)
-	draw.FilledRect(
-		window.x + component.x - OUTLINE_THICKNESS + content_offset,
-		window.y + component.y - OUTLINE_THICKNESS,
-		window.x + component.x + component.width + OUTLINE_THICKNESS + content_offset,
-		window.y + component.y + component.height + OUTLINE_THICKNESS
-	)
-
-	draw.Color(67, 76, 94, 255)
-
-	handle_mouse_hover()
-	handle_mouse_click()
-
-	-- Draw checkbox background
-	draw.FilledRect(
-		window.x + component.x + content_offset,
-		window.y + component.y,
-		window.x + component.x + component.width + content_offset,
-		window.y + component.y + component.height
-	)
-
-	-- Draw checkbox and label
-	local box_width = component.width // 10
-	local box_height = component.height // 2
-	local box_x = window.x + component.x + 4 + content_offset
-	local box_y = window.y + component.y + (component.height // 2) - (box_height // 2)
-
-	-- Checkbox outline
-	draw.Color(236, 239, 244, 255)
-	draw.FilledRect(box_x - 1, box_y - 1, box_x + box_width + 1, box_y + box_height + 1)
-
-	-- Checkbox background
-	draw.Color(163, 190, 140, 255)
-	draw.FilledRect(box_x, box_y, box_x + box_width, box_y + box_height)
-
-	-- Draw check mark if enabled
-	if component.enabled then
-		draw.SetFont(checkfont)
-		draw.Color(0, 0, 0, 255)
-		draw.Text(box_x + (box_width // 2) - (tw // 2), box_y + (box_height // 2) - (th // 2), check_char)
-	end
-
-	-- Draw label text
-	draw.SetFont(window.font or font)
-	local _, label_height = draw.GetTextSize(component.label)
-	draw.Color(236, 239, 244, 255)
-	draw.Text(box_x + box_width + 3, box_y + (box_height // 2) - (label_height // 2), component.label)
-end
-
-local function draw_tab_buttons(window)
-	if #window.tabs <= 1 then
-		return
-	end
-
-	for i, tab in ipairs(window.tabs) do
-		local tab_x = window.x
-		local tab_y = window.y + (i - 1) * (TAB_BUTTON_HEIGHT + TAB_BUTTON_MARGIN)
-		-- Use window-specific active tab index (or 1 if it's a single tab window (no tabs basically))
-		local is_active = (i == (window.active_tab_index or 1))
-		local is_hovered = handle_tab_button_click(window, i)
-
-		-- Draw tab button outline
-		draw.Color(143, 188, 187, 255)
-		draw.FilledRect(
-			tab_x - OUTLINE_THICKNESS,
-			tab_y - OUTLINE_THICKNESS,
-			tab_x + TAB_BUTTON_WIDTH + OUTLINE_THICKNESS,
-			tab_y + TAB_BUTTON_HEIGHT + OUTLINE_THICKNESS
-		)
-
-		-- Draw tab button background
-		if is_active then
-			draw.Color(76, 86, 106, 255) -- Active tab color
-		elseif is_hovered then
-			draw.Color(67, 76, 94, 255) -- Hovered tab color
-		else
-			draw.Color(59, 66, 82, 255) -- Normal tab color
-		end
-
-		draw.FilledRect(tab_x, tab_y, tab_x + TAB_BUTTON_WIDTH, tab_y + TAB_BUTTON_HEIGHT)
-
-		-- Draw tab button text
-		if tab.name and tab.name ~= "" then
-			draw.SetFont(font)
-			local tw, th = draw.GetTextSize(tab.name)
-			draw.Color(236, 239, 244, 255)
-			draw.Text(
-				tab_x + (TAB_BUTTON_WIDTH // 2) - (tw // 2),
-				tab_y + (TAB_BUTTON_HEIGHT // 2) - (th // 2),
-				tab.name
-			)
-		end
-	end
-end
-
-local function draw_slider()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return
-	end
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-
-	local slider_x = component.x + window.x + content_offset
-	local slider_y = component.y + window.y
-	local slider_w = component.width
-	local slider_h = component.height
-
-	-- Handle slider interaction
-	handle_slider_drag()
-
-	-- Calculate dimensions
-	local knob_width = 10
-	local track_height = 4
-	local track_y = slider_y + (slider_h // 2) - (track_height // 2)
-
-	-- Calculate knob position based on value
-	local progress = (component.value - component.min) / (component.max - component.min)
-	local knob_x = (slider_x + (progress * (slider_w - knob_width))) // 1
-
-	-- Draw track background
-	draw.Color(67, 76, 94, 255)
-	draw.FilledRect(slider_x, track_y, slider_x + slider_w, track_y + track_height)
-
-	-- Draw track fill (progress)
-	draw.Color(129, 161, 193, 255)
-	draw.FilledRect(slider_x, track_y, knob_x + (knob_width / 2), track_y + track_height)
-
-	-- Draw knob outline
-	draw.Color(143, 188, 187, 255)
-	draw.FilledRect(knob_x - 1, slider_y - 1, knob_x + knob_width + 1, slider_y + slider_h + 1)
-
-	-- Draw knob
-	if dragging_slider == component then
-		draw.Color(76, 86, 106, 255) -- Dragging color
-	elseif is_mouse_inside(knob_x, slider_y, knob_x + knob_width, slider_y + slider_h) then
-		draw.Color(67, 76, 94, 255) -- Hover color
-	else
-		draw.Color(59, 66, 82, 255) -- Normal color
-	end
-
-	draw.FilledRect(knob_x, slider_y, knob_x + knob_width, slider_y + slider_h)
-
-	-- Draw label if exists
-	if component.label and component.label ~= "" then
-		draw.SetFont(component.font or font)
-		local tw, th = draw.GetTextSize(component.label)
-
-		draw.Color(236, 239, 244, 255)
-		draw.Text(slider_x, slider_y - th - 2, component.label)
-	end
-
-	-- Draw value text
-	local value_text = string.format("%.1f", component.value)
-	draw.SetFont(component.font or font)
-	local value_tw, value_th = draw.GetTextSize(value_text)
-
-	draw.Color(236, 239, 244, 255)
-	draw.Text(slider_x + slider_w - value_tw, slider_y - value_th - 2, value_text)
-end
-
-local function draw_dropdown()
-	local window = current_window_context
-	assert(window, "Window context is nil!")
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-	local x = window.x + component.x + content_offset
-	local y = window.y + component.y
-
-	draw.SetFont(component.font or font)
-	local label_w, label_h = draw.GetTextSize(component.label)
-
-	--- Uma puta gambiarra
-	--- Mas to com preguiça de pensar em um jeito bom de fazer isso
-
-	local height_offset = 0
-	if component.label and component.label ~= "" then
-		height_offset = label_h + 5
-	end
-
-	-- Draw main dropdown box outline
-	draw.Color(143, 188, 187, 255)
-	draw.FilledRect(
-		x - OUTLINE_THICKNESS,
-		y - OUTLINE_THICKNESS - height_offset,
-		x + component.width + OUTLINE_THICKNESS,
-		y + component.height + OUTLINE_THICKNESS
-	)
-
-	--- Draw dropdown label
-	draw.Color(236, 239, 244, 255)
-	draw.Text(x + (component.width // 2) - (label_w // 2), y - (height_offset // 2) - (label_h // 2), component.label)
-
-	-- Draw main dropdown box background
-	draw.Color(59, 66, 82, 255)
-	draw.FilledRect(x, y, x + component.width, y + component.height)
-
-	-- Handle mouse clicks
-	handle_mouse_click()
-
-	-- Draw selected item text
-	local selected = component.items[component.selected_index] or ""
-	draw.SetFont(component.font or font)
-	draw.Color(236, 239, 244, 255)
-	local _, text_h = draw.GetTextSize(selected)
-	draw.Text(x + 4, y + (component.height // 2) - (text_h // 2), selected)
-
-	-- Draw dropdown arrow indicator
-	draw.Color(236, 239, 244, 255)
-	local arrow = component.expanded and "^" or "v" --- I wish i could use other characters, but i dont think TF2 BUILD supports emojis
-	local arrow_w, arrow_h = draw.GetTextSize(arrow)
-	draw.Text(x + component.width - arrow_w - 4, y + (component.height // 2) - (arrow_h // 2), arrow)
-
-	-- Draw dropdown items if expanded
-	if component.expanded then
-		for i, item in ipairs(component.items) do
-			local iy = y + component.height + (i - 1) * component.height
-
-			-- Check if mouse is hovering over this item
-			local is_hovered = is_mouse_inside(x, iy, x + component.width, iy + component.height)
-
-			-- Draw item outline
-			draw.Color(143, 188, 187, 255)
-			draw.FilledRect(
-				x - OUTLINE_THICKNESS,
-				iy - OUTLINE_THICKNESS,
-				x + component.width + OUTLINE_THICKNESS,
-				iy + component.height + OUTLINE_THICKNESS
-			)
-
-			-- Draw item background
-			if is_hovered then
-				draw.Color(76, 86, 106, 255) -- Hover color
-			else
-				draw.Color(67, 76, 94, 255) -- Normal dropdown item color
-			end
-			draw.FilledRect(x, iy, x + component.width, iy + component.height)
-
-			-- Draw item text
-			draw.Color(236, 239, 244, 255)
-			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
-
-			local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-			if is_hovered and state and tick > last_keypress_tick then
-				component.selected_index = i
-				component.expanded = false
-				if component.func then
-					component.func(i, item)
-				end
-				last_keypress_tick = tick
-				break
-			end
-		end
-	end
-end
-
-local function draw_listbox()
-	local window = current_window_context
-	assert(window, "Window context is nil!")
-
-	local component = current_component
-	local content_offset = get_content_area_offset()
-	local x = window.x + component.x + content_offset
-	local y = window.y + component.y
-	local item_height = 20
-	local state, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-
-	draw.Color(46, 52, 64, 255)
-	draw.FilledRect(x, y, x + component.width, y + (item_height * #component.items))
-
-	for i, item in ipairs(component.items) do
-		local iy = y + (i - 1) * item_height
-		if iy + item_height > y + component.height then
-			break
-		end
-
-		local is_hovered = is_mouse_inside(x, iy, x + component.width, iy + item_height)
-		local is_selected = (i == component.selected_index)
-
-		if is_hovered then
-			draw.Color(67, 76, 94, 255)
-		elseif is_selected then
-			draw.Color(76, 86, 106, 255)
-		else
-			draw.Color(59, 66, 82, 255)
-		end
-
-		if is_hovered and state and tick > last_keypress_tick then
-			last_keypress_tick = tick
-			component.selected_index = i
-		end
-
-		draw.FilledRect(x, iy, x + component.width, iy + item_height)
-		draw.SetFont(component.font)
-		draw.Color(236, 239, 244, 255)
-		draw.Text(x + 4, iy + 2, item)
-	end
-
-	draw.Color(143, 188, 187, 255)
-	draw.OutlinedRect(x, y, x + component.width, y + (item_height * #component.items))
-end
-
-local function draw_window()
-	local window = current_window_context
-	if not window then
-		error("The window context is nil!")
-		return
-	end
-
-	handle_window_drag()
-
-	local content_offset = get_content_area_offset()
-
-	-- Draw window outline
-	draw.Color(143, 188, 187, 255)
-	draw.FilledRect(
-		window.x - OUTLINE_THICKNESS,
-		window.y - OUTLINE_THICKNESS - ((window.header and window.header ~= "") and HEADER_SIZE or 0),
-		window.x + window.width + OUTLINE_THICKNESS,
-		window.y + window.height + OUTLINE_THICKNESS
-	)
-
-	if window.header and window.header ~= "" then
-		draw.SetFont(font)
-		draw.Color(0, 0, 0, 255)
-
-		local text_width, text_height = draw.GetTextSize(window.header)
-		draw.Text(
-			window.x + (window.width // 2) - (text_width // 2),
-			window.y - (HEADER_SIZE // 2) - (text_height // 2),
-			window.header
-		)
-	end
-
-	-- Draw window background
-	draw.Color(46, 52, 64, 255)
-	draw.FilledRect(window.x, window.y, window.x + window.width, window.y + window.height)
-
-	-- Draw tab buttons if multiple tabs exist
-	draw_tab_buttons(window)
-
-	-- Draw content area background (if tabs exist)
-	if #window.tabs > 1 then
-		draw.Color(41, 46, 57, 255)
-		draw.FilledRect(window.x + content_offset, window.y, window.x + window.width, window.y + window.height)
-	end
-
-	-- Draw components from active tab (use window-specific active tab)
-	local active_tab_index = window.active_tab_index or 1
-	-- Reset active tab if it's out of bounds for this window
-	if active_tab_index > #window.tabs then
-		active_tab_index = 1
-		window.active_tab_index = 1
-	end
-
-	local current_tab = window.tabs[active_tab_index] or window.tabs[1]
-	if current_tab then
-		for _, component in pairs(current_tab.components) do
-			current_component = component
-
-			if component.type == COMPONENT_TYPES.BUTTON then
-				draw_button()
-			elseif component.type == COMPONENT_TYPES.CHECKBOX then
-				draw_checkbox()
-			elseif component.type == COMPONENT_TYPES.SLIDER then
-				draw_slider()
-			elseif component.type == COMPONENT_TYPES.DROPDOWN then
-				draw_dropdown()
-			elseif component.type == COMPONENT_TYPES.LISTBOX then
-				draw_listbox()
-			else
-				-- Fallback to button rendering for unknown types
-				draw_button()
-			end
-		end
-	end
-
-	for _, dd in ipairs(deferred_dropdowns) do
-		local component = dd.component
-		local window = dd.window
-		local content_offset = get_content_area_offset()
-		local x = window.x + component.x + content_offset
-		local y = window.y + component.y
-		local _, text_h = draw.GetTextSize(component.label or "")
-
-		for i, item in ipairs(component.items) do
-			local iy = y + component.height + (i - 1) * component.height
-			local is_hovered = is_mouse_inside(x, iy, x + component.width, iy + component.height)
-
-			draw.Color(143, 188, 187, 255)
-			draw.FilledRect(
-				x - OUTLINE_THICKNESS,
-				iy - OUTLINE_THICKNESS,
-				x + component.width + OUTLINE_THICKNESS,
-				iy + component.height + OUTLINE_THICKNESS
-			)
-
-			if is_hovered then
-				draw.Color(76, 86, 106, 255)
-			else
-				draw.Color(67, 76, 94, 255)
-			end
-			draw.FilledRect(x, iy, x + component.width, iy + component.height)
-
-			draw.Color(236, 239, 244, 255)
-			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
-		end
-	end
-end
-
-local function draw_all_windows()
-	if not gui.IsMenuOpen() then
-		return
-	end
-
-	local mouse = input.GetMousePos()
-	local mx, my = table.unpack(mouse)
-	dx, dy = mx - oldmx, my - oldmy
-
-	for _, window in ipairs(windows) do
-		current_window_context = window
-		draw_window()
-	end
-
-	oldmx, oldmy = mx, my
-	deferred_dropdowns = {}
-end
-
--- =============================================================================
--- COMPONENT FACTORY FUNCTIONS
--- =============================================================================
-
-local function create_button_component()
-	---@type BUTTON
-	local button = {
-		type = COMPONENT_TYPES.BUTTON,
-		font = font,
-		height = 0,
-		width = 0,
-		label = "",
-		x = 0,
-		y = 0,
-	}
-	return button
-end
-
-local function create_checkbox_component()
-	---@type CHECKBOX
-	local checkbox = {
-		x = 0,
-		y = 0,
-		width = 0,
-		height = 0,
-		label = "",
-		enabled = false,
-		type = COMPONENT_TYPES.CHECKBOX,
-		func = nil, -- Will be set after creation
-	}
-
-	-- Set the toggle function
-	checkbox.func = function()
-		checkbox.enabled = not checkbox.enabled
-	end
-
-	return checkbox
-end
-
-local function create_slider_component()
-	---@type SLIDER
-	local slider = {
-		type = COMPONENT_TYPES.SLIDER,
-		font = font,
-		height = 20,
-		width = 150,
-		label = "",
-		x = 0,
-		y = 0,
-		min = 0,
-		max = 100,
-		value = 50,
-		func = nil, -- Callback function called when value changes
-	}
-	return slider
-end
-
-local function create_dropdown_component()
-	---@type DROPDOWN
-	local dropdown = {
-		type = COMPONENT_TYPES.DROPDOWN,
-		font = font,
-		label = "",
-		x = 0,
-		y = 0,
-		width = 150,
-		height = 20,
-		items = {}, -- List of strings
-		selected_index = 1,
-		expanded = false,
-		func = nil,
-	}
-	return dropdown
-end
-
-local function create_listbox_component()
-	---@type LISTBOX
-	local listbox = {
-		type = COMPONENT_TYPES.LISTBOX,
-		font = font,
-		label = "",
-		x = 0,
-		y = 0,
-		width = 150,
-		height = 100,
-		items = {},
-		selected_index = 1,
-		func = nil,
-	}
-	return listbox
-end
-
--- =============================================================================
--- COMPONENT SIZE CALCULATION
--- =============================================================================
-
-local function calculate_component_sizes()
-	for _, window in ipairs(windows) do
-		for _, tab in ipairs(window.tabs) do
-			for _, component in ipairs(tab.components) do
-				if component.width == 0 and component.height == 0 then
-					if component.label and component.label ~= "" then
-						draw.SetFont(window.font or font)
-						local tw, th = draw.GetTextSize(component.label)
-						component.width = tw + 20
-						component.height = th + 5
-					else
-						component.width = 100
-						component.height = 20
-					end
-				end
-			end
-		end
-	end
-end
-
--- =============================================================================
--- PUBLIC API
--- =============================================================================
-
----@class MENU
-local menu = {}
-
----@return WINDOW
-function menu:make_window()
-	---@type WINDOW
-	local window = {
-		x = 0,
-		y = 0,
-		width = 0,
-		height = 0,
-		tabs = {},
-		active_tab_index = 1, -- Each window now has its own active tab index
-	}
-
-	table.insert(windows, window)
-	current_window_context = windows[#windows]
-	return windows[#windows]
-end
-
----@param name string?
----@return integer? Returns the tab index relative to the current window context
-function menu:make_tab(name)
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return nil
-	end
-
-	local new_tab = {
-		name = name or "",
-		components = {},
-	}
-
-	table.insert(window.tabs, new_tab)
-	return #window.tabs
-end
-
----@return BUTTON?
-function menu:make_button()
-	local window = current_window_context
-	if not window then
-		error("The window context is nil!")
-		return nil
-	end
-
-	local button = create_button_component()
-	return make_new_component(button)
-end
-
----@return CHECKBOX?
-function menu:make_checkbox()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return nil
-	end
-
-	local checkbox = create_checkbox_component()
-	return make_new_component(checkbox)
-end
-
----@return SLIDER?
-function menu:make_slider()
-	local window = current_window_context
-	if not window then
-		error("Current window context is nil!")
-		return nil
-	end
-
-	local slider = create_slider_component()
-	return make_new_component(slider)
-end
-
----@return DROPDOWN?
-function menu:make_dropdown()
-	if not current_window_context then
-		return nil
-	end
-	local dropdown = create_dropdown_component()
-	return make_new_component(dropdown)
-end
-
----@return LISTBOX?
-function menu:make_listbox()
-	if not current_window_context then
-		return nil
-	end
-	local listbox = create_listbox_component()
-	return make_new_component(listbox)
-end
-
-function menu:register()
-	calculate_component_sizes() --- if we have any component with 0 width & height so they dont waste pc resources drawing nothing
-	callbacks.Register("Draw", draw_id, draw_all_windows)
-end
-
-function menu.unload()
-	menu = nil
-	font = nil
-	package.loaded["nmenu"] = nil
-	input.SetMouseInputEnabled(false)
-	callbacks.Unregister("Draw", draw_id)
-end
-
-return menu
 
 end)
 __bundle_register("src.projectile_info", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -2792,25 +1793,27 @@ function pred:Run()
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 
 	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
-	multipoint:Set(
-		self.pLocal,
-		self.pTarget,
-		self.bIsHuntsman,
-		self.bAimAtTeamMates,
-		self.vecShootPos,
-		predicted_target_pos,
-		self.weapon_info,
-		self.math_utils,
-		self.settings.max_distance,
-		bSplashWeapon,
-		self.ent_utils
-	)
+	if self.settings.multipointing then
+		multipoint:Set(
+			self.pLocal,
+			self.pTarget,
+			self.bIsHuntsman,
+			self.bAimAtTeamMates,
+			self.vecShootPos,
+			predicted_target_pos,
+			self.weapon_info,
+			self.math_utils,
+			self.settings.max_distance,
+			bSplashWeapon,
+			self.ent_utils
+		)
 
-	---@diagnostic disable-next-line: cast-local-type
-	predicted_target_pos = multipoint:GetBestHitPoint()
+		---@diagnostic disable-next-line: cast-local-type
+		predicted_target_pos = multipoint:GetBestHitPoint()
 
-	if not predicted_target_pos then
-		return nil
+		if not predicted_target_pos then
+			return nil
+		end
 	end
 
 	local aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
@@ -2996,24 +1999,65 @@ local MASK_SHOT_HULL = MASK_SHOT_HULL
 ---@type table<integer, PhysicsObject>
 local projectiles = {}
 
---[[for i, model in pairs(PROJECTILE_MODELS) do
-	local solid, collisionModel = physics.ParseModelByName(model)
-	local surfaceProp = solid:GetSurfacePropName()
-	local objectParams = solid:GetObjectParameters()
-	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
-	projectiles[i] = projectile
-end]]
-
 local function CreateProjectile(model, i)
 	local solid, collisionModel = physics.ParseModelByName(model)
+	if not solid or not collisionModel then
+		printc(255, 100, 100, 255, string.format("[PROJ AIMBOT] Failed to parse model: %s", model))
+		return nil
+	end
+
 	local surfaceProp = solid:GetSurfacePropName()
 	local objectParams = solid:GetObjectParameters()
+	if not surfaceProp or not objectParams then
+		printc(255, 100, 100, 255, "[PROJ AIMBOT] Invalid surface properties or parameters")
+		return nil
+	end
+
 	local projectile = env:CreatePolyObject(collisionModel, surfaceProp, objectParams)
+	if not projectile then
+		printc(255, 100, 100, 255, "[PROJ AIMBOT] Failed to create poly object")
+		return nil
+	end
+
 	projectiles[i] = projectile
+
+	printc(150, 255, 150, 255, string.format("[PROJ AIMBOT] Projectile with model %s created", model))
 	return projectile
 end
 
 CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
+
+---@param pWeapon Entity
+---@param weaponInfo WeaponInfo
+local function GetChargeTime(pWeapon, weaponInfo)
+	local charge_time = 0.0
+
+	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		-- check if bow is currently being charged
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		-- if charge_begin_time is 0, the bow isn't charging
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- clamp charge time between 0 and 1 second (full charge)
+			charge_time = math.max(0, math.min(charge_time, 1.0))
+		else
+			-- bow is not charging, use minimum speed
+			charge_time = 0.0
+		end
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			if charge_time > 4.0 then
+				charge_time = 0.0
+			end
+		end
+	end
+
+	return charge_time
+end
 
 ---@param pLocal Entity The localplayer
 ---@param pWeapon Entity The localplayer's weapon
@@ -3023,15 +2067,19 @@ CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
 ---@param weapon_info WeaponInfo
 ---@return ProjSimRet
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
-	local positions = {}
-
 	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
 	if not projectile then
 		if weapon_info.m_sModelName and weapon_info.m_sModelName ~= "" then
+			---@diagnostic disable-next-line: cast-local-type
 			projectile = CreateProjectile(weapon_info.m_sModelName, pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 		else
 			projectile = projectiles[-1]
 		end
+	end
+
+	if not projectile then
+		printc(255, 0, 0, 255, "[PROJ AIMBOT] Failed to acquire projectile instance!")
+		return {}
 	end
 
 	projectile:Wake()
@@ -3039,8 +2087,10 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
 	local speed, gravity
 
-	speed = weapon_info:GetVelocity(pWeapon:GetChargeBeginTime() or 0):Length()
-	gravity = 800 * weapon_info:GetGravity(pWeapon:GetChargeBeginTime() or 0)
+	local charge = GetChargeTime(pWeapon, weapon_info)
+
+	speed = weapon_info:GetVelocity(charge):Length()
+	gravity = 800 * weapon_info:GetGravity(charge)
 
 	local velocity = vecForward * speed
 
@@ -3050,6 +2100,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 
 	local tickInterval = globals.TickInterval()
 	local running = true
+	local positions = {}
 
 	while running and env:GetSimulationTime() < nTime do
 		env:Simulate(tickInterval)
@@ -3085,63 +2136,143 @@ __bundle_register("src.simulation.player", function(require, _LOADED, __bundle_r
 ---@diagnostic disable: duplicate-doc-field, missing-fields
 local sim = {}
 
----@type Vector3
-local position_samples = {}
+---@class KalmanFilter
+---@field state Vector3 -- current velocity estimate
+---@field acceleration Vector3 -- current acceleration estimate
+---@field P_velocity number -- velocity estimation error covariance
+---@field P_acceleration number -- acceleration estimation error covariance
+---@field P_cross number -- cross-covariance between velocity and acceleration
+---@field Q_velocity number -- process noise for velocity
+---@field Q_acceleration number -- process noise for acceleration
+---@field R number -- measurement noise
+---@field last_time number -- last update time
+local KalmanFilter = {}
+KalmanFilter.__index = KalmanFilter
 
----@type Vector3
-local velocity_samples = {}
-
-local MAX_ALLOWED_SPEED = 2000 -- HU/sec
-local SAMPLE_COUNT = 16
+function KalmanFilter:new()
+	return setmetatable({
+		state = Vector3(0, 0, 0),
+		acceleration = Vector3(0, 0, 0),
+		P_velocity = 1000.0, -- high initial uncertainty
+		P_acceleration = 100.0,
+		P_cross = 0.0,
+		Q_velocity = 25.0, -- velocity process noise
+		Q_acceleration = 50.0, -- acceleration process noise
+		R = 100.0, -- measurement noise (depends on tick rate/lag)
+		last_time = 0,
+	}, self)
+end
 
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
 
----@param pEntity Entity
-local function AddPositionSample(pEntity)
-	local index = pEntity:GetIndex()
+---@type Sample[]
+local position_samples = {}
 
-	if not position_samples[index] then
-		---@type Sample[]
-		position_samples[index] = {}
-		---@type Vector3[]
-		velocity_samples[index] = {}
+---@type table<number, KalmanFilter>
+local kalman_filters = {}
+
+local DoTraceHull = engine.TraceHull
+local Vector3 = Vector3
+
+---@param measured_velocity Vector3
+---@param current_time number
+---@param is_grounded boolean
+function KalmanFilter:update(measured_velocity, current_time, is_grounded)
+	local dt = current_time - self.last_time
+	if dt <= 0 then
+		return
 	end
 
-	local current_time = globals.CurTime()
-	local current_pos = pEntity:GetAbsOrigin()
+	-- Adjust noise based on player state
+	local Q_vel = is_grounded and self.Q_velocity * 0.5 or self.Q_velocity
+	local Q_acc = is_grounded and self.Q_acceleration * 0.3 or self.Q_acceleration
+	local R = is_grounded and self.R * 0.7 or self.R * 1.5 -- more noise when airborne
 
-	local sample = { pos = current_pos, time = current_time }
-	local samples = position_samples[index]
-	samples[#samples + 1] = sample
+	-- now we cook the prediction
+	-- velocity = velocity + acceleration * dt
+	local predicted_velocity = self.state + self.acceleration * dt
 
-	-- calculate velocity from last sample
-	if #samples >= 2 then
-		local prev = samples[#samples - 1]
-		local dt = current_time - prev.time
-		if dt > 0 then
-			local vel = (current_pos - prev.pos) / dt
+	-- update covariance matrix for prediction
+	local dt2 = dt * dt
 
-			-- reject outlier velocities
-			if vel:Length() <= MAX_ALLOWED_SPEED then
-				velocity_samples[index][#velocity_samples[index] + 1] = vel
-			end
+	-- Predicted covariances
+	local P_vel_pred = self.P_velocity + 2 * self.P_cross * dt + self.P_acceleration * dt2 + Q_vel * dt2
+	local P_acc_pred = self.P_acceleration + Q_acc * dt
+	local P_cross_pred = self.P_cross + self.P_acceleration * dt
+
+	-- update step (for each direction axis separately for better numerical stability)
+	for axis = 1, 3 do
+		local measured = axis == 1 and measured_velocity.x or axis == 2 and measured_velocity.y or measured_velocity.z
+		local predicted = axis == 1 and predicted_velocity.x
+			or axis == 2 and predicted_velocity.y
+			or predicted_velocity.z
+		local current_acc = axis == 1 and self.acceleration.x
+			or axis == 2 and self.acceleration.y
+			or self.acceleration.z
+
+		-- innovation (measurement residual)
+		local innovation = measured - predicted
+
+		-- innovation covariance
+		local S = P_vel_pred + R
+
+		-- Kalman gains
+		local K_velocity = P_vel_pred / S
+		local K_acceleration = P_cross_pred / S
+
+		-- update state estimates
+		local new_vel = predicted + K_velocity * innovation
+		local new_acc = current_acc + K_acceleration * innovation
+
+		if axis == 1 then
+			predicted_velocity.x = new_vel
+			self.acceleration.x = new_acc
+		elseif axis == 2 then
+			predicted_velocity.y = new_vel
+			self.acceleration.y = new_acc
+		else
+			predicted_velocity.z = new_vel
+			self.acceleration.z = new_acc
 		end
 	end
 
-	-- trim samples
-	if #samples > SAMPLE_COUNT then
-		for i = 1, #samples - SAMPLE_COUNT do
-			table.remove(samples, 1)
-		end
-	end
+	-- update covariances
+	local K_vel_avg = P_vel_pred / (P_vel_pred + R) -- approximate average gain
+	local K_acc_avg = P_cross_pred / (P_vel_pred + R)
 
-	if #velocity_samples[index] > SAMPLE_COUNT - 1 then
-		for i = 1, #velocity_samples[index] - (SAMPLE_COUNT - 1) do
-			table.remove(velocity_samples[index], 1)
-		end
-	end
+	self.P_velocity = (1 - K_vel_avg) * P_vel_pred
+	self.P_acceleration = P_acc_pred - K_acc_avg * P_cross_pred
+	self.P_cross = (1 - K_vel_avg) * P_cross_pred
+
+	-- constrain covariances to prevent numerical issues
+	self.P_velocity = math.max(1.0, math.min(self.P_velocity, 10000.0))
+	self.P_acceleration = math.max(0.1, math.min(self.P_acceleration, 1000.0)) --- im not sure how fast can the players go so im giving it a generous amount ig
+	self.P_cross = math.max(-100.0, math.min(self.P_cross, 100.0))
+
+	self.state = predicted_velocity
+	self.last_time = current_time
+end
+
+---@param dt number time step for prediction
+---@return Vector3 predicted_velocity
+---@return Vector3 predicted_acceleration
+---@return number confidence (0-1, higher is more confident)
+function KalmanFilter:predict(dt)
+	local predicted_velocity = self.state + self.acceleration * dt
+	local predicted_acceleration = self.acceleration -- assume constant acceleration?
+
+	-- calculate confidence based on covariance
+	local total_uncertainty = self.P_velocity + self.P_acceleration * dt * dt
+	local confidence = math.max(0, math.min(1, 1 - (total_uncertainty / 1000)))
+
+	return predicted_velocity, predicted_acceleration, confidence
+end
+
+---@return number current uncertainty in velocity estimation
+function KalmanFilter:getUncertainty()
+	return math.sqrt(self.P_velocity)
 end
 
 ---@param position Vector3
@@ -3160,8 +2291,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 	local trace_start = bbox_bottom
 	local trace_end = bbox_bottom + Vector3(0, 0, -step_height)
 
-	local trace =
-		engine.TraceHull(trace_start, trace_end, Vector3(0, 0, 0), Vector3(0, 0, 0), MASK_SHOT_HULL, shouldHit)
+	local trace = DoTraceHull(trace_start, trace_end, Vector3(0, 0, 0), Vector3(0, 0, 0), MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
 		-- check if it's a walkable surface
@@ -3174,7 +2304,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 			local step_test_start = hit_point + Vector3(0, 0, step_height)
 			local step_test_end = position
 
-			local step_trace = engine.TraceHull(step_test_start, step_test_end, mins, maxs, MASK_SHOT_HULL, shouldHit)
+			local step_trace = DoTraceHull(step_test_start, step_test_end, mins, maxs, MASK_SHOT_HULL, shouldHit)
 
 			-- ff we can fit in the space above the ground, we're grounded
 			if not step_trace or step_trace.fraction >= 1 then
@@ -3195,24 +2325,55 @@ local function IsPlayerOnGround(pEntity)
 	return grounded == true
 end
 
---- exponential smoothing for velocity
+---@param pEntity Entity
+local function AddPositionSample(pEntity)
+	local index = pEntity:GetIndex()
+
+	if not position_samples[index] then
+		position_samples[index] = {}
+		kalman_filters[index] = KalmanFilter:new()
+	end
+
+	local current_time = globals.CurTime()
+	local current_pos = pEntity:GetAbsOrigin()
+	local is_grounded = IsPlayerOnGround(pEntity)
+
+	local sample = { pos = current_pos, time = current_time }
+	local samples = position_samples[index]
+	samples[#samples + 1] = sample
+
+	-- get raw velocity from position samples
+	local raw_velocity = Vector3(0, 0, 0)
+	if #samples >= 2 then
+		local prev = samples[#samples - 1]
+		local dt = current_time - prev.time
+		if dt > 0 then
+			raw_velocity = (current_pos - prev.pos) / dt
+		end
+	end
+
+	-- update Kalman filter with raw velocity
+	kalman_filters[index]:update(raw_velocity, current_time, is_grounded)
+
+	-- trim old samples
+	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering
+	if #samples > MAX_SAMPLES then
+		for i = 1, #samples - MAX_SAMPLES do
+			table.remove(samples, 1)
+		end
+	end
+end
+
 ---@param pEntity Entity
 ---@return Vector3
 local function GetSmoothedVelocity(pEntity)
-	local samples = velocity_samples[pEntity:GetIndex()]
-	if not samples or #samples == 0 then
+	local filter = kalman_filters[pEntity:GetIndex()]
+	if not filter then
 		return pEntity:EstimateAbsVelocity()
 	end
 
-	local grounded = IsPlayerOnGround(pEntity)
-	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = more responsive
-
-	local smoothed = samples[1]
-	for i = 2, #samples do
-		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
-	end
-
-	return smoothed
+	local predicted_vel, _, _ = filter:predict(0) -- current estimate
+	return predicted_vel
 end
 
 ---@param pEntity Entity
@@ -3354,29 +2515,23 @@ function sim.Run(stepSize, pTarget, time)
 		local move_delta = smoothed_velocity * tick_interval
 		local next_pos = last_pos + move_delta
 
-		local trace = engine.TraceHull(last_pos, next_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+		local trace = DoTraceHull(last_pos, next_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 		if trace.fraction < 1.0 then
 			if smoothed_velocity.z >= -50 then
 				local step_up = last_pos + Vector3(0, 0, stepSize)
-				local step_up_trace = engine.TraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+				local step_up_trace = DoTraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 				if step_up_trace.fraction >= 1.0 then
 					local step_forward = step_up + move_delta
 					local step_forward_trace =
-						engine.TraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+						DoTraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 					if step_forward_trace.fraction > 0 then
 						local step_down_start = step_forward_trace.endpos
 						local step_down_end = step_down_start + Vector3(0, 0, -stepSize)
-						local step_down_trace = engine.TraceHull(
-							step_down_start,
-							step_down_end,
-							mins,
-							maxs,
-							MASK_PLAYERSOLID,
-							shouldHitEntity
-						)
+						local step_down_trace =
+							DoTraceHull(step_down_start, step_down_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 						if step_down_trace.fraction < 1.0 then
 							-- check if the surface is walkable

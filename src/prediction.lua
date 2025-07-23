@@ -124,25 +124,27 @@ function pred:Run()
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 
 	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
-	multipoint:Set(
-		self.pLocal,
-		self.pTarget,
-		self.bIsHuntsman,
-		self.bAimAtTeamMates,
-		self.vecShootPos,
-		predicted_target_pos,
-		self.weapon_info,
-		self.math_utils,
-		self.settings.max_distance,
-		bSplashWeapon,
-		self.ent_utils
-	)
+	if self.settings.multipointing then
+		multipoint:Set(
+			self.pLocal,
+			self.pTarget,
+			self.bIsHuntsman,
+			self.bAimAtTeamMates,
+			self.vecShootPos,
+			predicted_target_pos,
+			self.weapon_info,
+			self.math_utils,
+			self.settings.max_distance,
+			bSplashWeapon,
+			self.ent_utils
+		)
 
-	---@diagnostic disable-next-line: cast-local-type
-	predicted_target_pos = multipoint:GetBestHitPoint()
+		---@diagnostic disable-next-line: cast-local-type
+		predicted_target_pos = multipoint:GetBestHitPoint()
 
-	if not predicted_target_pos then
-		return nil
+		if not predicted_target_pos then
+			return nil
+		end
 	end
 
 	local aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)

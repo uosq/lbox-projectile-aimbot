@@ -1,63 +1,143 @@
 ---@diagnostic disable: duplicate-doc-field, missing-fields
 local sim = {}
 
----@type Vector3
-local position_samples = {}
+---@class KalmanFilter
+---@field state Vector3 -- current velocity estimate
+---@field acceleration Vector3 -- current acceleration estimate
+---@field P_velocity number -- velocity estimation error covariance
+---@field P_acceleration number -- acceleration estimation error covariance
+---@field P_cross number -- cross-covariance between velocity and acceleration
+---@field Q_velocity number -- process noise for velocity
+---@field Q_acceleration number -- process noise for acceleration
+---@field R number -- measurement noise
+---@field last_time number -- last update time
+local KalmanFilter = {}
+KalmanFilter.__index = KalmanFilter
 
----@type Vector3
-local velocity_samples = {}
-
-local MAX_ALLOWED_SPEED = 2000 -- HU/sec
-local SAMPLE_COUNT = 16
+function KalmanFilter:new()
+	return setmetatable({
+		state = Vector3(0, 0, 0),
+		acceleration = Vector3(0, 0, 0),
+		P_velocity = 1000.0, -- high initial uncertainty
+		P_acceleration = 100.0,
+		P_cross = 0.0,
+		Q_velocity = 25.0, -- velocity process noise
+		Q_acceleration = 50.0, -- acceleration process noise
+		R = 100.0, -- measurement noise (depends on tick rate/lag)
+		last_time = 0,
+	}, self)
+end
 
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
 
----@param pEntity Entity
-local function AddPositionSample(pEntity)
-	local index = pEntity:GetIndex()
+---@type Sample[]
+local position_samples = {}
 
-	if not position_samples[index] then
-		---@type Sample[]
-		position_samples[index] = {}
-		---@type Vector3[]
-		velocity_samples[index] = {}
+---@type table<number, KalmanFilter>
+local kalman_filters = {}
+
+local DoTraceHull = engine.TraceHull
+local Vector3 = Vector3
+
+---@param measured_velocity Vector3
+---@param current_time number
+---@param is_grounded boolean
+function KalmanFilter:update(measured_velocity, current_time, is_grounded)
+	local dt = current_time - self.last_time
+	if dt <= 0 then
+		return
 	end
 
-	local current_time = globals.CurTime()
-	local current_pos = pEntity:GetAbsOrigin()
+	-- Adjust noise based on player state
+	local Q_vel = is_grounded and self.Q_velocity * 0.5 or self.Q_velocity
+	local Q_acc = is_grounded and self.Q_acceleration * 0.3 or self.Q_acceleration
+	local R = is_grounded and self.R * 0.7 or self.R * 1.5 -- more noise when airborne
 
-	local sample = { pos = current_pos, time = current_time }
-	local samples = position_samples[index]
-	samples[#samples + 1] = sample
+	-- now we cook the prediction
+	-- velocity = velocity + acceleration * dt
+	local predicted_velocity = self.state + self.acceleration * dt
 
-	-- calculate velocity from last sample
-	if #samples >= 2 then
-		local prev = samples[#samples - 1]
-		local dt = current_time - prev.time
-		if dt > 0 then
-			local vel = (current_pos - prev.pos) / dt
+	-- update covariance matrix for prediction
+	local dt2 = dt * dt
 
-			-- reject outlier velocities
-			if vel:Length() <= MAX_ALLOWED_SPEED then
-				velocity_samples[index][#velocity_samples[index] + 1] = vel
-			end
+	-- Predicted covariances
+	local P_vel_pred = self.P_velocity + 2 * self.P_cross * dt + self.P_acceleration * dt2 + Q_vel * dt2
+	local P_acc_pred = self.P_acceleration + Q_acc * dt
+	local P_cross_pred = self.P_cross + self.P_acceleration * dt
+
+	-- update step (for each direction axis separately for better numerical stability)
+	for axis = 1, 3 do
+		local measured = axis == 1 and measured_velocity.x or axis == 2 and measured_velocity.y or measured_velocity.z
+		local predicted = axis == 1 and predicted_velocity.x
+			or axis == 2 and predicted_velocity.y
+			or predicted_velocity.z
+		local current_acc = axis == 1 and self.acceleration.x
+			or axis == 2 and self.acceleration.y
+			or self.acceleration.z
+
+		-- innovation (measurement residual)
+		local innovation = measured - predicted
+
+		-- innovation covariance
+		local S = P_vel_pred + R
+
+		-- Kalman gains
+		local K_velocity = P_vel_pred / S
+		local K_acceleration = P_cross_pred / S
+
+		-- update state estimates
+		local new_vel = predicted + K_velocity * innovation
+		local new_acc = current_acc + K_acceleration * innovation
+
+		if axis == 1 then
+			predicted_velocity.x = new_vel
+			self.acceleration.x = new_acc
+		elseif axis == 2 then
+			predicted_velocity.y = new_vel
+			self.acceleration.y = new_acc
+		else
+			predicted_velocity.z = new_vel
+			self.acceleration.z = new_acc
 		end
 	end
 
-	-- trim samples
-	if #samples > SAMPLE_COUNT then
-		for i = 1, #samples - SAMPLE_COUNT do
-			table.remove(samples, 1)
-		end
-	end
+	-- update covariances
+	local K_vel_avg = P_vel_pred / (P_vel_pred + R) -- approximate average gain
+	local K_acc_avg = P_cross_pred / (P_vel_pred + R)
 
-	if #velocity_samples[index] > SAMPLE_COUNT - 1 then
-		for i = 1, #velocity_samples[index] - (SAMPLE_COUNT - 1) do
-			table.remove(velocity_samples[index], 1)
-		end
-	end
+	self.P_velocity = (1 - K_vel_avg) * P_vel_pred
+	self.P_acceleration = P_acc_pred - K_acc_avg * P_cross_pred
+	self.P_cross = (1 - K_vel_avg) * P_cross_pred
+
+	-- constrain covariances to prevent numerical issues
+	self.P_velocity = math.max(1.0, math.min(self.P_velocity, 10000.0))
+	self.P_acceleration = math.max(0.1, math.min(self.P_acceleration, 1000.0)) --- im not sure how fast can the players go so im giving it a generous amount ig
+	self.P_cross = math.max(-100.0, math.min(self.P_cross, 100.0))
+
+	self.state = predicted_velocity
+	self.last_time = current_time
+end
+
+---@param dt number time step for prediction
+---@return Vector3 predicted_velocity
+---@return Vector3 predicted_acceleration
+---@return number confidence (0-1, higher is more confident)
+function KalmanFilter:predict(dt)
+	local predicted_velocity = self.state + self.acceleration * dt
+	local predicted_acceleration = self.acceleration -- assume constant acceleration?
+
+	-- calculate confidence based on covariance
+	local total_uncertainty = self.P_velocity + self.P_acceleration * dt * dt
+	local confidence = math.max(0, math.min(1, 1 - (total_uncertainty / 1000)))
+
+	return predicted_velocity, predicted_acceleration, confidence
+end
+
+---@return number current uncertainty in velocity estimation
+function KalmanFilter:getUncertainty()
+	return math.sqrt(self.P_velocity)
 end
 
 ---@param position Vector3
@@ -76,8 +156,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 	local trace_start = bbox_bottom
 	local trace_end = bbox_bottom + Vector3(0, 0, -step_height)
 
-	local trace =
-		engine.TraceHull(trace_start, trace_end, Vector3(0, 0, 0), Vector3(0, 0, 0), MASK_SHOT_HULL, shouldHit)
+	local trace = DoTraceHull(trace_start, trace_end, Vector3(0, 0, 0), Vector3(0, 0, 0), MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
 		-- check if it's a walkable surface
@@ -90,7 +169,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 			local step_test_start = hit_point + Vector3(0, 0, step_height)
 			local step_test_end = position
 
-			local step_trace = engine.TraceHull(step_test_start, step_test_end, mins, maxs, MASK_SHOT_HULL, shouldHit)
+			local step_trace = DoTraceHull(step_test_start, step_test_end, mins, maxs, MASK_SHOT_HULL, shouldHit)
 
 			-- ff we can fit in the space above the ground, we're grounded
 			if not step_trace or step_trace.fraction >= 1 then
@@ -111,24 +190,55 @@ local function IsPlayerOnGround(pEntity)
 	return grounded == true
 end
 
---- exponential smoothing for velocity
+---@param pEntity Entity
+local function AddPositionSample(pEntity)
+	local index = pEntity:GetIndex()
+
+	if not position_samples[index] then
+		position_samples[index] = {}
+		kalman_filters[index] = KalmanFilter:new()
+	end
+
+	local current_time = globals.CurTime()
+	local current_pos = pEntity:GetAbsOrigin()
+	local is_grounded = IsPlayerOnGround(pEntity)
+
+	local sample = { pos = current_pos, time = current_time }
+	local samples = position_samples[index]
+	samples[#samples + 1] = sample
+
+	-- get raw velocity from position samples
+	local raw_velocity = Vector3(0, 0, 0)
+	if #samples >= 2 then
+		local prev = samples[#samples - 1]
+		local dt = current_time - prev.time
+		if dt > 0 then
+			raw_velocity = (current_pos - prev.pos) / dt
+		end
+	end
+
+	-- update Kalman filter with raw velocity
+	kalman_filters[index]:update(raw_velocity, current_time, is_grounded)
+
+	-- trim old samples
+	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering
+	if #samples > MAX_SAMPLES then
+		for i = 1, #samples - MAX_SAMPLES do
+			table.remove(samples, 1)
+		end
+	end
+end
+
 ---@param pEntity Entity
 ---@return Vector3
 local function GetSmoothedVelocity(pEntity)
-	local samples = velocity_samples[pEntity:GetIndex()]
-	if not samples or #samples == 0 then
+	local filter = kalman_filters[pEntity:GetIndex()]
+	if not filter then
 		return pEntity:EstimateAbsVelocity()
 	end
 
-	local grounded = IsPlayerOnGround(pEntity)
-	local alpha = grounded and 0.3 or 0.2 -- grounded = smoother, airborne = more responsive
-
-	local smoothed = samples[1]
-	for i = 2, #samples do
-		smoothed = (samples[i] * alpha) + (smoothed * (1 - alpha))
-	end
-
-	return smoothed
+	local predicted_vel, _, _ = filter:predict(0) -- current estimate
+	return predicted_vel
 end
 
 ---@param pEntity Entity
@@ -270,29 +380,23 @@ function sim.Run(stepSize, pTarget, time)
 		local move_delta = smoothed_velocity * tick_interval
 		local next_pos = last_pos + move_delta
 
-		local trace = engine.TraceHull(last_pos, next_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+		local trace = DoTraceHull(last_pos, next_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 		if trace.fraction < 1.0 then
 			if smoothed_velocity.z >= -50 then
 				local step_up = last_pos + Vector3(0, 0, stepSize)
-				local step_up_trace = engine.TraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+				local step_up_trace = DoTraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 				if step_up_trace.fraction >= 1.0 then
 					local step_forward = step_up + move_delta
 					local step_forward_trace =
-						engine.TraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+						DoTraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 					if step_forward_trace.fraction > 0 then
 						local step_down_start = step_forward_trace.endpos
 						local step_down_end = step_down_start + Vector3(0, 0, -stepSize)
-						local step_down_trace = engine.TraceHull(
-							step_down_start,
-							step_down_end,
-							mins,
-							maxs,
-							MASK_PLAYERSOLID,
-							shouldHitEntity
-						)
+						local step_down_trace =
+							DoTraceHull(step_down_start, step_down_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 
 						if step_down_trace.fraction < 1.0 then
 							-- check if the surface is walkable

@@ -1,6 +1,14 @@
 local gui = {}
 
-local menu = require("src.nmenu")
+local menu
+do
+	local content = http.Get("https://raw.githubusercontent.com/uosq/lbox-menu/refs/heads/main/src/nmenu.lua")
+	if content then
+		menu = load(content)()
+		assert(menu, "Menu is nil!")
+	end
+end
+
 local font = draw.CreateFont("TF2 BUILD", 16, 500)
 
 ---@param settings table
@@ -273,6 +281,7 @@ function gui.init(settings, version)
 	end
 
 	menu:register()
+	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end
 
 function gui.unload()

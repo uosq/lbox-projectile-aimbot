@@ -17,6 +17,8 @@ if engine.GetServerIP() == "" then
 	return
 end
 
+printc(186, 97, 255, 255, "The projectile aimbot is loading...")
+
 local version = "5"
 
 local settings = {
@@ -61,15 +63,32 @@ local settings = {
 }
 
 local wep_utils = require("src.utils.weapon_utils")
+assert(wep_utils, "[PROJ AIMBOT] Weapon utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Weapon utils loaded")
+
 local math_utils = require("src.utils.math")
+assert(math_utils, "[PROJ AIMBOT] Math utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Math utils loaded")
+
 local ent_utils = require("src.utils.entity")
+assert(ent_utils, "[PROJ AIMBOT] Entity utils module failed to load!")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Entity utils loaded")
 
 local player_sim = require("src.simulation.player")
+assert(player_sim, "[PROJ AIMBOT] Player prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Player prediction module loaded")
+
 local proj_sim = require("src.simulation.proj")
+assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
 
 local prediction = require("src.prediction")
+assert(prediction, "[PROJ AIMBOT] Prediction module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Mrediction module loaded")
 
 local GetProjectileInformation = require("src.projectile_info")
+assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
 local menu = require("src.gui")
 menu.init(settings, version)
@@ -399,8 +418,13 @@ local function CreateMove(uCmd)
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
-	local viewAngles = engine.GetViewAngles()
-	local vecHeadPos, _ = wep_utils.GetShootPos(pLocal, weaponInfo, viewAngles)
+	local vecHeadPos = weaponInfo:GetFirePosition(
+		pLocal,
+		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
+		engine.GetViewAngles(),
+		pWeapon:IsViewModelFlipped()
+	) + weaponInfo.m_vecAbsoluteOffset
+
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
 	local pred_result, pTarget = ProcessPrediction(
@@ -436,12 +460,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	--local angle = math_utils.PositionAngles(vecHeadPos, vec_bestPos)
 	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
-		- weaponInfo:GetAngleOffset(pred_result.nChargeTime)
-
 	local bAttack = false
-
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
 	local function FireWeapon(isSandvich)
