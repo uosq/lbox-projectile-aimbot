@@ -418,7 +418,14 @@ local function CreateMove(uCmd)
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
-	local vecHeadPos = weaponInfo:GetFirePosition(
+	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") --[[weaponInfo:GetFirePosition(
+		pLocal,
+		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
+		engine.GetViewAngles(),
+		pWeapon:IsViewModelFlipped()
+	) + weaponInfo.m_vecAbsoluteOffset]]
+
+	local vecWeaponFirePos = weaponInfo:GetFirePosition(
 		pLocal,
 		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
 		engine.GetViewAngles(),
@@ -454,7 +461,7 @@ local function CreateMove(uCmd)
 
 	-- Use the muzzle position for the trace check instead of the head position
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecHeadPos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	local trace = engine.TraceHull(vecWeaponFirePos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 
 	if trace and trace.fraction < 1 then
 		return
@@ -527,7 +534,8 @@ local function CreateMove(uCmd)
 	if bAttack == true then
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = pred_result.vecPlayerPath
-		paths.proj_path = pred_result.vecProjPath
+		paths.proj_path =
+			proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
 	end
 end
 

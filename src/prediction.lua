@@ -123,8 +123,8 @@ function pred:Run()
 
 	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
 
-	local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
 	if self.settings.multipointing then
+		local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
 		multipoint:Set(
 			self.pLocal,
 			self.pTarget,
@@ -161,25 +161,12 @@ function pred:Run()
 		aim_dir = ballistic_dir
 	end
 
-	local projectile_path = self.proj_sim.Run(
-		self.pLocal,
-		self.pWeapon,
-		self.vecShootPos,
-		aim_dir,
-		self.settings.max_sim_time,
-		self.weapon_info
-	)
-	if not projectile_path or #projectile_path == 0 then
-		return nil
-	end
-
 	return {
 		vecPos = predicted_target_pos,
 		nTime = total_time,
 		nChargeTime = charge_time,
 		vecAimDir = aim_dir,
 		vecPlayerPath = player_positions,
-		vecProjPath = projectile_path,
 	}
 end
 
