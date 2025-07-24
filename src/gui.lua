@@ -281,7 +281,7 @@ function gui.init(settings, version)
 	end
 
 	menu:register()
-	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
+	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded!")
 end
 
 function gui.unload()
