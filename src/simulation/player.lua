@@ -35,110 +35,8 @@ end
 ---@type Sample[]
 local position_samples = {}
 
----@type table<number, KalmanFilter>
-local kalman_filters = {}
-
 local DoTraceHull = engine.TraceHull
 local Vector3 = Vector3
-
----@param measured_velocity Vector3
----@param current_time number
----@param is_grounded boolean
-function KalmanFilter:update(measured_velocity, current_time, is_grounded)
-	local dt = current_time - self.last_time
-	if dt <= 0 then
-		return
-	end
-
-	-- Adjust noise based on player state
-	local Q_vel = is_grounded and self.Q_velocity * 0.5 or self.Q_velocity
-	local Q_acc = is_grounded and self.Q_acceleration * 0.3 or self.Q_acceleration
-	local R = is_grounded and self.R * 0.7 or self.R * 1.5 -- more noise when airborne
-
-	-- now we cook the prediction
-	-- velocity = velocity + acceleration * dt
-	local predicted_velocity = self.state + self.acceleration * dt
-
-	-- update covariance matrix for prediction
-	local dt2 = dt * dt
-
-	-- Predicted covariances
-	local P_vel_pred = self.P_velocity + 2 * self.P_cross * dt + self.P_acceleration * dt2 + Q_vel * dt2
-	local P_acc_pred = self.P_acceleration + Q_acc * dt
-	local P_cross_pred = self.P_cross + self.P_acceleration * dt
-
-	-- update step (for each direction axis separately for better numerical stability)
-	for axis = 1, 3 do
-		local measured = axis == 1 and measured_velocity.x or axis == 2 and measured_velocity.y or measured_velocity.z
-		local predicted = axis == 1 and predicted_velocity.x
-			or axis == 2 and predicted_velocity.y
-			or predicted_velocity.z
-		local current_acc = axis == 1 and self.acceleration.x
-			or axis == 2 and self.acceleration.y
-			or self.acceleration.z
-
-		-- innovation (measurement residual)
-		local innovation = measured - predicted
-
-		-- innovation covariance
-		local S = P_vel_pred + R
-
-		-- Kalman gains
-		local K_velocity = P_vel_pred / S
-		local K_acceleration = P_cross_pred / S
-
-		-- update state estimates
-		local new_vel = predicted + K_velocity * innovation
-		local new_acc = current_acc + K_acceleration * innovation
-
-		if axis == 1 then
-			predicted_velocity.x = new_vel
-			self.acceleration.x = new_acc
-		elseif axis == 2 then
-			predicted_velocity.y = new_vel
-			self.acceleration.y = new_acc
-		else
-			predicted_velocity.z = new_vel
-			self.acceleration.z = new_acc
-		end
-	end
-
-	-- update covariances
-	local K_vel_avg = P_vel_pred / (P_vel_pred + R) -- approximate average gain
-	local K_acc_avg = P_cross_pred / (P_vel_pred + R)
-
-	self.P_velocity = (1 - K_vel_avg) * P_vel_pred
-	self.P_acceleration = P_acc_pred - K_acc_avg * P_cross_pred
-	self.P_cross = (1 - K_vel_avg) * P_cross_pred
-
-	-- constrain covariances to prevent numerical issues
-	self.P_velocity = math.max(1.0, math.min(self.P_velocity, 10000.0))
-	self.P_acceleration = math.max(0.1, math.min(self.P_acceleration, 1000.0)) --- im not sure how fast can the players go so im giving it a generous amount ig
-	self.P_cross = math.max(-100.0, math.min(self.P_cross, 100.0))
-
-	self.state = predicted_velocity
-	self.last_time = current_time
-end
-
----@param dt number time step for prediction
----@return Vector3 predicted_velocity
----@return Vector3 predicted_acceleration
----@return number confidence (0-1, higher is more confident)
-function KalmanFilter:predict(dt)
-	local predicted_velocity = self.state + self.acceleration * dt
-	local predicted_acceleration = self.acceleration -- assume constant acceleration?
-
-	-- calculate confidence based on covariance
-	local total_uncertainty = self.P_velocity + self.P_acceleration * dt * dt
-	local confidence = math.max(0, math.min(1, 1 - (total_uncertainty / 1000)))
-
-	return predicted_velocity, predicted_acceleration, confidence
-end
-
----@return number current uncertainty in velocity estimation
-function KalmanFilter:getUncertainty()
-	return math.sqrt(self.P_velocity)
-end
 
 ---@param position Vector3
 ---@param mins Vector3
@@ -196,7 +94,6 @@ local function AddPositionSample(pEntity)
 
 	if not position_samples[index] then
 		position_samples[index] = {}
-		kalman_filters[index] = KalmanFilter:new()
 	end
 
 	local current_time = globals.CurTime()
@@ -217,9 +114,6 @@ local function AddPositionSample(pEntity)
 		end
 	end
 
-	-- update Kalman filter with raw velocity
-	kalman_filters[index]:update(raw_velocity, current_time, is_grounded)
-
 	-- trim old samples
 	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering
 	if #samples > MAX_SAMPLES then
@@ -227,18 +121,6 @@ local function AddPositionSample(pEntity)
 			table.remove(samples, 1)
 		end
 	end
-end
-
----@param pEntity Entity
----@return Vector3
-local function GetSmoothedVelocity(pEntity)
-	local filter = kalman_filters[pEntity:GetIndex()]
-	if not filter then
-		return pEntity:EstimateAbsVelocity()
-	end
-
-	local predicted_vel, _, _ = filter:predict(0) -- current estimate
-	return predicted_vel
 end
 
 ---@param pEntity Entity
@@ -339,7 +221,7 @@ end
 ---@param pTarget Entity The target
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
-	local smoothed_velocity = GetSmoothedVelocity(pTarget)
+	local smoothed_velocity = pTarget:EstimateAbsVelocity()
 	local last_pos = pTarget:GetAbsOrigin()
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval

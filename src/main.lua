@@ -35,6 +35,7 @@ local settings = {
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
+	splash = true,
 
 	ents = {
 		["aim players"] = true,

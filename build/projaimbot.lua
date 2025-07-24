@@ -79,6 +79,7 @@ local settings = {
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
+	splash = true,
 
 	ents = {
 		["aim players"] = true,
@@ -457,11 +458,9 @@ local function CreateMove_Draw(uCmd)
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
-	local bIsSandvich = false
 
 	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		bAimAtTeamMates = true
-		bIsSandvich = true
 	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
 		bAimAtTeamMates = true
 	end
@@ -3495,18 +3494,6 @@ local function AddPositionSample(pEntity)
 end
 
 ---@param pEntity Entity
----@return Vector3
-local function GetSmoothedVelocity(pEntity)
-	local filter = kalman_filters[pEntity:GetIndex()]
-	if not filter then
-		return pEntity:EstimateAbsVelocity()
-	end
-
-	local predicted_vel, _, _ = filter:predict(0) -- current estimate
-	return predicted_vel
-end
-
----@param pEntity Entity
 ---@return number
 local function GetSmoothedAngularVelocity(pEntity)
 	local samples = position_samples[pEntity:GetIndex()]
@@ -3604,7 +3591,7 @@ end
 ---@param pTarget Entity The target
 ---@param time number The time in seconds we want to predict
 function sim.Run(stepSize, pTarget, time)
-	local smoothed_velocity = GetSmoothedVelocity(pTarget)
+	local smoothed_velocity = pTarget:EstimateAbsVelocity()
 	local last_pos = pTarget:GetAbsOrigin()
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
