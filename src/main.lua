@@ -34,6 +34,7 @@ local settings = {
 	multipointing = true,
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
+	min_priority = 0,
 
 	ents = {
 		["aim players"] = true,
@@ -42,9 +43,7 @@ local settings = {
 		["aim teleporters"] = true,
 	},
 
-	silent = true,
 	psilent = true,
-	plain = false,
 
 	ignore_conds = {
 		cloaked = true,
@@ -177,6 +176,14 @@ local function ShouldSkipPlayer(pPlayer)
 	end
 
 	if pPlayer:InCond(E_TFCOND.TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
+		return true
+	end
+
+	if playerlist.GetPriority(pPlayer) < 0 and not settings.ignore_conds.friends then
+		return true
+	end
+
+	if settings.min_priority > playerlist.GetPriority(pPlayer) then
 		return true
 	end
 
@@ -475,10 +482,6 @@ local function CreateMove(uCmd)
 		uCmd:SetViewAngles(angle:Unpack())
 		if not isSandvich and settings.psilent then
 			uCmd:SetSendPacket(false)
-		end
-
-		if not settings.silent and not settings.psilent then
-			engine.SetViewAngles(EulerAngles(angle:Unpack()))
 		end
 
 		return true

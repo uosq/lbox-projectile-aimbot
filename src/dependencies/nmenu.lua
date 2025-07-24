@@ -9,7 +9,7 @@
 local OUTLINE_THICKNESS = 1
 local TAB_BUTTON_WIDTH = 120
 local TAB_BUTTON_HEIGHT = 25
-local TAB_BUTTON_MARGIN = 1
+local TAB_BUTTON_MARGIN = 2
 local HEADER_SIZE = 25
 local COMPONENT_TYPES = {
 	BUTTON = 1,
@@ -80,7 +80,7 @@ local function get_content_area_offset()
 	if not window or #window.tabs <= 1 then
 		return 0
 	end
-	return TAB_BUTTON_WIDTH + TAB_BUTTON_MARGIN
+	return TAB_BUTTON_WIDTH + (TAB_BUTTON_MARGIN * 2) -- add margin on both sides
 end
 
 local function get_new_component_index()
@@ -124,7 +124,7 @@ end
 -- =============================================================================
 
 local function handle_tab_button_click(window, tab_index)
-	local tab_x = window.x
+	local tab_x = window.x + TAB_BUTTON_MARGIN -- Add margin to x position
 	local tab_y = window.y + (tab_index - 1) * (TAB_BUTTON_HEIGHT + TAB_BUTTON_MARGIN)
 	local tab_x2 = tab_x + TAB_BUTTON_WIDTH
 	local tab_y2 = tab_y + TAB_BUTTON_HEIGHT
@@ -413,7 +413,7 @@ local function draw_tab_buttons(window)
 	end
 
 	for i, tab in ipairs(window.tabs) do
-		local tab_x = window.x
+		local tab_x = window.x + TAB_BUTTON_MARGIN -- Add margin to x position
 		local tab_y = window.y + (i - 1) * (TAB_BUTTON_HEIGHT + TAB_BUTTON_MARGIN)
 		-- Use window-specific active tab index (or 1 if it's a single tab window (no tabs basically))
 		local is_active = (i == (window.active_tab_index or 1))
@@ -538,7 +538,7 @@ local function draw_dropdown()
 
 	local height_offset = 0
 	if component.label and component.label ~= "" then
-		height_offset = label_h + 5
+		height_offset = label_h + 4
 	end
 
 	-- Draw main dropdown box outline
