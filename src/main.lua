@@ -44,7 +44,7 @@ local settings = {
 
 	silent = true,
 	psilent = true,
-	plain = true,
+	plain = false,
 
 	ignore_conds = {
 		cloaked = true,
@@ -663,14 +663,14 @@ local function Unload()
 	callbacks.Unregister("Draw", "ProjAimbot Draw")
 	menu.unload()
 
-	gui.SetValue("projectile aimbot", original_gui_value)
-
 	paths = nil
 	wep_utils = nil
 	math_utils = nil
 	player_sim = nil
 	proj_sim = nil
 	prediction = nil
+
+	gui.SetValue("projectile aimbot", original_gui_value)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
