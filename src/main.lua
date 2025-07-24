@@ -379,8 +379,108 @@ local function ProcessPrediction(
 end
 
 ---@param uCmd UserCmd
+local function CreateMove_Draw(uCmd)
+	if not settings.enabled then
+		return
+	end
+
+	local netChannel = clientstate.GetNetChannel()
+	if not netChannel then
+		return
+	end
+
+	local pLocal = entities.GetLocalPlayer()
+	if pLocal == nil then
+		return
+	end
+
+	local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon")
+	if pWeapon == nil then
+		return
+	end
+
+	local players = entities.FindByClass("CTFPlayer")
+	player_sim.RunBackground(players)
+
+	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
+	if not CanRun(pLocal, pWeapon, bIsBeggar, false) then
+		return
+	end
+
+	if gui.GetValue("projectile aimbot") ~= "none" then
+		gui.SetValue("projectile aimbot", "none")
+	end
+
+	local iWeaponID = pWeapon:GetWeaponID()
+	local bAimAtTeamMates = false
+
+	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
+		bAimAtTeamMates = true
+	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
+		bAimAtTeamMates = true
+	end
+
+	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
+
+	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+
+	local vecWeaponFirePos = weaponInfo:GetFirePosition(
+		pLocal,
+		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
+		engine.GetViewAngles(),
+		pWeapon:IsViewModelFlipped()
+	) + weaponInfo.m_vecAbsoluteOffset
+
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
+	local pred_result, pTarget = ProcessPrediction(
+		pLocal,
+		pWeapon,
+		vecHeadPos,
+		bAimAtTeamMates,
+		netChannel,
+		settings.draw_only,
+		players,
+		bIsHuntsman,
+		weaponInfo
+	)
+
+	if not pred_result or not pTarget then
+		return
+	end
+
+	local function shouldHit(ent)
+		if ent:GetIndex() == pLocal:GetIndex() then
+			return false
+		end
+		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
+	end
+
+	local vec_bestPos = pred_result.vecPos
+
+	-- Use the muzzle position for the trace check instead of the head position
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
+	local trace = engine.TraceHull(vecWeaponFirePos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+
+	if trace and trace.fraction < 1 then
+		return
+	end
+
+	displayed_time = globals.CurTime() + 1
+	paths.player_path = pred_result.vecPlayerPath
+	paths.proj_path =
+		proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
+end
+
+---@param uCmd UserCmd
 local function CreateMove(uCmd)
 	if not settings.enabled then
+		return
+	end
+
+	if settings.draw_only then
+		CreateMove_Draw(uCmd)
 		return
 	end
 
@@ -425,12 +525,7 @@ local function CreateMove(uCmd)
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
-	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]") --[[weaponInfo:GetFirePosition(
-		pLocal,
-		pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"),
-		engine.GetViewAngles(),
-		pWeapon:IsViewModelFlipped()
-	) + weaponInfo.m_vecAbsoluteOffset]]
+	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 
 	local vecWeaponFirePos = weaponInfo:GetFirePosition(
 		pLocal,
