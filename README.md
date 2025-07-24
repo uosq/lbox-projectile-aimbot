@@ -2,7 +2,7 @@
 
 ### This script is a work in progress!
 
-Most settings of the aimbot are configured on lbox menu (ignore cloaked, bonked, aim fov, aim key, etc)
+The only setting that you gotta configure in the Lmaobox menu is the aim key!
 
 If LMAOBOX's projectile aimbot is enabled, this script will be disabled when using a projectile weapon :) (we dont need 2 aimbots running at the same time, do we?)
 
@@ -10,17 +10,6 @@ If LMAOBOX's projectile aimbot is enabled, this script will be disabled when usi
 
 - [Terminator](https://github.com/titaniummachine1/) - for the localplayer's head position
 - [GoodEvening](https://github.com/GoodEveningFellOff) - for the GetProjectileInformation function
-
-
-### Features
-- Options on the lbox menu that affect the script:
-   - aim key
-   - aim fov
-   - auto shoot
-   - ignore cloaked
-   - ignore bonked
-   - ignore taunting
-   - ignore disguised
 
 ### How to build
 
