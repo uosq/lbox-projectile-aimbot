@@ -88,7 +88,7 @@ local settings = {
 
 	silent = true,
 	psilent = true,
-	plain = true,
+	plain = false,
 
 	ignore_conds = {
 		cloaked = true,
@@ -707,14 +707,14 @@ local function Unload()
 	callbacks.Unregister("Draw", "ProjAimbot Draw")
 	menu.unload()
 
-	gui.SetValue("projectile aimbot", original_gui_value)
-
 	paths = nil
 	wep_utils = nil
 	math_utils = nil
 	player_sim = nil
 	proj_sim = nil
 	prediction = nil
+
+	gui.SetValue("projectile aimbot", original_gui_value)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -1010,6 +1010,36 @@ function gui.init(settings, version)
 
 			i = i + 1
 		end
+	end
+
+	local image = nil
+	do
+		filesystem.CreateDirectory("projaimbot")
+
+		local file = io.open("projaimbot/image.png")
+		if file then
+			file:close()
+			image = draw.CreateTexture("projaimbot/image.png")
+		else
+			local civilan_scout_link =
+				"https://raw.githubusercontent.com/uosq/lbox-projectile-aimbot/9d58cdbde2f0addfe709f6517f529d2c1cb82228/src/civilian-scout/300px-Scoutcivilian.png"
+
+			local download = http.Get(civilan_scout_link)
+			if download then
+				file = io.open("projaimbot/image.png")
+				if file then
+					file:write(download)
+					file:flush()
+					file:close()
+					image = draw.CreateTexture("projaimbot/image.png")
+				end
+			end
+		end
+	end
+
+	if not image then
+		error("[PROJ AIMBOT] Image could not be loaded!")
+		return
 	end
 
 	menu:register()
