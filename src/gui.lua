@@ -1,13 +1,6 @@
 local gui = {}
 
-local menu
-do
-	local content = http.Get("https://raw.githubusercontent.com/uosq/lbox-menu/refs/heads/main/src/nmenu.lua")
-	if content then
-		menu = load(content)()
-		assert(menu, "Menu is nil!")
-	end
-end
+local menu = require("src.dependencies.nmenu")
 
 local font = draw.CreateFont("TF2 BUILD", 16, 500)
 
