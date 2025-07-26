@@ -111,9 +111,13 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
 
 	-- Get gravity and apply it to the physics environment
-	local gravity = 800 * weapon_info:GetGravity(charge)
+	local has_gravity = pWeapon:GetWeaponProjectileType() ~= E_ProjectileType.TF_PROJECTILE_ROCKET
+	if has_gravity then
+		env:SetGravity(Vector3(0, 0, -800))
+	else
+		env:SetGravity(Vector3(0, 0, 0))
+	end
 
-	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)
 	projectile:SetVelocity(velocity, weapon_info.m_vecAngularVelocity)
 

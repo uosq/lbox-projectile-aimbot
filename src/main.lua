@@ -521,7 +521,7 @@ local function CreateMove(uCmd)
 	local vecWeaponFirePos =
 		weaponInfo:GetFirePosition(pLocal, vecHeadPos, engine.GetViewAngles(), pWeapon:IsViewModelFlipped())
 
-	local dist = (vecWeaponFirePos - vecPosNextTick):Length()
+	local dist = (vecHeadPos - vecPosNextTick):Length()
 	if dist > settings.max_distance then
 		return nil
 	end
@@ -556,34 +556,43 @@ local function CreateMove(uCmd)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
-		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-
-	multipoint:Set(
-		pLocal,
-		pWeapon,
-		pTarget,
-		bIsHuntsman,
-		bAimAtTeamMates,
-		vecHeadPos,
-		predicted_target_pos,
-		weaponInfo,
-		math_utils,
-		settings.max_distance,
-		bSplashWeapon,
-		ent_utils,
-		settings
-	)
-
-	predicted_target_pos = multipoint:GetBestHitPoint()
-	if not predicted_target_pos then
-		return
-	end
-
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	local is_visible = trace and trace.fraction >= 0.9
+
+	-- Only multipoint if it's the Huntsman or if the target is not visible
+	if (not is_visible or bIsHuntsman) and settings.multipointing then
+		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+
+		multipoint:Set(
+			pLocal,
+			pWeapon,
+			pTarget,
+			bIsHuntsman,
+			bAimAtTeamMates,
+			vecHeadPos,
+			predicted_target_pos,
+			weaponInfo,
+			math_utils,
+			settings.max_distance,
+			bSplashWeapon,
+			ent_utils,
+			settings
+		)
+
+		local best_multipoint = multipoint:GetBestHitPoint()
+		if not best_multipoint then
+			return
+		end
+
+		predicted_target_pos = best_multipoint
+	end
+
+	-- Recheck trace for final prediction
+	trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 	if not trace or trace.fraction < 0.9 then
 		return
 	end
