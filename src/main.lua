@@ -1,7 +1,7 @@
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v4
+	Update: v6
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -19,7 +19,7 @@ end
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "5"
+local version = "6"
 
 local settings = {
 	enabled = true,
