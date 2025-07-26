@@ -769,6 +769,11 @@ local function draw_window()
 			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
 		end
 	end
+
+	if current_tab.draw_func and type(current_tab.draw_func) == "function" then
+		-- Pass useful context to the draw function
+		current_tab.draw_func(window, current_tab, content_offset)
+	end
 end
 
 local function draw_all_windows()
@@ -1004,6 +1009,22 @@ end
 function menu:register()
 	calculate_component_sizes() --- if we have any component with 0 width & height so they dont waste pc resources drawing nothing
 	callbacks.Register("Draw", draw_id, draw_all_windows)
+end
+
+---@param tab_index integer
+---@param draw_func function
+function menu:set_tab_draw_function(tab_index, draw_func)
+	local window = current_window_context
+	if not window then
+		error("Current window context is nil!")
+		return
+	end
+
+	if tab_index > 0 and tab_index <= #window.tabs then
+		window.tabs[tab_index].draw_func = draw_func
+	else
+		error("Invalid tab index: " .. tostring(tab_index))
+	end
 end
 
 function menu.unload()

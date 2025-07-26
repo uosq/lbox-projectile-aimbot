@@ -136,7 +136,8 @@ function pred:Run()
 			self.math_utils,
 			self.settings.max_distance,
 			bSplashWeapon,
-			self.ent_utils
+			self.ent_utils,
+			self.settings
 		)
 
 		---@diagnostic disable-next-line: cast-local-type

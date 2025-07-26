@@ -45,7 +45,7 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v4
+	Update: v6
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -63,7 +63,7 @@ end
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "5"
+local version = "6"
 
 local settings = {
 	enabled = true,
@@ -80,6 +80,15 @@ local settings = {
 	ping_compensation = true,
 	min_priority = 0,
 	splash = true,
+
+	hitparts = {
+		head = true,
+		left_arm = true,
+		right_arm = true,
+		left_shoulder = true,
+		right_shoulder = true,
+		legs = true,
+	},
 
 	ents = {
 		["aim players"] = true,
@@ -1126,6 +1135,75 @@ function gui.init(settings, version)
 		end
 	end
 
+	--local hitpoints_tab = menu:make_tab("hitpoints")
+	menu:make_tab("hitpoints")
+
+	column = 1
+	left_column_count = 0
+	right_column_count = 0
+
+	for name, enabled in pairs(settings.hitparts) do
+		local btn = menu:make_checkbox()
+		assert(btn, string.format("Button %s is nil!", name))
+
+		btn.enabled = enabled
+		btn.width = component_width
+		btn.height = component_height
+
+		local label = string.gsub(name, "_", " ")
+
+		btn.label = string.format("%s", label)
+
+		-- alternate between left and right columns
+		if column == 1 then
+			btn.x = 10
+			btn.y = 10 + (left_column_count * (component_height + gap))
+			left_column_count = left_column_count + 1
+			column = 2
+		else
+			btn.x = component_width + 20
+			btn.y = 10 + (right_column_count * (component_height + gap))
+			right_column_count = right_column_count + 1
+			column = 1
+		end
+
+		btn.func = function()
+			settings.hitparts[name] = not settings.hitparts[name]
+			btn.enabled = settings.hitparts[name]
+		end
+	end
+
+	--- happy now lsp?
+	--[[if hitpoints_tab then
+		menu:set_tab_draw_function(hitpoints_tab, function(current_window, current_tab, content_offset)
+			local head_width = 20
+			local centerx = (content_offset // 2) + current_window.x + (current_window.width // 2) - (head_width // 2)
+			local y = window.y + (window.height // 2) - 50
+
+			draw.Color(150, 255, 150, 255)
+			draw.OutlinedCircle(centerx, y, head_width, 32)
+
+			--- torso
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + head_width, centerx, y + 100)
+
+			--- left leg
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + 100, centerx - 20, y + 150)
+
+			--- right leg
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + 100, centerx + 20, y + 150)
+
+			--- left arm
+			draw.Color(255, 100, 100, 255)
+			draw.Line(centerx, y + head_width, centerx - 55, y + 70)
+
+			--- right arm
+			draw.Line(centerx, y + head_width, centerx + 55, y + 70)
+		end)
+	end]]
+
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end
@@ -1909,6 +1987,11 @@ local function draw_window()
 			draw.Text(x + 4, iy + (component.height // 2) - (text_h // 2), item)
 		end
 	end
+
+	if current_tab.draw_func and type(current_tab.draw_func) == "function" then
+		-- Pass useful context to the draw function
+		current_tab.draw_func(window, current_tab, content_offset)
+	end
 end
 
 local function draw_all_windows()
@@ -2144,6 +2227,22 @@ end
 function menu:register()
 	calculate_component_sizes() --- if we have any component with 0 width & height so they dont waste pc resources drawing nothing
 	callbacks.Register("Draw", draw_id, draw_all_windows)
+end
+
+---@param tab_index integer
+---@param draw_func function
+function menu:set_tab_draw_function(tab_index, draw_func)
+	local window = current_window_context
+	if not window then
+		error("Current window context is nil!")
+		return
+	end
+
+	if tab_index > 0 and tab_index <= #window.tabs then
+		window.tabs[tab_index].draw_func = draw_func
+	else
+		error("Invalid tab index: " .. tostring(tab_index))
+	end
 end
 
 function menu.unload()
@@ -2947,7 +3046,8 @@ function pred:Run()
 			self.math_utils,
 			self.settings.max_distance,
 			bSplashWeapon,
-			self.ent_utils
+			self.ent_utils,
+			self.settings
 		)
 
 		---@diagnostic disable-next-line: cast-local-type
@@ -3001,26 +3101,24 @@ local multipoint = {}
 
 local offset_multipliers = {
 	splash = {
-		{ 0, 0, 0 }, -- legs
-		{ 0, 0, 0.2 }, -- legs
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.9 }, -- near head
+		{ "legs", { { 0, 0, 0 }, { 0, 0, 0.2 } } },
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
 	},
 	huntsman = {
-		--{ 0, 0, 0.9 }, -- near head
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.2 }, -- legs
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
 	},
 	normal = {
-		{ 0, 0, 0.5 }, -- chest
-		{ 0, 0, 0.9 }, -- near head
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.2 }, -- legs
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
 	},
 }
 
@@ -3043,7 +3141,7 @@ function multipoint:GetBestHitPoint()
 		return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
 	end
 
-	if self.bIsHuntsman then
+	if self.bIsHuntsman and self.settings.hitparts.head then
 		local origin = self.pTarget:GetAbsOrigin()
 		local head_pos = self.ent_utils.GetBones(self.pTarget)[1]
 		local diff = head_pos - origin
@@ -3055,16 +3153,20 @@ function multipoint:GetBestHitPoint()
 		end
 	end
 
-	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		local test_pos = self.vecPredictedPos + offset
-
-		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-		if trace and trace.fraction > bestFraction then
-			bestPoint = test_pos
-			bestFraction = trace.fraction
-			if bestFraction >= 1 then
-				break
+	for _, entry in ipairs(multipliers) do
+		local part, offsets = entry[1], entry[2]
+		if self.settings.hitparts[part] then
+			for _, mult in ipairs(offsets) do
+				local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+				local test_pos = self.vecPredictedPos + offset
+				local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+				if trace and trace.fraction > bestFraction then
+					bestPoint = test_pos
+					bestFraction = trace.fraction
+					if bestFraction >= 1 then
+						break
+					end
+				end
 			end
 		end
 	end
@@ -3083,6 +3185,7 @@ end
 ---@param iMaxDistance integer
 ---@param bIsSplash boolean
 ---@param ent_utils table
+---@param settings table
 function multipoint:Set(
 	pLocal,
 	pTarget,
@@ -3094,7 +3197,8 @@ function multipoint:Set(
 	math_utils,
 	iMaxDistance,
 	bIsSplash,
-	ent_utils
+	ent_utils,
+	settings
 )
 	self.pLocal = pLocal
 	self.pTarget = pTarget
@@ -3107,6 +3211,7 @@ function multipoint:Set(
 	self.vecPredictedPos = vecPredictedPos
 	self.bIsSplash = bIsSplash
 	self.ent_utils = ent_utils
+	self.settings = settings
 end
 
 return multipoint
@@ -3299,110 +3404,8 @@ end
 ---@type Sample[]
 local position_samples = {}
 
----@type table<number, KalmanFilter>
-local kalman_filters = {}
-
 local DoTraceHull = engine.TraceHull
 local Vector3 = Vector3
-
----@param measured_velocity Vector3
----@param current_time number
----@param is_grounded boolean
-function KalmanFilter:update(measured_velocity, current_time, is_grounded)
-	local dt = current_time - self.last_time
-	if dt <= 0 then
-		return
-	end
-
-	-- Adjust noise based on player state
-	local Q_vel = is_grounded and self.Q_velocity * 0.5 or self.Q_velocity
-	local Q_acc = is_grounded and self.Q_acceleration * 0.3 or self.Q_acceleration
-	local R = is_grounded and self.R * 0.7 or self.R * 1.5 -- more noise when airborne
-
-	-- now we cook the prediction
-	-- velocity = velocity + acceleration * dt
-	local predicted_velocity = self.state + self.acceleration * dt
-
-	-- update covariance matrix for prediction
-	local dt2 = dt * dt
-
-	-- Predicted covariances
-	local P_vel_pred = self.P_velocity + 2 * self.P_cross * dt + self.P_acceleration * dt2 + Q_vel * dt2
-	local P_acc_pred = self.P_acceleration + Q_acc * dt
-	local P_cross_pred = self.P_cross + self.P_acceleration * dt
-
-	-- update step (for each direction axis separately for better numerical stability)
-	for axis = 1, 3 do
-		local measured = axis == 1 and measured_velocity.x or axis == 2 and measured_velocity.y or measured_velocity.z
-		local predicted = axis == 1 and predicted_velocity.x
-			or axis == 2 and predicted_velocity.y
-			or predicted_velocity.z
-		local current_acc = axis == 1 and self.acceleration.x
-			or axis == 2 and self.acceleration.y
-			or self.acceleration.z
-
-		-- innovation (measurement residual)
-		local innovation = measured - predicted
-
-		-- innovation covariance
-		local S = P_vel_pred + R
-
-		-- Kalman gains
-		local K_velocity = P_vel_pred / S
-		local K_acceleration = P_cross_pred / S
-
-		-- update state estimates
-		local new_vel = predicted + K_velocity * innovation
-		local new_acc = current_acc + K_acceleration * innovation
-
-		if axis == 1 then
-			predicted_velocity.x = new_vel
-			self.acceleration.x = new_acc
-		elseif axis == 2 then
-			predicted_velocity.y = new_vel
-			self.acceleration.y = new_acc
-		else
-			predicted_velocity.z = new_vel
-			self.acceleration.z = new_acc
-		end
-	end
-
-	-- update covariances
-	local K_vel_avg = P_vel_pred / (P_vel_pred + R) -- approximate average gain
-	local K_acc_avg = P_cross_pred / (P_vel_pred + R)
-
-	self.P_velocity = (1 - K_vel_avg) * P_vel_pred
-	self.P_acceleration = P_acc_pred - K_acc_avg * P_cross_pred
-	self.P_cross = (1 - K_vel_avg) * P_cross_pred
-
-	-- constrain covariances to prevent numerical issues
-	self.P_velocity = math.max(1.0, math.min(self.P_velocity, 10000.0))
-	self.P_acceleration = math.max(0.1, math.min(self.P_acceleration, 1000.0)) --- im not sure how fast can the players go so im giving it a generous amount ig
-	self.P_cross = math.max(-100.0, math.min(self.P_cross, 100.0))
-
-	self.state = predicted_velocity
-	self.last_time = current_time
-end
-
----@param dt number time step for prediction
----@return Vector3 predicted_velocity
----@return Vector3 predicted_acceleration
----@return number confidence (0-1, higher is more confident)
-function KalmanFilter:predict(dt)
-	local predicted_velocity = self.state + self.acceleration * dt
-	local predicted_acceleration = self.acceleration -- assume constant acceleration?
-
-	-- calculate confidence based on covariance
-	local total_uncertainty = self.P_velocity + self.P_acceleration * dt * dt
-	local confidence = math.max(0, math.min(1, 1 - (total_uncertainty / 1000)))
-
-	return predicted_velocity, predicted_acceleration, confidence
-end
-
----@return number current uncertainty in velocity estimation
-function KalmanFilter:getUncertainty()
-	return math.sqrt(self.P_velocity)
-end
 
 ---@param position Vector3
 ---@param mins Vector3
@@ -3460,7 +3463,6 @@ local function AddPositionSample(pEntity)
 
 	if not position_samples[index] then
 		position_samples[index] = {}
-		kalman_filters[index] = KalmanFilter:new()
 	end
 
 	local current_time = globals.CurTime()
@@ -3480,9 +3482,6 @@ local function AddPositionSample(pEntity)
 			raw_velocity = (current_pos - prev.pos) / dt
 		end
 	end
-
-	-- update Kalman filter with raw velocity
-	kalman_filters[index]:update(raw_velocity, current_time, is_grounded)
 
 	-- trim old samples
 	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering

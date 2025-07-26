@@ -3,12 +3,19 @@
 --- version 0.1
 --- any component with width == 0 & height == 0 gets a width and height assigned at menu:register
 
+---@class TAB_COMPONENTS
+
+---@class TAB
+---@field name string|''
+---@field components table<integer, BUTTON|CHECKBOX|SLIDER|DROPDOWN|LISTBOX>}
+---@field draw_func fun(window: WINDOW, current_tab: TAB, content_offset: integer|0)?
+
 ---@class WINDOW
 ---@field public x integer The 'X' coordinate of the window (default: 0)
 ---@field public y integer The 'Y' coordinate of the window (default: 0)
 ---@field public width integer The 'width' of the window (default: 0)
 ---@field public height integer The 'height' of the window (default: 0)
----@field public tabs table<integer, {name: string|'', components: table<integer, BUTTON|CHECKBOX|SLIDER|DROPDOWN|LISTBOX>}> The tabs of the window (default: { [1]: {} })
+---@field public tabs table<integer, TAB> The tabs of the window (default: { [1]: {} })
 ---@field public font Font? The font to be used (default: "TF2 BUILD")
 ---@field public header string? The window's title bar text
 ---@field public active_tab_index integer The active tab index (default: 1) | Doesn't need to be changed, NMENU handles it for you
@@ -96,5 +103,9 @@ function menu:make_listbox() end
 
 --- Unload function, you should register this as a callback
 function menu.unload() end
+
+---@param tab_index integer
+---@param draw_func fun(window: WINDOW, current_tab: TAB, content_offset: integer|0)?
+function menu:set_tab_draw_function(tab_index, draw_func) end
 
 return menu

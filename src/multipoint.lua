@@ -14,26 +14,24 @@ local multipoint = {}
 
 local offset_multipliers = {
 	splash = {
-		{ 0, 0, 0 }, -- legs
-		{ 0, 0, 0.2 }, -- legs
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.9 }, -- near head
+		{ "legs", { { 0, 0, 0 }, { 0, 0, 0.2 } } },
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
 	},
 	huntsman = {
-		--{ 0, 0, 0.9 }, -- near head
-		{ 0, 0, 0.5 }, -- chest
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.2 }, -- legs
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
 	},
 	normal = {
-		{ 0, 0, 0.5 }, -- chest
-		{ 0, 0, 0.9 }, -- near head
-		{ 0.6, 0, 0.5 }, -- right shoulder
-		{ -0.6, 0, 0.5 }, -- left shoulder
-		{ 0, 0, 0.2 }, -- legs
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
 	},
 }
 
@@ -56,7 +54,7 @@ function multipoint:GetBestHitPoint()
 		return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
 	end
 
-	if self.bIsHuntsman then
+	if self.bIsHuntsman and self.settings.hitparts.head then
 		local origin = self.pTarget:GetAbsOrigin()
 		local head_pos = self.ent_utils.GetBones(self.pTarget)[1]
 		local diff = head_pos - origin
@@ -68,16 +66,20 @@ function multipoint:GetBestHitPoint()
 		end
 	end
 
-	for _, mult in ipairs(multipliers) do
-		local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
-		local test_pos = self.vecPredictedPos + offset
-
-		local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-		if trace and trace.fraction > bestFraction then
-			bestPoint = test_pos
-			bestFraction = trace.fraction
-			if bestFraction >= 1 then
-				break
+	for _, entry in ipairs(multipliers) do
+		local part, offsets = entry[1], entry[2]
+		if self.settings.hitparts[part] then
+			for _, mult in ipairs(offsets) do
+				local offset = Vector3(maxs.x * mult[1], maxs.y * mult[2], maxs.z * mult[3])
+				local test_pos = self.vecPredictedPos + offset
+				local trace = engine.TraceHull(self.vecHeadPos, test_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+				if trace and trace.fraction > bestFraction then
+					bestPoint = test_pos
+					bestFraction = trace.fraction
+					if bestFraction >= 1 then
+						break
+					end
+				end
 			end
 		end
 	end
@@ -96,6 +98,7 @@ end
 ---@param iMaxDistance integer
 ---@param bIsSplash boolean
 ---@param ent_utils table
+---@param settings table
 function multipoint:Set(
 	pLocal,
 	pTarget,
@@ -107,7 +110,8 @@ function multipoint:Set(
 	math_utils,
 	iMaxDistance,
 	bIsSplash,
-	ent_utils
+	ent_utils,
+	settings
 )
 	self.pLocal = pLocal
 	self.pTarget = pTarget
@@ -120,6 +124,7 @@ function multipoint:Set(
 	self.vecPredictedPos = vecPredictedPos
 	self.bIsSplash = bIsSplash
 	self.ent_utils = ent_utils
+	self.settings = settings
 end
 
 return multipoint

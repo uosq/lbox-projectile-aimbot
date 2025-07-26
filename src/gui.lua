@@ -295,6 +295,75 @@ function gui.init(settings, version)
 		end
 	end
 
+	--local hitpoints_tab = menu:make_tab("hitpoints")
+	menu:make_tab("hitpoints")
+
+	column = 1
+	left_column_count = 0
+	right_column_count = 0
+
+	for name, enabled in pairs(settings.hitparts) do
+		local btn = menu:make_checkbox()
+		assert(btn, string.format("Button %s is nil!", name))
+
+		btn.enabled = enabled
+		btn.width = component_width
+		btn.height = component_height
+
+		local label = string.gsub(name, "_", " ")
+
+		btn.label = string.format("%s", label)
+
+		-- alternate between left and right columns
+		if column == 1 then
+			btn.x = 10
+			btn.y = 10 + (left_column_count * (component_height + gap))
+			left_column_count = left_column_count + 1
+			column = 2
+		else
+			btn.x = component_width + 20
+			btn.y = 10 + (right_column_count * (component_height + gap))
+			right_column_count = right_column_count + 1
+			column = 1
+		end
+
+		btn.func = function()
+			settings.hitparts[name] = not settings.hitparts[name]
+			btn.enabled = settings.hitparts[name]
+		end
+	end
+
+	--- happy now lsp?
+	--[[if hitpoints_tab then
+		menu:set_tab_draw_function(hitpoints_tab, function(current_window, current_tab, content_offset)
+			local head_width = 20
+			local centerx = (content_offset // 2) + current_window.x + (current_window.width // 2) - (head_width // 2)
+			local y = window.y + (window.height // 2) - 50
+
+			draw.Color(150, 255, 150, 255)
+			draw.OutlinedCircle(centerx, y, head_width, 32)
+
+			--- torso
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + head_width, centerx, y + 100)
+
+			--- left leg
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + 100, centerx - 20, y + 150)
+
+			--- right leg
+			draw.Color(150, 255, 150, 255)
+			draw.Line(centerx, y + 100, centerx + 20, y + 150)
+
+			--- left arm
+			draw.Color(255, 100, 100, 255)
+			draw.Line(centerx, y + head_width, centerx - 55, y + 70)
+
+			--- right arm
+			draw.Line(centerx, y + head_width, centerx + 55, y + 70)
+		end)
+	end]]
+
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end

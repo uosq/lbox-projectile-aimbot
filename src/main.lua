@@ -37,6 +37,15 @@ local settings = {
 	min_priority = 0,
 	splash = true,
 
+	hitparts = {
+		head = true,
+		left_arm = true,
+		right_arm = true,
+		left_shoulder = true,
+		right_shoulder = true,
+		legs = true,
+	},
+
 	ents = {
 		["aim players"] = true,
 		["aim sentries"] = true,
