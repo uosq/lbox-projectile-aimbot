@@ -125,12 +125,15 @@ function pred:Run()
 
 	if self.settings.multipointing then
 		local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
+		local viewPos = self.pLocal:GetAbsOrigin() + self.pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+
 		multipoint:Set(
 			self.pLocal,
+			self.pWeapon,
 			self.pTarget,
 			self.bIsHuntsman,
 			self.bAimAtTeamMates,
-			self.vecShootPos,
+			viewPos, -- Use view position, not calculated shoot position
 			predicted_target_pos,
 			self.weapon_info,
 			self.math_utils,
