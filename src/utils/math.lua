@@ -51,14 +51,14 @@ local function NormalizeVector(vec)
 	return vec / vec:Length()
 end
 
----@param p0 Vector3
----@param p1 Vector3
----@param speed number
----@param gravity number
----@return Vector3|nil
+---@param p0 Vector3 -- start position
+---@param p1 Vector3 -- target position
+---@param speed number -- projectile speed
+---@param gravity number -- gravity constant
+---@return EulerAngles|nil -- Euler angles (pitch, yaw, 0)
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
-	local dx = math.sqrt(diff.x ^ 2 + diff.y ^ 2)
+	local dx = math.sqrt(diff.x * diff.x + diff.y * diff.y)
 	local dy = diff.z
 	local speed2 = speed * speed
 	local g = gravity
@@ -69,13 +69,15 @@ function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	end
 
 	local sqrt_root = math.sqrt(root)
-	local angle
+	local angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
 
-	angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
+	-- Get horizontal direction (yaw)
+	local yaw = math.atan(diff.y, diff.x)
 
-	local dir_xy = NormalizeVector(Vector3(diff.x, diff.y, 0))
-	local aim = Vector3(dir_xy.x * math.cos(angle), dir_xy.y * math.cos(angle), math.sin(angle))
-	return NormalizeVector(aim)
+	-- Convert pitch from angle
+	local pitch = -angle -- negative because upward is negative pitch in most engines
+
+	return EulerAngles(math.deg(pitch), math.deg(yaw), 0)
 end
 
 ---@param shootPos Vector3

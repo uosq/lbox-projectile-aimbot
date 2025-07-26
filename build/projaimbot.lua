@@ -1,3 +1,4 @@
+-- Bundled by luabundle {"version":"1.7.0"}
 local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (function(superRequire)
 	local loadingPlaceholder = {[{}] = true}
 
@@ -138,16 +139,16 @@ local proj_sim = require("src.simulation.proj")
 assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
 
-local prediction = require("src.prediction")
-assert(prediction, "[PROJ AIMBOT] Prediction module failed to load")
-printc(150, 255, 150, 255, "[PROJ AIMBOT] Mrediction module loaded")
-
 local GetProjectileInformation = require("src.projectile_info")
 assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
 local menu = require("src.gui")
 menu.init(settings, version)
+
+local multipoint = require("src.multipoint")
+assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
 local draw = draw
 local entities = entities
@@ -370,69 +371,35 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	return best_target
 end
 
----@param pLocal Entity
 ---@param pWeapon Entity
----@param bAimTeamMate boolean
----@param vecHeadPos Vector3
----@param netchannel NetChannel
----@param bDrawOnly boolean
----@param players table<integer, Entity>
----@param bIsHuntsman boolean
----@param weaponInfo WeaponInfo
----@return PredictionResult?, Entity?
-local function ProcessPrediction(
-	pLocal,
-	pWeapon,
-	vecHeadPos,
-	bAimTeamMate,
-	netchannel,
-	bDrawOnly,
-	players,
-	bIsHuntsman,
-	weaponInfo
-)
-	if
-		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
-	then
-		return nil
+local function GetCharge(pWeapon)
+	local charge_time = 0.0
+
+	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		-- check if bow is currently being charged
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		-- if charge_begin_time is 0, the bow isn't charging
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- clamp charge time between 0 and 1 second (full charge)
+			charge_time = math.max(0, math.min(charge_time, 1.0))
+		else
+			-- bow is not charging, use minimum speed
+			charge_time = 0.0
+		end
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			if charge_time > 4.0 then
+				charge_time = 0.0
+			end
+		end
 	end
 
-	if gui.GetValue("projectile aimbot") ~= "none" then
-		gui.SetValue("projectile aimbot", "none")
-	end
-
-	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
-
-	if not best_target.index then
-		return nil
-	end
-
-	local pTarget = entities.GetByIndex(best_target.index)
-	if not pTarget then
-		return nil
-	end
-
-	-- weaponInfo is now passed as parameter, no need to recalculate
-	local nlatency = settings.ping_compensation and 0
-		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
-
-	prediction:Set(
-		pLocal,
-		pWeapon,
-		pTarget,
-		weaponInfo,
-		proj_sim,
-		player_sim,
-		math_utils,
-		vecHeadPos,
-		nlatency,
-		settings,
-		bIsHuntsman,
-		bAimTeamMate,
-		ent_utils
-	)
-
-	return prediction:Run(), pTarget
+	return charge_time
 end
 
 ---@param uCmd UserCmd
@@ -441,8 +408,8 @@ local function CreateMove_Draw(uCmd)
 		return
 	end
 
-	local netChannel = clientstate.GetNetChannel()
-	if not netChannel then
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
 		return
 	end
 
@@ -484,31 +451,15 @@ local function CreateMove_Draw(uCmd)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	local pred_result, pTarget = ProcessPrediction(
-		pLocal,
-		pWeapon,
-		vecHeadPos,
-		bAimAtTeamMates,
-		netChannel,
-		settings.draw_only,
-		players,
-		bIsHuntsman,
-		weaponInfo
-	)
-
-	if not pred_result or not pTarget then
-		return
-	end
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
 	-- Calculate weapon fire position based on the computed aim direction
 	local viewpos = vecHeadPos
-	local muzzle_offset = weaponInfo:GetOffset(
-		(pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-		pWeapon:IsViewModelFlipped()
-	)
-	local vecWeaponFirePos =
-		viewpos
-		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimDir)
+	local muzzle_offset =
+		weaponInfo:GetOffset((pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, pWeapon:IsViewModelFlipped())
+	local vecWeaponFirePos = viewpos
+		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimAngle:Forward())
 		+ weaponInfo.m_vecAbsoluteOffset
 
 	local function shouldHit(ent)
@@ -530,8 +481,14 @@ local function CreateMove_Draw(uCmd)
 
 	displayed_time = globals.CurTime() + 1
 	paths.player_path = pred_result.vecPlayerPath
-	paths.proj_path =
-		proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
+	paths.proj_path = proj_sim.Run(
+		pLocal,
+		pWeapon,
+		vecWeaponFirePos,
+		pred_result.vecAimAngle:Forward(),
+		pred_result.nTime,
+		weaponInfo
+	)
 end
 
 ---@param uCmd UserCmd
@@ -545,8 +502,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local netChannel = clientstate.GetNetChannel()
-	if not netChannel then
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
 		return
 	end
 
@@ -588,55 +545,100 @@ local function CreateMove(uCmd)
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-
-	local pred_result, pTarget = ProcessPrediction(
-		pLocal,
-		pWeapon,
-		vecHeadPos,
-		bAimAtTeamMates,
-		netChannel,
-		settings.draw_only,
-		players,
-		bIsHuntsman,
-		weaponInfo
-	)
-
-	if not pred_result or not pTarget then
-		return
+	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimAtTeamMates)
+	if not best_target.index then
+		return nil
 	end
 
-	-- Calculate weapon fire position based on the computed aim direction
-	local viewpos = vecHeadPos
-	local muzzle_offset = weaponInfo:GetOffset(
-		(pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-		pWeapon:IsViewModelFlipped()
-	)
+	local pTarget = entities.GetByIndex(best_target.index)
+	if not pTarget then
+		return nil
+	end
+
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
+
+	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, 1)
+	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
+
 	local vecWeaponFirePos =
-		viewpos
-		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimDir)
-		+ weaponInfo.m_vecAbsoluteOffset
+		weaponInfo:GetFirePosition(pLocal, vecHeadPos, engine.GetViewAngles(), pWeapon:IsViewModelFlipped())
+
+	local dist = (vecWeaponFirePos - vecPosNextTick):Length()
+	if dist > settings.max_distance then
+		return nil
+	end
+
+	local velocity_vector = weaponInfo:GetVelocity(0)
+	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
+	local charge_time = GetCharge(pWeapon)
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
+	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+	local travel_time_est = (vecPosNextTick - vecHeadPos):Length2D() / forward_speed
+	local total_time = travel_time_est + nlatency + detonate_time
+	if total_time > settings.max_sim_time or total_time > weaponInfo.m_flLifetime then
+		return nil
+	end
+
+	local time_ticks = (((total_time * 66.67) + 0.5) // 1)
+
+	local player_positions = player_sim.Run(flStepSize, pTarget, time_ticks)
+	if not player_positions then
+		return nil
+	end
+
+	local predicted_target_pos = player_positions[#player_positions] or vecPosNextTick
+	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
 
 	local function shouldHit(ent)
 		if ent:GetIndex() == pLocal:GetIndex() then
 			return false
 		end
+
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local vec_bestPos = pred_result.vecPos
+	local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
 
-	-- Use the muzzle position for the trace check instead of the head position
-	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecWeaponFirePos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	multipoint:Set(
+		pLocal,
+		pWeapon,
+		pTarget,
+		bIsHuntsman,
+		bAimAtTeamMates,
+		vecHeadPos,
+		predicted_target_pos,
+		weaponInfo,
+		math_utils,
+		settings.max_distance,
+		bSplashWeapon,
+		ent_utils,
+		settings
+	)
 
-	if trace and trace.fraction < 1 then
+	predicted_target_pos = multipoint:GetBestHitPoint()
+	if not predicted_target_pos then
 		return
 	end
 
-	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
+	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	if not trace or trace.fraction < 0.9 then
+		return
+	end
+
 	local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
+
+	local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
+	if not angle then
+		return
+	end
 
 	local function FireWeapon(isSandvich)
 		uCmd:SetViewAngles(angle:Unpack())
@@ -656,7 +658,7 @@ local function CreateMove(uCmd)
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsHuntsman then
-		if pred_result.nChargeTime > 0.0 then
+		if charge_time > 0.0 then
 			if settings.autoshoot and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
@@ -675,14 +677,14 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if pred_result.nChargeTime > 0.0 then
+		if charge_time > 0.0 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = FireWeapon(true) -- special case for sandvich
-	else                     -- generic weapons
+	else -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
@@ -696,9 +698,8 @@ local function CreateMove(uCmd)
 
 	if bAttack == true then
 		displayed_time = globals.CurTime() + 1
-		paths.player_path = pred_result.vecPlayerPath
-		paths.proj_path =
-			proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
+		paths.player_path = player_positions
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 	end
 end
 
@@ -846,6 +847,260 @@ printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while
 if gui.GetValue("projectile aimbot") ~= "none" then
 	gui.SetValue("projectile aimbot", "none")
 end
+
+end)
+__bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
+-- Constants
+local FL_DUCKING = 1
+
+---@class Multipoint
+---@field private pLocal Entity
+---@field private pTarget Entity
+---@field private pWeapon Entity
+---@field private bIsHuntsman boolean
+---@field private bIsSplash boolean
+---@field private vecAimDir Vector3
+---@field private vecPredictedPos Vector3
+---@field private bAimTeamMate boolean
+---@field private vecHeadPos Vector3
+---@field private weapon_info WeaponInfo
+---@field private math_utils MathLib
+---@field private iMaxDistance integer
+local multipoint = {}
+
+local offset_multipliers = {
+	splash = {
+		{ "legs", { { 0, 0, 0 }, { 0, 0, 0.2 } } },
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
+	},
+	huntsman = {
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
+	},
+	normal = {
+		{ "chest", { { 0, 0, 0.5 } } },
+		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
+		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
+		{ "head", { { 0, 0, 0.9 } } },
+		{ "legs", { { 0, 0, 0.2 } } },
+	},
+}
+
+-- Robust normalization function that handles edge cases
+local function SafeNormalize(vec)
+	if not vec then
+		return nil
+	end
+
+	local length = vec:Length()
+	if length < 0.001 then
+		return nil -- Vector is too small to normalize
+	end
+
+	-- Try the built-in Normalize method first
+	local normalized = vec:Normalize()
+	if normalized then
+		return normalized
+	end
+
+	-- Fallback: manual normalization
+	local inv_length = 1.0 / length
+	return Vector3(vec.x * inv_length, vec.y * inv_length, vec.z * inv_length)
+end
+
+---@return Vector3?
+function multipoint:GetBestHitPoint()
+	local maxs = self.pTarget:GetMaxs()
+	local mins = self.pTarget:GetMins()
+
+	local target_height = maxs.z - mins.z
+	local target_width = maxs.x - mins.x
+	local target_depth = maxs.y - mins.y
+
+	local is_on_ground = (self.pTarget:GetPropInt("m_fFlags") & FL_ONGROUND) ~= 0
+	local vecMins, vecMaxs = self.weapon_info.m_vecMins, self.weapon_info.m_vecMaxs
+
+	local function shouldHit(ent)
+		if not ent then
+			return false
+		end
+
+		if ent:GetIndex() == self.pLocal:GetIndex() then
+			return false
+		end
+
+		-- For rockets, we want to hit enemies (different team)
+		-- For healing weapons, we want to hit teammates (same team)
+		if self.bAimTeamMate then
+			return ent:GetTeamNumber() == self.pTarget:GetTeamNumber()
+		else
+			return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
+		end
+	end
+
+	-- Check if we can shoot from our position to the target point using the same logic as main code
+	local function canShootToPoint(target_pos)
+		if not target_pos then
+			return false
+		end
+
+		-- Use the same logic as main code: calculate aim direction first, then check if we can hit
+		local viewpos = self.pLocal:GetAbsOrigin() + self.pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+
+		-- Calculate aim direction from viewpos to target
+		local aim_dir = self.math_utils.NormalizeVector(target_pos - viewpos)
+		if not aim_dir then
+			return false
+		end
+
+		-- Get weapon offset and calculate weapon fire position using the same logic as main code
+		local muzzle_offset = self.weapon_info:GetOffset(
+			(self.pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
+			self.pWeapon:IsViewModelFlipped()
+		)
+		local vecWeaponFirePos = viewpos
+			+ self.math_utils.RotateOffsetAlongDirection(muzzle_offset, aim_dir)
+			+ self.weapon_info.m_vecAbsoluteOffset
+
+		-- Check if we can hit using TraceHull (same as main code)
+		local trace = engine.TraceHull(vecWeaponFirePos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		return trace and trace.fraction >= 1
+	end
+
+	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
+	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
+	local feet_pos = self.vecPredictedPos
+
+	local fallback_points = {
+		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0), name = "bottom_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, 0), name = "bottom_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, 0), name = "bottom_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, 0), name = "bottom_corner_4" },
+
+		-- Mid-height corners (body level)
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_4" },
+
+		-- Mid-points on edges (body level)
+		{ pos = Vector3(0, -target_depth / 2, target_height / 2), name = "mid_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height / 2), name = "mid_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height / 2), name = "mid_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height / 2), name = "mid_right" },
+
+		-- Bottom mid-points (legs level)
+		{ pos = Vector3(0, -target_depth / 2, 0), name = "bottom_front" },
+		{ pos = Vector3(0, target_depth / 2, 0), name = "bottom_back" },
+		{ pos = Vector3(-target_width / 2, 0, 0), name = "bottom_left" },
+		{ pos = Vector3(target_width / 2, 0, 0), name = "bottom_right" },
+
+		-- Top corners (head level)
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height), name = "top_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height), name = "top_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height), name = "top_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height), name = "top_corner_4" },
+
+		-- Top mid-points (head level)
+		{ pos = Vector3(0, -target_depth / 2, target_height), name = "top_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height), name = "top_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height), name = "top_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height), name = "top_right" },
+	}
+
+	-- 1. Bows/headshot weapons
+	if self.bIsHuntsman then
+		if self.settings.hitparts.head and head_pos and canShootToPoint(head_pos) then
+			return head_pos
+		end
+		if canShootToPoint(center_pos) then
+			return center_pos
+		end
+		if self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
+			return feet_pos
+		end
+		for _, point in ipairs(fallback_points) do
+			local test_pos = self.vecPredictedPos + point.pos
+			if canShootToPoint(test_pos) then
+				return test_pos
+			end
+		end
+		return nil
+	end
+
+	-- 2. Explosive projectiles: feet first if enabled and on ground
+	if self.bIsSplash and self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
+		return feet_pos
+	end
+	-- Center next
+	if canShootToPoint(center_pos) then
+		return center_pos
+	end
+
+	-- Try fallback points
+	for _, point in ipairs(fallback_points) do
+		local test_pos = self.vecPredictedPos + point.pos
+
+		if canShootToPoint(test_pos) then
+			return test_pos
+		end
+	end
+
+	-- Fallback: return center position if all else fails
+	return center_pos
+end
+
+---@param pLocal Entity
+---@param pWeapon Entity
+---@param pTarget Entity
+---@param bIsHuntsman boolean
+---@param bAimTeamMate boolean
+---@param vecHeadPos Vector3
+---@param vecPredictedPos Vector3
+---@param weapon_info WeaponInfo
+---@param math_utils MathLib
+---@param iMaxDistance integer
+---@param bIsSplash boolean
+---@param ent_utils table
+---@param settings table
+function multipoint:Set(
+	pLocal,
+	pWeapon,
+	pTarget,
+	bIsHuntsman,
+	bAimTeamMate,
+	vecHeadPos,
+	vecPredictedPos,
+	weapon_info,
+	math_utils,
+	iMaxDistance,
+	bIsSplash,
+	ent_utils,
+	settings
+)
+	self.pLocal = pLocal
+	self.pWeapon = pWeapon
+	self.pTarget = pTarget
+	self.bIsHuntsman = bIsHuntsman
+	self.bAimTeamMate = bAimTeamMate
+	self.vecHeadPos = vecHeadPos
+	self.vecShootPos = vecHeadPos -- Use view position as base
+	self.weapon_info = weapon_info
+	self.math_utils = math_utils
+	self.iMaxDistance = iMaxDistance
+	self.vecPredictedPos = vecPredictedPos
+	self.bIsSplash = bIsSplash
+	self.ent_utils = ent_utils
+	self.settings = settings
+end
+
+return multipoint
 
 end)
 __bundle_register("src.gui", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -2918,442 +3173,6 @@ aProjectileInfo[32] = DefinePseudoProjectileDefinition({
 return GetProjectileInformation
 
 end)
-__bundle_register("src.prediction", function(require, _LOADED, __bundle_register, __bundle_modules)
-local multipoint = require("src.multipoint")
-
----@class Prediction
----@field pLocal Entity
----@field pWeapon Entity
----@field pTarget Entity
----@field weapon_info WeaponInfo
----@field proj_sim ProjectileSimulation
----@field player_sim table
----@field vecShootPos Vector3
----@field math_utils MathLib
----@field nLatency number
----@field settings table
----@field private __index table
----@field ent_utils table
-local pred = {}
-pred.__index = pred
-
-function pred:Set(
-	pLocal,
-	pWeapon,
-	pTarget,
-	weapon_info,
-	proj_sim,
-	player_sim,
-	math_utils,
-	vecShootPos,
-	nLatency,
-	settings,
-	bIsHuntsman,
-	bAimAtTeamMates,
-	ent_utils
-)
-	self.pLocal = pLocal
-	self.pWeapon = pWeapon
-	self.weapon_info = weapon_info
-	self.proj_sim = proj_sim
-	self.player_sim = player_sim
-	self.vecShootPos = vecShootPos
-	self.pTarget = pTarget
-	self.nLatency = nLatency
-	self.math_utils = math_utils
-	self.settings = settings
-	self.bIsHuntsman = bIsHuntsman
-	self.bAimAtTeamMates = bAimAtTeamMates
-	self.ent_utils = ent_utils
-end
-
-function pred:GetChargeTimeAndSpeed()
-	local charge_time = 0.0
-	local projectile_speed = self.weapon_info:GetVelocity(0):Length()
-
-	if self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
-		-- check if bow is currently being charged
-		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
-		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
-
-		-- if charge_begin_time is 0, the bow isn't charging
-		if charge_begin_time > 0 then
-			charge_time = globals.CurTime() - charge_begin_time
-			-- clamp charge time between 0 and 1 second (full charge)
-			charge_time = math.max(0, math.min(charge_time, 1.0))
-
-			-- apply charge multiplier to projectile speed
-			local charge_multiplier = 1.0 + (charge_time * 0.44) -- 44% speed increase at full charge
-			projectile_speed = projectile_speed * charge_multiplier
-		else
-			-- bow is not charging, use minimum speed
-			charge_time = 0.0
-		end
-	elseif self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		local charge_begin_time = self.pWeapon:GetChargeBeginTime()
-		projectile_speed = self.weapon_info:GetVelocity(charge_begin_time or 0):Length()
-
-		if charge_begin_time > 0 then
-			charge_time = globals.CurTime() - charge_begin_time
-			if charge_time > 4.0 then
-				charge_time = 0.0
-			end
-		end
-	end
-
-	return charge_time, projectile_speed
-end
-
----@param pWeapon Entity
-local function IsSplashDamageWeapon(pWeapon)
-	local projtype = pWeapon:GetWeaponProjectileType()
-	local result = projtype == E_ProjectileType.TF_PROJECTILE_ROCKET
-		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-		or projtype == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-		or projtype == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-	return result
-end
-
----@return PredictionResult?
-function pred:Run()
-	if not self.pLocal or not self.pWeapon or not self.pTarget then
-		return nil
-	end
-
-	local vecTargetOrigin = self.pTarget:GetAbsOrigin()
-	local dist = (self.vecShootPos - vecTargetOrigin):Length()
-	if dist > self.settings.max_distance then
-		return nil
-	end
-
-	local charge_time, projectile_speed = self:GetChargeTimeAndSpeed()
-	local gravity = self.weapon_info:GetGravity(charge_time) * 800 --- example: 200
-
-	local detonate_time = self.pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
-	local travel_time_est = (vecTargetOrigin - self.vecShootPos):Length() / projectile_speed
-	local total_time = travel_time_est + self.nLatency + detonate_time
-	if total_time > self.settings.max_sim_time or total_time > self.weapon_info.m_flLifetime then
-		return nil
-	end
-
-	local flstepSize = self.pLocal:GetPropFloat("localdata", "m_flStepSize") or 18
-	local player_positions = self.player_sim.Run(flstepSize, self.pTarget, total_time)
-	if not player_positions then
-		return nil
-	end
-
-	local predicted_target_pos = player_positions[#player_positions] or self.pTarget:GetAbsOrigin()
-
-	if self.settings.multipointing then
-		local bSplashWeapon = IsSplashDamageWeapon(self.pWeapon)
-		local viewPos = self.pLocal:GetAbsOrigin() + self.pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-
-		multipoint:Set(
-			self.pLocal,
-			self.pWeapon,
-			self.pTarget,
-			self.bIsHuntsman,
-			self.bAimAtTeamMates,
-			viewPos, -- Use view position, not calculated shoot position
-			predicted_target_pos,
-			self.weapon_info,
-			self.math_utils,
-			self.settings.max_distance,
-			bSplashWeapon,
-			self.ent_utils,
-			self.settings
-		)
-
-		---@diagnostic disable-next-line: cast-local-type
-		predicted_target_pos = multipoint:GetBestHitPoint()
-
-		if not predicted_target_pos then
-			return nil
-		end
-	end
-
-	local aim_dir = self.math_utils.NormalizeVector(predicted_target_pos - self.vecShootPos)
-	if not aim_dir then
-		return nil
-	end
-
-	if gravity > 0 then
-		local ballistic_dir =
-			self.math_utils.SolveBallisticArc(self.vecShootPos, predicted_target_pos, projectile_speed, gravity)
-		if not ballistic_dir then
-			return nil
-		end
-		aim_dir = ballistic_dir
-	end
-
-	return {
-		vecPos = predicted_target_pos,
-		nTime = total_time,
-		nChargeTime = charge_time,
-		vecAimDir = aim_dir,
-		vecPlayerPath = player_positions,
-	}
-end
-
-return pred
-
-end)
-__bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
--- Constants
-local FL_DUCKING = 1
-
----@class Multipoint
----@field private pLocal Entity
----@field private pTarget Entity
----@field private pWeapon Entity
----@field private bIsHuntsman boolean
----@field private bIsSplash boolean
----@field private vecAimDir Vector3
----@field private vecPredictedPos Vector3
----@field private bAimTeamMate boolean
----@field private vecHeadPos Vector3
----@field private weapon_info WeaponInfo
----@field private math_utils MathLib
----@field private iMaxDistance integer
-local multipoint = {}
-
-local offset_multipliers = {
-	splash = {
-		{ "legs",           { { 0, 0, 0 }, { 0, 0, 0.2 } } },
-		{ "chest",          { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder",  { { -0.6, 0, 0.5 } } },
-		{ "head",           { { 0, 0, 0.9 } } },
-	},
-	huntsman = {
-		{ "chest",          { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder",  { { -0.6, 0, 0.5 } } },
-		{ "legs",           { { 0, 0, 0.2 } } },
-	},
-	normal = {
-		{ "chest",          { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder",  { { -0.6, 0, 0.5 } } },
-		{ "head",           { { 0, 0, 0.9 } } },
-		{ "legs",           { { 0, 0, 0.2 } } },
-	},
-}
-
--- Robust normalization function that handles edge cases
-local function SafeNormalize(vec)
-	if not vec then
-		return nil
-	end
-
-	local length = vec:Length()
-	if length < 0.001 then
-		return nil -- Vector is too small to normalize
-	end
-
-	-- Try the built-in Normalize method first
-	local normalized = vec:Normalize()
-	if normalized then
-		return normalized
-	end
-
-	-- Fallback: manual normalization
-	local inv_length = 1.0 / length
-	return Vector3(vec.x * inv_length, vec.y * inv_length, vec.z * inv_length)
-end
-
----@return Vector3?
-function multipoint:GetBestHitPoint()
-	local maxs = self.pTarget:GetMaxs()
-	local mins = self.pTarget:GetMins()
-	local origin = self.pTarget:GetAbsOrigin()
-
-	local target_height = maxs.z - mins.z
-	local target_width = maxs.x - mins.x
-	local target_depth = maxs.y - mins.y
-
-	local is_on_ground = (self.pTarget:GetPropInt("m_fFlags") & FL_ONGROUND) ~= 0
-	local vecMins, vecMaxs = self.weapon_info.m_vecMins, self.weapon_info.m_vecMaxs
-
-	local function shouldHit(ent)
-		if not ent then
-			return false
-		end
-
-		if ent:GetIndex() == self.pLocal:GetIndex() then
-			return false
-		end
-
-		-- For rockets, we want to hit enemies (different team)
-		-- For healing weapons, we want to hit teammates (same team)
-		if self.bAimTeamMate then
-			return ent:GetTeamNumber() == self.pTarget:GetTeamNumber()
-		else
-			return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
-		end
-	end
-
-	-- Check if we can shoot from our position to the target point using the same logic as main code
-	local function canShootToPoint(target_pos)
-		if not target_pos then
-			return false
-		end
-
-		-- Use the same logic as main code: calculate aim direction first, then check if we can hit
-		local viewpos = self.pLocal:GetAbsOrigin() + self.pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-
-		-- Calculate aim direction from viewpos to target
-		local aim_dir = self.math_utils.NormalizeVector(target_pos - viewpos)
-		if not aim_dir then
-			return false
-		end
-
-		-- Get weapon offset and calculate weapon fire position using the same logic as main code
-		local muzzle_offset = self.weapon_info:GetOffset(
-			(self.pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-			self.pWeapon:IsViewModelFlipped()
-		)
-		local vecWeaponFirePos =
-			viewpos
-			+ self.math_utils.RotateOffsetAlongDirection(muzzle_offset, aim_dir)
-			+ self.weapon_info.m_vecAbsoluteOffset
-
-		-- Check if we can hit using TraceHull (same as main code)
-		local trace = engine.TraceHull(vecWeaponFirePos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-		return trace and trace.fraction >= 1
-	end
-
-	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
-	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos
-
-	local fallback_points = {
-		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0),                 name = "bottom_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, 0),                  name = "bottom_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, 0),                  name = "bottom_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, 0),                   name = "bottom_corner_4" },
-
-		-- Mid-height corners (body level)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2),  name = "mid_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2),  name = "mid_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2),   name = "mid_corner_4" },
-
-		-- Mid-points on edges (body level)
-		{ pos = Vector3(0, -target_depth / 2, target_height / 2),                 name = "mid_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height / 2),                  name = "mid_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height / 2),                 name = "mid_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height / 2),                  name = "mid_right" },
-
-		-- Bottom mid-points (legs level)
-		{ pos = Vector3(0, -target_depth / 2, 0),                                 name = "bottom_front" },
-		{ pos = Vector3(0, target_depth / 2, 0),                                  name = "bottom_back" },
-		{ pos = Vector3(-target_width / 2, 0, 0),                                 name = "bottom_left" },
-		{ pos = Vector3(target_width / 2, 0, 0),                                  name = "bottom_right" },
-
-		-- Top corners (head level)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height),     name = "top_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height),      name = "top_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height),      name = "top_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height),       name = "top_corner_4" },
-
-		-- Top mid-points (head level)
-		{ pos = Vector3(0, -target_depth / 2, target_height),                     name = "top_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height),                      name = "top_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height),                     name = "top_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height),                      name = "top_right" },
-	}
-
-	-- 1. Bows/headshot weapons
-	if self.bIsHuntsman then
-		if self.settings.hitparts.head and head_pos and canShootToPoint(head_pos) then
-			return head_pos
-		end
-		if canShootToPoint(center_pos) then
-			return center_pos
-		end
-		if self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-			return feet_pos
-		end
-		for _, point in ipairs(fallback_points) do
-			local test_pos = self.vecPredictedPos + point.pos
-			if canShootToPoint(test_pos) then
-				return test_pos
-			end
-		end
-		return nil
-	end
-
-	-- 2. Explosive projectiles: feet first if enabled and on ground
-	if self.bIsSplash and self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-		return feet_pos
-	end
-	-- Center next
-	if canShootToPoint(center_pos) then
-		return center_pos
-	end
-
-	-- Try fallback points
-	for _, point in ipairs(fallback_points) do
-		local test_pos = self.vecPredictedPos + point.pos
-
-		if canShootToPoint(test_pos) then
-			return test_pos
-		end
-	end
-
-	-- Fallback: return center position if all else fails
-	return center_pos
-end
-
----@param pLocal Entity
----@param pWeapon Entity
----@param pTarget Entity
----@param bIsHuntsman boolean
----@param bAimTeamMate boolean
----@param vecHeadPos Vector3
----@param vecPredictedPos Vector3
----@param weapon_info WeaponInfo
----@param math_utils MathLib
----@param iMaxDistance integer
----@param bIsSplash boolean
----@param ent_utils table
----@param settings table
-function multipoint:Set(
-	pLocal,
-	pWeapon,
-	pTarget,
-	bIsHuntsman,
-	bAimTeamMate,
-	vecHeadPos,
-	vecPredictedPos,
-	weapon_info,
-	math_utils,
-	iMaxDistance,
-	bIsSplash,
-	ent_utils,
-	settings
-)
-	self.pLocal = pLocal
-	self.pWeapon = pWeapon
-	self.pTarget = pTarget
-	self.bIsHuntsman = bIsHuntsman
-	self.bAimTeamMate = bAimTeamMate
-	self.vecHeadPos = vecHeadPos
-	self.vecShootPos = vecHeadPos -- Use view position as base
-	self.weapon_info = weapon_info
-	self.math_utils = math_utils
-	self.iMaxDistance = iMaxDistance
-	self.vecPredictedPos = vecPredictedPos
-	self.bIsSplash = bIsSplash
-	self.ent_utils = ent_utils
-	self.settings = settings
-end
-
-return multipoint
-
-end)
 __bundle_register("src.simulation.proj", function(require, _LOADED, __bundle_register, __bundle_modules)
 --- Not used (yet)
 
@@ -3456,14 +3275,19 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	projectile:Wake()
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
-	local speed, gravity
 
 	local charge = GetChargeTime(pWeapon, weapon_info)
 
-	speed = weapon_info:GetVelocity(charge):Length()
-	gravity = 800 * weapon_info:GetGravity(charge)
+	-- Get the velocity vector from weapon info (includes upward velocity)
+	local velocity_vector = weapon_info:GetVelocity(charge)
+	local forward_speed = velocity_vector.x
+	local upward_speed = velocity_vector.z or 0
 
-	local velocity = vecForward * speed
+	-- Calculate the final velocity vector with proper upward component
+	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
+
+	-- Get gravity and apply it to the physics environment
+	local gravity = 800 * weapon_info:GetGravity(charge)
 
 	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)
@@ -3604,21 +3428,10 @@ local function AddPositionSample(pEntity)
 
 	local current_time = globals.CurTime()
 	local current_pos = pEntity:GetAbsOrigin()
-	local is_grounded = IsPlayerOnGround(pEntity)
 
 	local sample = { pos = current_pos, time = current_time }
 	local samples = position_samples[index]
 	samples[#samples + 1] = sample
-
-	-- get raw velocity from position samples
-	local raw_velocity = Vector3(0, 0, 0)
-	if #samples >= 2 then
-		local prev = samples[#samples - 1]
-		local dt = current_time - prev.time
-		if dt > 0 then
-			raw_velocity = (current_pos - prev.pos) / dt
-		end
-	end
 
 	-- trim old samples
 	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering
@@ -3725,7 +3538,7 @@ end
 
 ---@param stepSize number
 ---@param pTarget Entity The target
----@param time number The time in seconds we want to predict
+---@param time integer The time in ticks we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = pTarget:EstimateAbsVelocity()
 	local last_pos = pTarget:GetAbsOrigin()
@@ -3745,10 +3558,9 @@ function sim.Run(stepSize, pTarget, time)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local maxTicks = (time * 67) // 1
 	local was_onground = false
 
-	for i = 1, maxTicks do
+	for i = 1, time do
 		-- apply angular velocity to both velocity and acceleration
 		local yaw = math.rad(angular_velocity)
 		local cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
@@ -3967,14 +3779,14 @@ local function NormalizeVector(vec)
 	return vec / vec:Length()
 end
 
----@param p0 Vector3
----@param p1 Vector3
----@param speed number
----@param gravity number
----@return Vector3|nil
+---@param p0 Vector3 -- start position
+---@param p1 Vector3 -- target position
+---@param speed number -- projectile speed
+---@param gravity number -- gravity constant
+---@return EulerAngles|nil -- Euler angles (pitch, yaw, 0)
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
-	local dx = math.sqrt(diff.x ^ 2 + diff.y ^ 2)
+	local dx = math.sqrt(diff.x * diff.x + diff.y * diff.y)
 	local dy = diff.z
 	local speed2 = speed * speed
 	local g = gravity
@@ -3985,13 +3797,15 @@ function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	end
 
 	local sqrt_root = math.sqrt(root)
-	local angle
+	local angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
 
-	angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
+	-- Get horizontal direction (yaw)
+	local yaw = math.atan(diff.y, diff.x)
 
-	local dir_xy = NormalizeVector(Vector3(diff.x, diff.y, 0))
-	local aim = Vector3(dir_xy.x * math.cos(angle), dir_xy.y * math.cos(angle), math.sin(angle))
-	return NormalizeVector(aim)
+	-- Convert pitch from angle
+	local pitch = -angle -- negative because upward is negative pitch in most engines
+
+	return EulerAngles(math.deg(pitch), math.deg(yaw), 0)
 end
 
 ---@param shootPos Vector3

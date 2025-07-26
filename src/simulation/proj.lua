@@ -99,14 +99,19 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	projectile:Wake()
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
-	local speed, gravity
 
 	local charge = GetChargeTime(pWeapon, weapon_info)
 
-	speed = weapon_info:GetVelocity(charge):Length()
-	gravity = 800 * weapon_info:GetGravity(charge)
+	-- Get the velocity vector from weapon info (includes upward velocity)
+	local velocity_vector = weapon_info:GetVelocity(charge)
+	local forward_speed = velocity_vector.x
+	local upward_speed = velocity_vector.z or 0
 
-	local velocity = vecForward * speed
+	-- Calculate the final velocity vector with proper upward component
+	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
+
+	-- Get gravity and apply it to the physics environment
+	local gravity = 800 * weapon_info:GetGravity(charge)
 
 	env:SetGravity(Vector3(0, 0, -gravity))
 	projectile:SetPosition(shootPos, vecForward, true)

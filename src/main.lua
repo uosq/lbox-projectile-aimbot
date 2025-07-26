@@ -95,16 +95,16 @@ local proj_sim = require("src.simulation.proj")
 assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
 
-local prediction = require("src.prediction")
-assert(prediction, "[PROJ AIMBOT] Prediction module failed to load")
-printc(150, 255, 150, 255, "[PROJ AIMBOT] Mrediction module loaded")
-
 local GetProjectileInformation = require("src.projectile_info")
 assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
 local menu = require("src.gui")
 menu.init(settings, version)
+
+local multipoint = require("src.multipoint")
+assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
 local draw = draw
 local entities = entities
@@ -327,69 +327,35 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	return best_target
 end
 
----@param pLocal Entity
 ---@param pWeapon Entity
----@param bAimTeamMate boolean
----@param vecHeadPos Vector3
----@param netchannel NetChannel
----@param bDrawOnly boolean
----@param players table<integer, Entity>
----@param bIsHuntsman boolean
----@param weaponInfo WeaponInfo
----@return PredictionResult?, Entity?
-local function ProcessPrediction(
-	pLocal,
-	pWeapon,
-	vecHeadPos,
-	bAimTeamMate,
-	netchannel,
-	bDrawOnly,
-	players,
-	bIsHuntsman,
-	weaponInfo
-)
-	if
-		not CanRun(pLocal, pWeapon, pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX, bDrawOnly)
-	then
-		return nil
+local function GetCharge(pWeapon)
+	local charge_time = 0.0
+
+	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		-- check if bow is currently being charged
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		-- if charge_begin_time is 0, the bow isn't charging
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- clamp charge time between 0 and 1 second (full charge)
+			charge_time = math.max(0, math.min(charge_time, 1.0))
+		else
+			-- bow is not charging, use minimum speed
+			charge_time = 0.0
+		end
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		if charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			if charge_time > 4.0 then
+				charge_time = 0.0
+			end
+		end
 	end
 
-	if gui.GetValue("projectile aimbot") ~= "none" then
-		gui.SetValue("projectile aimbot", "none")
-	end
-
-	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimTeamMate)
-
-	if not best_target.index then
-		return nil
-	end
-
-	local pTarget = entities.GetByIndex(best_target.index)
-	if not pTarget then
-		return nil
-	end
-
-	-- weaponInfo is now passed as parameter, no need to recalculate
-	local nlatency = settings.ping_compensation and 0
-		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
-
-	prediction:Set(
-		pLocal,
-		pWeapon,
-		pTarget,
-		weaponInfo,
-		proj_sim,
-		player_sim,
-		math_utils,
-		vecHeadPos,
-		nlatency,
-		settings,
-		bIsHuntsman,
-		bAimTeamMate,
-		ent_utils
-	)
-
-	return prediction:Run(), pTarget
+	return charge_time
 end
 
 ---@param uCmd UserCmd
@@ -398,8 +364,8 @@ local function CreateMove_Draw(uCmd)
 		return
 	end
 
-	local netChannel = clientstate.GetNetChannel()
-	if not netChannel then
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
 		return
 	end
 
@@ -441,31 +407,15 @@ local function CreateMove_Draw(uCmd)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	local pred_result, pTarget = ProcessPrediction(
-		pLocal,
-		pWeapon,
-		vecHeadPos,
-		bAimAtTeamMates,
-		netChannel,
-		settings.draw_only,
-		players,
-		bIsHuntsman,
-		weaponInfo
-	)
-
-	if not pred_result or not pTarget then
-		return
-	end
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 
 	-- Calculate weapon fire position based on the computed aim direction
 	local viewpos = vecHeadPos
-	local muzzle_offset = weaponInfo:GetOffset(
-		(pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-		pWeapon:IsViewModelFlipped()
-	)
-	local vecWeaponFirePos =
-		viewpos
-		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimDir)
+	local muzzle_offset =
+		weaponInfo:GetOffset((pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, pWeapon:IsViewModelFlipped())
+	local vecWeaponFirePos = viewpos
+		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimAngle:Forward())
 		+ weaponInfo.m_vecAbsoluteOffset
 
 	local function shouldHit(ent)
@@ -487,8 +437,14 @@ local function CreateMove_Draw(uCmd)
 
 	displayed_time = globals.CurTime() + 1
 	paths.player_path = pred_result.vecPlayerPath
-	paths.proj_path =
-		proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
+	paths.proj_path = proj_sim.Run(
+		pLocal,
+		pWeapon,
+		vecWeaponFirePos,
+		pred_result.vecAimAngle:Forward(),
+		pred_result.nTime,
+		weaponInfo
+	)
 end
 
 ---@param uCmd UserCmd
@@ -502,8 +458,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local netChannel = clientstate.GetNetChannel()
-	if not netChannel then
+	local netchannel = clientstate.GetNetChannel()
+	if not netchannel then
 		return
 	end
 
@@ -545,55 +501,100 @@ local function CreateMove(uCmd)
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-
-	local pred_result, pTarget = ProcessPrediction(
-		pLocal,
-		pWeapon,
-		vecHeadPos,
-		bAimAtTeamMates,
-		netChannel,
-		settings.draw_only,
-		players,
-		bIsHuntsman,
-		weaponInfo
-	)
-
-	if not pred_result or not pTarget then
-		return
+	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimAtTeamMates)
+	if not best_target.index then
+		return nil
 	end
 
-	-- Calculate weapon fire position based on the computed aim direction
-	local viewpos = vecHeadPos
-	local muzzle_offset = weaponInfo:GetOffset(
-		(pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-		pWeapon:IsViewModelFlipped()
-	)
+	local pTarget = entities.GetByIndex(best_target.index)
+	if not pTarget then
+		return nil
+	end
+
+	local nlatency = settings.ping_compensation and 0
+		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
+
+	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, 1)
+	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
+
 	local vecWeaponFirePos =
-		viewpos
-		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimDir)
-		+ weaponInfo.m_vecAbsoluteOffset
+		weaponInfo:GetFirePosition(pLocal, vecHeadPos, engine.GetViewAngles(), pWeapon:IsViewModelFlipped())
+
+	local dist = (vecWeaponFirePos - vecPosNextTick):Length()
+	if dist > settings.max_distance then
+		return nil
+	end
+
+	local velocity_vector = weaponInfo:GetVelocity(0)
+	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
+	local charge_time = GetCharge(pWeapon)
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
+	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+	local travel_time_est = (vecPosNextTick - vecHeadPos):Length2D() / forward_speed
+	local total_time = travel_time_est + nlatency + detonate_time
+	if total_time > settings.max_sim_time or total_time > weaponInfo.m_flLifetime then
+		return nil
+	end
+
+	local time_ticks = (((total_time * 66.67) + 0.5) // 1)
+
+	local player_positions = player_sim.Run(flStepSize, pTarget, time_ticks)
+	if not player_positions then
+		return nil
+	end
+
+	local predicted_target_pos = player_positions[#player_positions] or vecPosNextTick
+	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
 
 	local function shouldHit(ent)
 		if ent:GetIndex() == pLocal:GetIndex() then
 			return false
 		end
+
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local vec_bestPos = pred_result.vecPos
+	local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
 
-	-- Use the muzzle position for the trace check instead of the head position
-	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecWeaponFirePos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	multipoint:Set(
+		pLocal,
+		pWeapon,
+		pTarget,
+		bIsHuntsman,
+		bAimAtTeamMates,
+		vecHeadPos,
+		predicted_target_pos,
+		weaponInfo,
+		math_utils,
+		settings.max_distance,
+		bSplashWeapon,
+		ent_utils,
+		settings
+	)
 
-	if trace and trace.fraction < 1 then
+	predicted_target_pos = multipoint:GetBestHitPoint()
+	if not predicted_target_pos then
 		return
 	end
 
-	local angle = math_utils.DirectionToAngles(pred_result.vecAimDir)
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
+	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	if not trace or trace.fraction < 0.9 then
+		return
+	end
+
 	local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
+
+	local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
+	if not angle then
+		return
+	end
 
 	local function FireWeapon(isSandvich)
 		uCmd:SetViewAngles(angle:Unpack())
@@ -613,7 +614,7 @@ local function CreateMove(uCmd)
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsHuntsman then
-		if pred_result.nChargeTime > 0.0 then
+		if charge_time > 0.0 then
 			if settings.autoshoot and wep_utils.CanShoot() then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
 			end
@@ -632,14 +633,14 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if pred_result.nChargeTime > 0.0 then
+		if charge_time > 0.0 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			bAttack = FireWeapon(false)
 		end
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = FireWeapon(true) -- special case for sandvich
-	else                     -- generic weapons
+	else -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
@@ -653,9 +654,8 @@ local function CreateMove(uCmd)
 
 	if bAttack == true then
 		displayed_time = globals.CurTime() + 1
-		paths.player_path = pred_result.vecPlayerPath
-		paths.proj_path =
-			proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, pred_result.vecAimDir, pred_result.nTime, weaponInfo)
+		paths.player_path = player_positions
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 	end
 end
 

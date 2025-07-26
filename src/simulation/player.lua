@@ -98,21 +98,10 @@ local function AddPositionSample(pEntity)
 
 	local current_time = globals.CurTime()
 	local current_pos = pEntity:GetAbsOrigin()
-	local is_grounded = IsPlayerOnGround(pEntity)
 
 	local sample = { pos = current_pos, time = current_time }
 	local samples = position_samples[index]
 	samples[#samples + 1] = sample
-
-	-- get raw velocity from position samples
-	local raw_velocity = Vector3(0, 0, 0)
-	if #samples >= 2 then
-		local prev = samples[#samples - 1]
-		local dt = current_time - prev.time
-		if dt > 0 then
-			raw_velocity = (current_pos - prev.pos) / dt
-		end
-	end
 
 	-- trim old samples
 	local MAX_SAMPLES = 8 -- less needed with brcause of the Kalman filtering
@@ -219,7 +208,7 @@ end
 
 ---@param stepSize number
 ---@param pTarget Entity The target
----@param time number The time in seconds we want to predict
+---@param time integer The time in ticks we want to predict
 function sim.Run(stepSize, pTarget, time)
 	local smoothed_velocity = pTarget:EstimateAbsVelocity()
 	local last_pos = pTarget:GetAbsOrigin()
@@ -239,10 +228,9 @@ function sim.Run(stepSize, pTarget, time)
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	local maxTicks = (time * 67) // 1
 	local was_onground = false
 
-	for i = 1, maxTicks do
+	for i = 1, time do
 		-- apply angular velocity to both velocity and acceleration
 		local yaw = math.rad(angular_velocity)
 		local cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
