@@ -408,6 +408,11 @@ local function CreateMove_Draw(uCmd)
 		return
 	end
 
+	if settings.draw_only then
+		CreateMove_Draw(uCmd)
+		return
+	end
+
 	local netchannel = clientstate.GetNetChannel()
 	if not netchannel then
 		return
@@ -437,9 +442,11 @@ local function CreateMove_Draw(uCmd)
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
+	local bIsSandvich = false
 
 	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		bAimAtTeamMates = true
+		bIsSandvich = true
 	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
 		bAimAtTeamMates = true
 	end
@@ -449,46 +456,57 @@ local function CreateMove_Draw(uCmd)
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimAtTeamMates)
+	if not best_target.index then
+		return nil
+	end
+
+	local pTarget = entities.GetByIndex(best_target.index)
+	if not pTarget then
+		return nil
+	end
 
 	local nlatency = settings.ping_compensation and 0
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
+	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
 
-	-- Calculate weapon fire position based on the computed aim direction
-	local viewpos = vecHeadPos
-	local muzzle_offset =
-		weaponInfo:GetOffset((pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, pWeapon:IsViewModelFlipped())
-	local vecWeaponFirePos = viewpos
-		+ math_utils.RotateOffsetAlongDirection(muzzle_offset, pred_result.vecAimAngle:Forward())
-		+ weaponInfo.m_vecAbsoluteOffset
+	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, pTarget:GetAbsOrigin(), 1)
+	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
 
-	local function shouldHit(ent)
-		if ent:GetIndex() == pLocal:GetIndex() then
-			return false
-		end
-		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
+	local vecWeaponFirePos =
+		weaponInfo:GetFirePosition(pLocal, vecHeadPos, engine.GetViewAngles(), pWeapon:IsViewModelFlipped())
+
+	local dist = (vecHeadPos - vecPosNextTick):Length()
+	if dist > settings.max_distance then
+		return nil
 	end
 
-	local vec_bestPos = pred_result.vecPos
+	local velocity_vector = weaponInfo:GetVelocity(0)
+	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
 
-	-- Use the muzzle position for the trace check instead of the head position
-	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecWeaponFirePos, vec_bestPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+	local travel_time_est = (vecPosNextTick - vecHeadPos):Length2D() / forward_speed
+	local total_time = travel_time_est + nlatency + detonate_time
+	if total_time > settings.max_sim_time or total_time > weaponInfo.m_flLifetime then
+		return nil
+	end
 
-	if trace and trace.fraction < 1 then
+	local time_ticks = (((total_time * 66.67) + 0.5) // 1)
+
+	local player_positions = player_sim.Run(flStepSize, pTarget, vecPosNextTick, time_ticks)
+	if not player_positions then
+		return nil
+	end
+
+	local predicted_target_pos = player_positions[#player_positions] or vecPosNextTick
+	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(GetCharge(pWeapon))
+	local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
+	if not angle then
 		return
 	end
 
+	paths.player_path = player_positions
 	displayed_time = globals.CurTime() + 1
-	paths.player_path = pred_result.vecPlayerPath
-	paths.proj_path = proj_sim.Run(
-		pLocal,
-		pWeapon,
-		vecWeaponFirePos,
-		pred_result.vecAimAngle:Forward(),
-		pred_result.nTime,
-		weaponInfo
-	)
 end
 
 ---@param uCmd UserCmd
@@ -559,7 +577,7 @@ local function CreateMove(uCmd)
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
 
-	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, 1)
+	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, pTarget:GetAbsOrigin(), 1)
 	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
 
 	local vecWeaponFirePos =
@@ -584,7 +602,7 @@ local function CreateMove(uCmd)
 
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1)
 
-	local player_positions = player_sim.Run(flStepSize, pTarget, time_ticks)
+	local player_positions = player_sim.Run(flStepSize, pTarget, vecPosNextTick, time_ticks)
 	if not player_positions then
 		return nil
 	end
@@ -3551,10 +3569,11 @@ end
 
 ---@param stepSize number
 ---@param pTarget Entity The target
+---@param initial_pos Vector3
 ---@param time integer The time in ticks we want to predict
-function sim.Run(stepSize, pTarget, time)
+function sim.Run(stepSize, pTarget, initial_pos, time)
 	local smoothed_velocity = pTarget:EstimateAbsVelocity()
-	local last_pos = pTarget:GetAbsOrigin()
+	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
 	local gravity = client.GetConVar("sv_gravity")

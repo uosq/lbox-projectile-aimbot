@@ -208,10 +208,11 @@ end
 
 ---@param stepSize number
 ---@param pTarget Entity The target
+---@param initial_pos Vector3
 ---@param time integer The time in ticks we want to predict
-function sim.Run(stepSize, pTarget, time)
+function sim.Run(stepSize, pTarget, initial_pos, time)
 	local smoothed_velocity = pTarget:EstimateAbsVelocity()
-	local last_pos = pTarget:GetAbsOrigin()
+	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
 	local gravity = client.GetConVar("sv_gravity")
