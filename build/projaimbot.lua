@@ -577,7 +577,8 @@ local function CreateMove(uCmd)
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
 
-	local vecNextTicksTable = player_sim.Run(flStepSize, pTarget, pTarget:GetAbsOrigin(), 1)
+	local vecNextTicksTable =
+		player_sim.Run(flStepSize, pTarget, pTarget:GetAbsOrigin(), 1 + clientstate:GetChokedCommands())
 	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
 
 	local vecWeaponFirePos =
@@ -590,12 +591,11 @@ local function CreateMove(uCmd)
 
 	local velocity_vector = weaponInfo:GetVelocity(0)
 	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
-	local charge_time = GetCharge(pWeapon)
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
-	local travel_time_est = (vecPosNextTick - vecHeadPos):Length2D() / forward_speed
+	local travel_time_est = (vecPosNextTick - vecHeadPos):Length() / forward_speed
 	local total_time = travel_time_est + nlatency + detonate_time
+
 	if total_time > settings.max_sim_time or total_time > weaponInfo.m_flLifetime then
 		return nil
 	end
@@ -608,7 +608,6 @@ local function CreateMove(uCmd)
 	end
 
 	local predicted_target_pos = player_positions[#player_positions] or vecPosNextTick
-	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
 
 	local function shouldHit(ent)
 		if ent:GetIndex() == pLocal:GetIndex() then
@@ -622,7 +621,8 @@ local function CreateMove(uCmd)
 	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 	local is_visible = trace and trace.fraction >= 0.9
 
-	-- Only multipoint if it's the Huntsman or if the target is not visible
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+
 	if (not is_visible or bIsHuntsman) and settings.multipointing then
 		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
@@ -661,14 +661,9 @@ local function CreateMove(uCmd)
 
 	local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
-
-	local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
-	if not angle then
-		return
-	end
+	local charge_time = GetCharge(pWeapon)
 
 	local function FireWeapon(isSandvich)
-		uCmd:SetViewAngles(angle:Unpack())
 		if not isSandvich and settings.psilent then
 			uCmd:SetSendPacket(false)
 		end
@@ -724,6 +719,14 @@ local function CreateMove(uCmd)
 	end
 
 	if bAttack == true then
+		local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+		local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
+		if not angle then
+			return
+		end
+
+		uCmd:SetViewAngles(angle:Unpack())
+
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
