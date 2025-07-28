@@ -1,7 +1,7 @@
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v6
+	Update: v7
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -12,17 +12,14 @@
 
 ---@diagnostic disable: cast-local-type
 
-if engine.GetServerIP() == "" then
+--[[if engine.GetServerIP() == "" then
 	printc(255, 0, 0, 255, "Gotta load the script in a match!")
 	return
-end
+end]]
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "6"
-
--- Constants
-local FL_DUCKING = 1
+local version = "7"
 
 local settings = {
 	enabled = true,
@@ -238,6 +235,9 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local localPos = pLocal:GetAbsOrigin()
 	local viewAngles = engine.GetViewAngles()
 
+	---@type Entity?
+	local bestEntity = nil
+
 	local function loop_entity_class(class_table)
 		for _, ent in pairs(class_table) do
 			if ent:GetTeamNumber() == pLocal:GetTeamNumber() and not bAimTeamMate then
@@ -255,11 +255,7 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if fov and fov < best_target.fov then
 				best_target.angle = angleToEntity
 				best_target.fov = fov
-				best_target.index = ent:GetIndex()
-				best_target.pos = origin
-
-				target_max_hull = ent:GetMaxs()
-				target_min_hull = ent:GetMins()
+				bestEntity = ent
 			end
 
 			::continue::
@@ -313,15 +309,18 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if fov and fov < best_target.fov then
 				best_target.angle = angleToPlayer
 				best_target.fov = fov
-				best_target.index = player:GetIndex()
-				best_target.pos = playerPos
-
-				target_max_hull = player:GetMaxs()
-				target_min_hull = player:GetMins()
+				bestEntity = player
 			end
 
 			::continue::
 		end
+	end
+
+	if bestEntity then
+		target_max_hull = bestEntity:GetMaxs()
+		target_min_hull = bestEntity:GetMins()
+		best_target.index = bestEntity:GetIndex()
+		best_target.pos = bestEntity:GetAbsOrigin()
 	end
 
 	return best_target

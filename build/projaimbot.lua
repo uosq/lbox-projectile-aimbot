@@ -56,17 +56,14 @@ __bundle_register("__root", function(require, _LOADED, __bundle_register, __bund
 
 ---@diagnostic disable: cast-local-type
 
-if engine.GetServerIP() == "" then
+--[[if engine.GetServerIP() == "" then
 	printc(255, 0, 0, 255, "Gotta load the script in a match!")
 	return
-end
+end]]
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
 local version = "6"
-
--- Constants
-local FL_DUCKING = 1
 
 local settings = {
 	enabled = true,
@@ -282,6 +279,9 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local localPos = pLocal:GetAbsOrigin()
 	local viewAngles = engine.GetViewAngles()
 
+	---@type Entity?
+	local bestEntity = nil
+
 	local function loop_entity_class(class_table)
 		for _, ent in pairs(class_table) do
 			if ent:GetTeamNumber() == pLocal:GetTeamNumber() and not bAimTeamMate then
@@ -299,11 +299,7 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if fov and fov < best_target.fov then
 				best_target.angle = angleToEntity
 				best_target.fov = fov
-				best_target.index = ent:GetIndex()
-				best_target.pos = origin
-
-				target_max_hull = ent:GetMaxs()
-				target_min_hull = ent:GetMins()
+				bestEntity = ent
 			end
 
 			::continue::
@@ -357,15 +353,18 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if fov and fov < best_target.fov then
 				best_target.angle = angleToPlayer
 				best_target.fov = fov
-				best_target.index = player:GetIndex()
-				best_target.pos = playerPos
-
-				target_max_hull = player:GetMaxs()
-				target_min_hull = player:GetMins()
+				bestEntity = player
 			end
 
 			::continue::
 		end
+	end
+
+	if bestEntity then
+		target_max_hull = bestEntity:GetMaxs()
+		target_min_hull = bestEntity:GetMins()
+		best_target.index = bestEntity:GetIndex()
+		best_target.pos = bestEntity:GetAbsOrigin()
 	end
 
 	return best_target
@@ -3133,7 +3132,7 @@ local function CreateProjectile(model, i)
 	return projectile
 end
 
-CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
+--CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
 
 ---@param pWeapon Entity
 ---@param weaponInfo WeaponInfo
@@ -3181,6 +3180,9 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 			---@diagnostic disable-next-line: cast-local-type
 			projectile = CreateProjectile(weapon_info.m_sModelName, pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 		else
+			if not projectiles[-1] then
+				CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
+			end
 			projectile = projectiles[-1]
 		end
 	end
@@ -3253,15 +3255,39 @@ __bundle_register("src.simulation.player", function(require, _LOADED, __bundle_r
 ---@diagnostic disable: duplicate-doc-field, missing-fields
 local sim = {}
 
+---@class KalmanFilter
+---@field state Vector3 -- current velocity estimate
+---@field acceleration Vector3 -- current acceleration estimate
+---@field P_velocity number -- velocity estimation error covariance
+---@field P_acceleration number -- acceleration estimation error covariance
+---@field P_cross number -- cross-covariance between velocity and acceleration
+---@field Q_velocity number -- process noise for velocity
+---@field Q_acceleration number -- process noise for acceleration
+---@field R number -- measurement noise
+---@field last_time number -- last update time
+local KalmanFilter = {}
+KalmanFilter.__index = KalmanFilter
+
+function KalmanFilter:new()
+	return setmetatable({
+		state = Vector3(0, 0, 0),
+		acceleration = Vector3(0, 0, 0),
+		P_velocity = 1000.0, -- high initial uncertainty
+		P_acceleration = 100.0,
+		P_cross = 0.0,
+		Q_velocity = 25.0, -- velocity process noise
+		Q_acceleration = 50.0, -- acceleration process noise
+		R = 100.0, -- measurement noise (depends on tick rate/lag)
+		last_time = 0,
+	}, self)
+end
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
 
 ---@type Sample[]
 local position_samples = {}
-
----@type table<number, number> -- entity_index -> last_angular_velocity
-local angular_samples = {}
 
 local DoTraceHull = engine.TraceHull
 local Vector3 = Vector3
@@ -3349,42 +3375,8 @@ local function GetSmoothedAngularVelocity(pEntity)
 	end
 
 	local MIN_SPEED = 25 -- HU/s
-	local MAX_ANGULAR_VEL = 450 -- deg/s (reduced from 720 for better stability)
 	local ang_vels = {}
-	local time_weights = {}
-	local confidences = {}
 
-	-- Helper function for proper angle difference calculation
-	local function GetAngleDifference(yaw1, yaw2)
-		local diff = yaw2 - yaw1
-		while diff > math.pi do
-			diff = diff - 2 * math.pi
-		end
-		while diff < -math.pi do
-			diff = diff + 2 * math.pi
-		end
-		return diff
-	end
-
-	-- Helper function for velocity-based confidence
-	local function GetVelocityConfidence(vel1, vel2, min_speed)
-		local speed1, speed2 = vel1:Length(), vel2:Length()
-
-		-- Confidence based on speed (both velocities should be above minimum)
-		local speed_conf = math.min(1, math.min(speed1, speed2) / min_speed)
-
-		-- Confidence based on velocity consistency
-		local vel_diff = math.abs(speed1 - speed2) / math.max(speed1, speed2, 1)
-		local consistency_conf = math.max(0, 1 - vel_diff * 2)
-
-		-- Confidence based on velocity direction consistency
-		local dot_product = vel1:Dot(vel2) / (speed1 * speed2)
-		local direction_conf = math.max(0, dot_product)
-
-		return speed_conf * consistency_conf * direction_conf
-	end
-
-	-- Calculate angular velocities with improved accuracy
 	for i = 1, #samples - 2 do
 		local s1 = samples[i]
 		local s2 = samples[i + 1]
@@ -3396,44 +3388,27 @@ local function GetSmoothedAngularVelocity(pEntity)
 			goto continue
 		end
 
-		-- Calculate velocities between sample points
+		-- calculate velocities between sample points
 		local vel1 = (s2.pos - s1.pos) / dt1
 		local vel2 = (s3.pos - s2.pos) / dt2
 
-		-- Skip if velocity is too low
-		local speed1, speed2 = vel1:Length(), vel2:Length()
-		if speed1 < MIN_SPEED or speed2 < MIN_SPEED then
+		-- skip if velocity is too low
+		if vel1:Length() < MIN_SPEED or vel2:Length() < MIN_SPEED then
 			goto continue
 		end
 
-		-- Calculate yaw angles using atan2 for better accuracy
+		-- calculate yaw differences
 		local yaw1 = math.atan(vel1.y, vel1.x)
 		local yaw2 = math.atan(vel2.y, vel2.x)
+		local diff = math.deg((yaw2 - yaw1 + math.pi) % (2 * math.pi) - math.pi)
 
-		-- Get proper angle difference
-		local yaw_diff = GetAngleDifference(yaw1, yaw2)
-		local yaw_diff_deg = math.deg(yaw_diff)
+		-- calculate time-weighted angular velocity (deg/s)
+		local avg_time = (dt1 + dt2) / 2
+		local angular_velocity = diff / avg_time
 
-		-- Calculate time-weighted angular velocity
-		local total_time = dt1 + dt2
-		local angular_velocity = yaw_diff_deg / total_time
-
-		-- Filter impossible values
-		if math.abs(angular_velocity) < MAX_ANGULAR_VEL then
-			-- Calculate confidence based on velocity characteristics
-			local confidence = GetVelocityConfidence(vel1, vel2, MIN_SPEED)
-
-			-- Weight based on time interval (prefer more recent, reasonable intervals)
-			local time_weight = 1.0 / (1.0 + math.abs(total_time - globals.TickInterval()))
-
-			-- Combine weights
-			local final_weight = confidence * time_weight
-
-			if final_weight > 0.1 then -- Only include reasonably confident samples
-				table.insert(ang_vels, angular_velocity)
-				table.insert(time_weights, final_weight)
-				table.insert(confidences, confidence)
-			end
+		-- filter impossible values (> 720 deg/s)
+		if math.abs(angular_velocity) < 720 then
+			ang_vels[#ang_vels + 1] = angular_velocity
 		end
 
 		::continue::
@@ -3443,83 +3418,26 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return 0
 	end
 
-	-- Statistical outlier filtering
-	local function FilterOutliers(values, weights)
-		if #values < 3 then
-			return values, weights
-		end
-
-		-- Calculate weighted mean
-		local mean = 0
-		local total_weight = 0
-		for i = 1, #values do
-			mean = mean + values[i] * weights[i]
-			total_weight = total_weight + weights[i]
-		end
-		mean = mean / total_weight
-
-		-- Calculate weighted standard deviation
-		local variance = 0
-		for i = 1, #values do
-			local diff = values[i] - mean
-			variance = variance + diff * diff * weights[i]
-		end
-		local std_dev = math.sqrt(variance / total_weight)
-
-		-- Filter values outside 1.5 standard deviations (more conservative)
-		local filtered_values, filtered_weights = {}, {}
-		local threshold = 1.5 * std_dev
-
-		for i = 1, #values do
-			if math.abs(values[i] - mean) <= threshold then
-				table.insert(filtered_values, values[i])
-				table.insert(filtered_weights, weights[i])
-			end
-		end
-
-		return filtered_values, filtered_weights
+	-- median filtering for outlier rejection
+	if #ang_vels >= 3 then
+		table.sort(ang_vels)
+		local mid = math.floor(#ang_vels / 2) + 1
+		ang_vels = { ang_vels[mid] }
 	end
 
-	-- Apply outlier filtering
-	ang_vels, time_weights = FilterOutliers(ang_vels, time_weights)
-
-	if #ang_vels == 0 then
-		return 0
-	end
-
-	-- Calculate weighted average
-	local weighted_sum = 0
-	local total_weight = 0
-
-	for i = 1, #ang_vels do
-		weighted_sum = weighted_sum + ang_vels[i] * time_weights[i]
-		total_weight = total_weight + time_weights[i]
-	end
-
-	local result = weighted_sum / total_weight
-
-	-- Adaptive smoothing based on ground state and confidence
+	-- exponential smoothing
 	local grounded = IsPlayerOnGround(pEntity)
-	local avg_confidence = 0
-	for _, conf in ipairs(confidences) do
-		avg_confidence = avg_confidence + conf
+	local base_alpha = grounded and 1 or 0.2
+	local smoothed = ang_vels[1]
+
+	for i = 2, #ang_vels do
+		local change = math.abs(ang_vels[i] - smoothed)
+		local alpha = base_alpha * math.min(1, change / 180) -- adaptive scaling
+		alpha = math.max(0.05, math.min(alpha, 0.4))
+		smoothed = smoothed * (1 - alpha) + ang_vels[i] * alpha
 	end
-	avg_confidence = avg_confidence / #confidences
 
-	-- More aggressive smoothing when not grounded or low confidence
-	local base_alpha = grounded and 0.7 or 0.3
-	local confidence_factor = math.max(0.1, avg_confidence)
-	local final_alpha = base_alpha * confidence_factor
-
-	-- Store previous result for smoothing (you'd need to add this to your state)
-	local entity_index = pEntity:GetIndex()
-	local prev_result = angular_samples[entity_index] or 0
-	angular_samples[entity_index] = result
-
-	-- Apply exponential smoothing
-	result = prev_result * (1 - final_alpha) + result * final_alpha
-
-	return result
+	return smoothed
 end
 
 local function GetEnemyTeam()
@@ -3540,14 +3458,6 @@ function sim.RunBackground(players)
 			AddPositionSample(player)
 		end
 	end
-end
-
-local function NormalizeVector(vec)
-	local len = vec:Length()
-	if len == 0 then
-		return Vector3()
-	end
-	return vec / len
 end
 
 ---@param stepSize number
@@ -3651,19 +3561,6 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 
 		if not was_onground then
 			smoothed_velocity.z = smoothed_velocity.z - gravity_step
-
-			local air_accel = client.GetConVar("sv_airaccelerate") or 10
-			local wish_dir = NormalizeVector(smoothed_velocity)
-			local wish_speed = smoothed_velocity:Length2D()
-
-			local accel = air_accel * tick_interval
-			local current_speed = smoothed_velocity:Dot(wish_dir)
-			local add_speed = wish_speed - current_speed
-
-			if add_speed > 0 then
-				local accel_speed = math.min(accel * wish_speed, add_speed)
-				smoothed_velocity = smoothed_velocity + wish_dir * accel_speed
-			end
 		elseif smoothed_velocity.z < 0 then
 			smoothed_velocity.z = 0
 		end
