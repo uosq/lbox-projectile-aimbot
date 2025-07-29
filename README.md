@@ -4,7 +4,7 @@
 
 The only setting that you gotta configure in the Lmaobox menu is the aim key!
 
-If LMAOBOX's projectile aimbot is enabled, this script will be disabled when using a projectile weapon :) (we dont need 2 aimbots running at the same time, do we?)
+If LMAOBOX's projectile aimbot is enabled, this script will disabled it when shooting with a projectile weapon (we dont need 2 aimbots running at the same time, do we?)
 
 # Thank You
 
