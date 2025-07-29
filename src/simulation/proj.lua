@@ -39,8 +39,6 @@ local function CreateProjectile(model, i)
 	return projectile
 end
 
---CreateProjectile("models/weapons/w_models/w_rocket.mdl", -1)
-
 ---@param pWeapon Entity
 ---@param weaponInfo WeaponInfo
 local function GetChargeTime(pWeapon, weaponInfo)
@@ -122,7 +120,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	end
 
 	projectile:SetPosition(shootPos, vecForward, true)
-	projectile:SetVelocity(velocity, weapon_info.m_vecAngularVelocity)
+	projectile:SetVelocity(velocity, weapon_info:GetAngularVelocity(charge))
 
 	local tickInterval = globals.TickInterval()
 	local running = true
