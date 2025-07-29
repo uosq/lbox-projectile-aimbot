@@ -562,11 +562,14 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 	local local_player_index = client.GetLocalPlayerIndex()
 	local target_team = pTarget:GetTeamNumber()
 	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
+	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
-	local positions = {}
+	local positions = {
+		initial_pos,
+	}
+
 	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 	local down_vector = Vector3(0, 0, -stepSize)
-	local step_up_vector = Vector3(0, 0, stepSize)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
@@ -635,8 +638,6 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 				smoothed_velocity = smoothed_velocity * (target_max_speed / vel_length)
 			end
 		end
-
-		local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
 		local new_pos, new_velocity = StepMove(
 			last_pos,

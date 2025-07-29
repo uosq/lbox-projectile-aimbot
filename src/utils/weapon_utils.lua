@@ -3,7 +3,7 @@ local wep_utils = {}
 ---@type table<integer, integer>
 local ItemDefinitions = {}
 
-local old_weapon, lastFire, nextAttack
+local old_weapon, lastFire, nextAttack = 0, 0, 0
 
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
@@ -24,19 +24,19 @@ function wep_utils.CanShoot()
 	if not weapon or not weapon:IsValid() then
 		return false
 	end
+
 	if weapon:GetPropInt("LocalWeaponData", "m_iClip1") == 0 then
 		return false
 	end
 
 	local lastfiretime = GetLastFireTime(weapon)
-	if lastFire ~= lastfiretime or weapon ~= old_weapon then
+
+	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
-	old_weapon = weapon
-	--[[if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
-		return true
-	end]]
+
+	old_weapon = weapon:GetIndex()
 	return nextAttack <= globals.CurTime()
 end
 

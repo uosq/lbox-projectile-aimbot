@@ -164,6 +164,7 @@ local paths = {
 }
 
 local original_gui_value = gui.GetValue("projectile aimbot")
+local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
 
 local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
@@ -434,6 +435,11 @@ local function CreateMove(uCmd)
 		gui.SetValue("projectile aimbot", "none")
 	end
 
+	--- fuck you psilent
+	if tostring(client.GetConVar("cl_autoreload")) == "1" then
+		client.SetConVar("cl_autoreload", "0")
+	end
+
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
 	local bIsSandvich = false
@@ -464,14 +470,12 @@ local function CreateMove(uCmd)
 		or netchannel:GetLatency(E_Flows.FLOW_OUTGOING) + netchannel:GetLatency(E_Flows.FLOW_INCOMING)
 	local flStepSize = pTarget:GetPropFloat("m_flStepSize")
 
-	local vecNextTicksTable =
-		player_sim.Run(flStepSize, pTarget, pTarget:GetAbsOrigin(), 1 + clientstate:GetChokedCommands())
-	local vecPosNextTick = vecNextTicksTable[#vecNextTicksTable]
+	local vecTargetOrigin = pTarget:GetAbsOrigin()
 
 	local vecWeaponFirePos =
 		weaponInfo:GetFirePosition(pLocal, vecHeadPos, engine.GetViewAngles(), pWeapon:IsViewModelFlipped())
 
-	local dist = (vecHeadPos - vecPosNextTick):Length()
+	local dist = (vecHeadPos - vecTargetOrigin):Length()
 	if dist > settings.max_distance then
 		return nil
 	end
@@ -480,7 +484,7 @@ local function CreateMove(uCmd)
 	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
 
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
-	local travel_time_est = (vecPosNextTick - vecHeadPos):Length() / forward_speed
+	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
 	local choked_time = (clientstate:GetChokedCommands() / 66) * 1000
 	local total_time = travel_time_est + nlatency + detonate_time + choked_time
 
@@ -490,12 +494,12 @@ local function CreateMove(uCmd)
 
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1)
 
-	local player_positions = player_sim.Run(flStepSize, pTarget, vecPosNextTick, time_ticks)
+	local player_positions = player_sim.Run(flStepSize, pTarget, vecTargetOrigin, time_ticks)
 	if not player_positions then
 		return nil
 	end
 
-	local predicted_target_pos = player_positions[#player_positions] or vecPosNextTick
+	local predicted_target_pos = player_positions[#player_positions] or vecTargetOrigin
 
 	local function shouldHit(ent)
 		if ent:GetIndex() == pLocal:GetIndex() then
@@ -554,23 +558,25 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local proj_path, full_proj_path =
-		proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
-
-	if not full_proj_path then
-		return
+	if not bIsSandvich and settings.psilent then
+		uCmd.sendpacket = false
 	end
 
-	local bAttack = false
+	uCmd.buttons = uCmd.buttons | IN_ATTACK
+	uCmd:SetViewAngles(angle:Unpack())
+	displayed_time = globals.CurTime() + 1
+	paths.player_path = player_positions
+	paths.proj_path = proj_sim.Run(
+		pLocal,
+		pWeapon,
+		vecWeaponFirePos + weaponInfo.m_vecAbsoluteOffset,
+		angle:Forward(),
+		total_time,
+		weaponInfo
+	)
+
+	--[[local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
-
-	local function FireWeapon(isSandvich)
-		if not isSandvich and settings.psilent then
-			uCmd:SetSendPacket(false)
-		end
-
-		return true
-	end
 
 	if bIsBeggar then
 		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
@@ -578,7 +584,7 @@ local function CreateMove(uCmd)
 			uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 		else
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-			bAttack = FireWeapon(false)
+			bAttack = true
 		end
 	elseif bIsHuntsman then
 		if charge_time > 0.0 then
@@ -588,7 +594,7 @@ local function CreateMove(uCmd)
 
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
 				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-				bAttack = FireWeapon(false)
+				bAttack = true
 			end
 		else
 			if settings.autoshoot then
@@ -602,11 +608,11 @@ local function CreateMove(uCmd)
 
 		if charge_time > 0.0 then
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-			bAttack = FireWeapon(false)
+			bAttack = true
 		end
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
-		bAttack = FireWeapon(true) -- special case for sandvich
+		bAttack = true -- special case for sandvich
 	else -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
@@ -614,18 +620,20 @@ local function CreateMove(uCmd)
 			end
 
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				bAttack = FireWeapon(false)
+				bAttack = true
 			end
 		end
 	end
 
 	if bAttack == true then
 		uCmd:SetViewAngles(angle:Unpack())
-
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = player_positions
-		paths.proj_path = proj_path
-	end
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		if not bIsSandvich and settings.psilent then
+			uCmd:SetSendPacket(false)
+		end
+	end]]
 end
 
 --- Terminator (titaniummachine1) made this
@@ -720,13 +728,13 @@ local function DrawProjPath()
 end
 
 local function Draw()
+	if not settings.enabled then
+		return
+	end
+
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
-	end
-
-	if not settings.enabled then
-		return
 	end
 
 	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
@@ -757,9 +765,9 @@ local function Unload()
 	math_utils = nil
 	player_sim = nil
 	proj_sim = nil
-	prediction = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
+	client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -3381,7 +3389,7 @@ end
 local function AirAccelerate(velocity, wishdir, wishspeed, accel, frametime, surface_friction)
 	local wishspd = wishspeed
 
-	-- Cap speed (equivalent to GetAirSpeedCap())
+	-- Cap speed
 	if wishspd > AIR_SPEED_CAP then
 		wishspd = AIR_SPEED_CAP
 	end
@@ -3827,11 +3835,14 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 	local local_player_index = client.GetLocalPlayerIndex()
 	local target_team = pTarget:GetTeamNumber()
 	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
+	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
-	local positions = {}
+	local positions = {
+		initial_pos,
+	}
+
 	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 	local down_vector = Vector3(0, 0, -stepSize)
-	local step_up_vector = Vector3(0, 0, stepSize)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
@@ -3900,8 +3911,6 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 				smoothed_velocity = smoothed_velocity * (target_max_speed / vel_length)
 			end
 		end
-
-		local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
 		local new_pos, new_velocity = StepMove(
 			last_pos,
@@ -4159,7 +4168,7 @@ local wep_utils = {}
 ---@type table<integer, integer>
 local ItemDefinitions = {}
 
-local old_weapon, lastFire, nextAttack
+local old_weapon, lastFire, nextAttack = 0, 0, 0
 
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
@@ -4180,19 +4189,19 @@ function wep_utils.CanShoot()
 	if not weapon or not weapon:IsValid() then
 		return false
 	end
+
 	if weapon:GetPropInt("LocalWeaponData", "m_iClip1") == 0 then
 		return false
 	end
 
 	local lastfiretime = GetLastFireTime(weapon)
-	if lastFire ~= lastfiretime or weapon ~= old_weapon then
+
+	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
-	old_weapon = weapon
-	--[[if math.floor(weapon:GetWeaponData().timeFireDelay * 10) / 10 <= 0.1 then
-		return true
-	end]]
+
+	old_weapon = weapon:GetIndex()
 	return nextAttack <= globals.CurTime()
 end
 
