@@ -23,13 +23,14 @@ local MAX_SAMPLES = 8
 local MIN_SPEED = 25 -- HU/s
 local MAX_ANGULAR_VEL = 540 -- deg/s
 local WALKABLE_ANGLE = 45 -- degrees
-local GRAVITY_Z_THRESHOLD = -50
 local MIN_VELOCITY_Z = 0.1
-local MIN_STEP_HEIGHT = 0.1
 local AIR_SPEED_CAP = 30.0
 local AIR_ACCELERATE = 10.0 -- Default air acceleration value
 local GROUND_ACCELERATE = 10.0 -- Default ground acceleration value
 local SURFACE_FRICTION = 1.0 -- Default surface friction
+
+local MAX_CLIP_PLANES = 5
+local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
 
 ---@class Sample
 ---@field pos Vector3
@@ -40,6 +41,33 @@ local position_samples = {}
 
 local zero_vector = Vector3(0, 0, 0)
 local up_vector = Vector3(0, 0, 1)
+
+---@param vec Vector3
+local function NormalizeVector(vec)
+	local len = vec:Length()
+	if len == 0 then
+		return Vector3()
+	end
+
+	return vec / len
+end
+
+---@param velocity Vector3
+---@param normal Vector3
+---@param overbounce number
+---@return Vector3
+local function ClipVelocity(velocity, normal, overbounce)
+	local backoff = velocity:Dot(normal)
+
+	if backoff < 0 then
+		backoff = backoff * overbounce
+	else
+		backoff = backoff / overbounce
+	end
+
+	local change = normal * backoff
+	return velocity - change
+end
 
 ---@param velocity Vector3
 ---@param wishdir Vector3
@@ -88,7 +116,7 @@ end
 local function AirAccelerate(velocity, wishdir, wishspeed, accel, frametime, surface_friction)
 	local wishspd = wishspeed
 
-	-- Cap speed (equivalent to GetAirSpeedCap())
+	-- Cap speed
 	if wishspd > AIR_SPEED_CAP then
 		wishspd = AIR_SPEED_CAP
 	end
@@ -251,20 +279,13 @@ local function GetSmoothedAngularVelocity(pEntity)
 	return smoothed
 end
 
--- Cache enemy team lookup
-local cached_enemy_team = nil
-local last_team_check = 0
-
 local function GetEnemyTeam()
-	local current_time = globals.CurTime()
-	if current_time - last_team_check > 1.0 then -- Cache for 1 second
-		local pLocal = entities.GetLocalPlayer()
-		if pLocal then
-			cached_enemy_team = pLocal:GetTeamNumber() == 2 and 3 or 2
-		end
-		last_team_check = current_time
+	local pLocal = entities.GetLocalPlayer()
+	if pLocal == nil then
+		return 2
 	end
-	return cached_enemy_team
+
+	return pLocal:GetTeamNumber() == 2 and 3 or 2
 end
 
 function sim.RunBackground(players)
@@ -278,6 +299,252 @@ function sim.RunBackground(players)
 			AddPositionSample(player)
 		end
 	end
+end
+
+---@param velocity Vector3
+---@param frametime number
+---@param mins Vector3
+---@param maxs Vector3
+---@param shouldHitEntity function
+---@param pTarget Entity
+---@param surface_friction number
+---@return Vector3, Vector3, number
+local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitEntity, pTarget, surface_friction)
+	local numbumps = 4
+	local blocked = 0
+	local numplanes = 0
+	local planes = {}
+	local primal_velocity = Vector3(velocity.x, velocity.y, velocity.z)
+	local original_velocity = Vector3(velocity.x, velocity.y, velocity.z)
+	local new_velocity = Vector3(0, 0, 0)
+	local time_left = frametime
+	local allFraction = 0
+	local current_origin = Vector3(origin.x, origin.y, origin.z)
+
+	for bumpcount = 0, numbumps - 1 do
+		if velocity:Length() == 0.0 then
+			break
+		end
+
+		-- Calculate end position
+		local end_pos = current_origin + velocity * time_left
+
+		-- Trace from current origin to end position
+		local trace = DoTraceHull(current_origin, end_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+
+		allFraction = allFraction + trace.fraction
+
+		-- If we started in a solid object or were in solid space the whole way
+		if trace.allsolid then
+			velocity = zero_vector
+			return current_origin, velocity, 4 -- blocked by floor and wall
+		end
+
+		-- If we moved some portion of the total distance
+		if trace.fraction > 0 then
+			if numbumps > 0 and trace.fraction == 1 then
+				-- Check for precision issues - verify we won't get stuck at end position
+				local stuck_trace =
+					DoTraceHull(trace.endpos, trace.endpos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+				if stuck_trace.startsolid or stuck_trace.fraction ~= 1.0 then
+					velocity = zero_vector
+					break
+				end
+			end
+
+			-- Actually covered some distance
+			current_origin = trace.endpos
+			original_velocity = Vector3(velocity.x, velocity.y, velocity.z)
+			numplanes = 0
+		end
+
+		-- If we covered the entire distance, we are done
+		if trace.fraction == 1 then
+			break -- moved the entire distance
+		end
+
+		-- Determine what we hit
+		if trace.plane.z > 0.7 then
+			blocked = blocked | 1 -- floor
+		end
+		if trace.plane.z == 0 then
+			blocked = blocked | 2 -- step/wall
+		end
+
+		-- Reduce time left by the fraction we moved
+		time_left = time_left - time_left * trace.fraction
+
+		-- Did we run out of planes to clip against?
+		if numplanes >= MAX_CLIP_PLANES then
+			velocity = zero_vector
+			break
+		end
+
+		-- Set up clipping plane
+		planes[numplanes + 1] = Vector3(trace.plane.x, trace.plane.y, trace.plane.z)
+		numplanes = numplanes + 1
+
+		-- Modify velocity so it parallels all of the clip planes
+		-- Reflect player velocity for first impact plane only
+		if numplanes == 1 and trace.plane.z <= 0.7 then
+			-- Wall bounce - simple reflection with bounce factor
+			local bounce_factor = 1.0 + (1.0 - surface_friction) * 0.5
+			new_velocity = ClipVelocity(original_velocity, planes[1], bounce_factor)
+			velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
+			original_velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
+		else
+			-- Multi-plane clipping
+			local i = 0
+			while i < numplanes do
+				velocity = ClipVelocity(original_velocity, planes[i + 1], 1.0)
+
+				-- Check if this velocity works with all planes
+				local j = 0
+				while j < numplanes do
+					if j ~= i then
+						if velocity:Dot(planes[j + 1]) < 0 then
+							break -- not ok
+						end
+					end
+					j = j + 1
+				end
+
+				if j == numplanes then -- Didn't have to re-clip
+					break
+				end
+				i = i + 1
+			end
+
+			-- Did we go all the way through plane set?
+			if i == numplanes then
+				-- Velocity is set in clipping call
+			else
+				-- Go along the crease (intersection of two planes)
+				if numplanes ~= 2 then
+					velocity = zero_vector
+					break
+				end
+
+				-- Calculate cross product for crease direction
+				local dir = planes[1]:Cross(planes[2])
+				dir = NormalizeVector(dir)
+				local d = dir:Dot(velocity)
+				velocity = dir * d
+			end
+
+			-- If velocity is against the original velocity, stop to avoid oscillations
+			local d = velocity:Dot(primal_velocity)
+			if d <= 0 then
+				velocity = zero_vector
+				break
+			end
+		end
+	end
+
+	if allFraction == 0 then
+		velocity = zero_vector
+	end
+
+	return current_origin, velocity, blocked
+end
+
+---@param origin Vector3
+---@param velocity Vector3
+---@param frametime number
+---@param mins Vector3
+---@param maxs Vector3
+---@param shouldHitEntity function
+---@param pTarget Entity
+---@param surface_friction number
+---@param step_size number
+---@return Vector3, Vector3, number, number
+local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity, pTarget, surface_friction, step_size)
+	local vec_pos = Vector3(origin.x, origin.y, origin.z)
+	local vec_vel = Vector3(velocity.x, velocity.y, velocity.z)
+	local step_height = 0
+
+	-- Try sliding forward both on ground and up step_size pixels
+	-- Take the move that goes farthest
+
+	-- Slide move down (regular movement)
+	local down_origin, down_velocity, down_blocked =
+		TryPlayerMove(vec_pos, vec_vel, frametime, mins, maxs, shouldHitEntity, pTarget, surface_friction)
+
+	local vec_down_pos = Vector3(down_origin.x, down_origin.y, down_origin.z)
+	local vec_down_vel = Vector3(down_velocity.x, down_velocity.y, down_velocity.z)
+
+	-- Reset to original values for step-up attempt
+	local current_origin = Vector3(vec_pos.x, vec_pos.y, vec_pos.z)
+	local current_velocity = Vector3(vec_vel.x, vec_vel.y, vec_vel.z)
+
+	-- Move up a stair height
+	local step_up_end = Vector3(current_origin.x, current_origin.y, current_origin.z + step_size + DIST_EPSILON)
+
+	-- Trace up to see if we can step up
+	local up_trace = DoTraceHull(current_origin, step_up_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+
+	if not up_trace.startsolid and not up_trace.allsolid then
+		current_origin = up_trace.endpos
+	end
+
+	-- Slide move up (after stepping up)
+	local up_origin, up_velocity, up_blocked = TryPlayerMove(
+		current_origin,
+		current_velocity,
+		frametime,
+		mins,
+		maxs,
+		shouldHitEntity,
+		pTarget,
+		surface_friction
+	)
+
+	-- Move down a stair (attempt to land on ground after step)
+	local step_down_end = Vector3(up_origin.x, up_origin.y, up_origin.z - step_size - DIST_EPSILON)
+	local down_trace = DoTraceHull(up_origin, step_down_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+
+	-- If we are not on the ground anymore, use the original movement attempt
+	if down_trace.plane.z < 0.7 then
+		local step_dist = down_origin.z - vec_pos.z
+		if step_dist > 0.0 then
+			step_height = step_height + step_dist
+		end
+		return down_origin, down_velocity, down_blocked, step_height
+	end
+
+	-- If the trace ended up in empty space, copy the end over to the origin
+	if not down_trace.startsolid and not down_trace.allsolid then
+		up_origin = down_trace.endpos
+	end
+
+	local vec_up_pos = Vector3(up_origin.x, up_origin.y, up_origin.z)
+
+	-- Decide which one went farther (compare horizontal distance)
+	local down_dist_sq = (vec_down_pos.x - vec_pos.x) * (vec_down_pos.x - vec_pos.x)
+		+ (vec_down_pos.y - vec_pos.y) * (vec_down_pos.y - vec_pos.y)
+	local up_dist_sq = (vec_up_pos.x - vec_pos.x) * (vec_up_pos.x - vec_pos.x)
+		+ (vec_up_pos.y - vec_pos.y) * (vec_up_pos.y - vec_pos.y)
+
+	local final_origin, final_velocity, final_blocked
+
+	if down_dist_sq > up_dist_sq then
+		-- Down movement went farther
+		final_origin = vec_down_pos
+		final_velocity = vec_down_vel
+		final_blocked = down_blocked
+	else
+		-- Up movement went farther, but copy z velocity from down movement
+		final_origin = vec_up_pos
+		final_velocity = Vector3(up_velocity.x, up_velocity.y, vec_down_vel.z)
+		final_blocked = up_blocked
+	end
+
+	local step_dist = final_origin.z - vec_pos.z
+	if step_dist > 0 then
+		step_height = step_height + step_dist
+	end
+
+	return final_origin, final_velocity, final_blocked, step_height
 end
 
 ---@param stepSize number
@@ -369,56 +636,22 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 			end
 		end
 
-		local move_delta = smoothed_velocity * tick_interval
-		local next_pos = last_pos + move_delta
+		local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
-		-- Movement collision check
-		local trace = DoTraceHull(last_pos, next_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+		local new_pos, new_velocity = StepMove(
+			last_pos,
+			smoothed_velocity,
+			tick_interval,
+			mins,
+			maxs,
+			shouldHitEntity,
+			pTarget,
+			surface_friction,
+			step_size
+		)
 
-		if trace.fraction < 1.0 then
-			-- Try step-up movement
-			if smoothed_velocity.z >= GRAVITY_Z_THRESHOLD then
-				local step_up = last_pos + step_up_vector
-				local step_up_trace = DoTraceHull(last_pos, step_up, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
-
-				if step_up_trace.fraction >= 1.0 then
-					local step_forward = step_up + move_delta
-					local step_forward_trace =
-						DoTraceHull(step_up, step_forward, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
-
-					if step_forward_trace.fraction > 0 then
-						local step_down_start = step_forward_trace.endpos
-						local step_down_end = step_down_start + down_vector
-						local step_down_trace =
-							DoTraceHull(step_down_start, step_down_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
-
-						if step_down_trace.fraction < 1.0 then
-							local ground_angle = math_deg(math_acos(step_down_trace.plane:Dot(up_vector)))
-							local actual_step_height = step_down_start.z - step_down_trace.endpos.z
-
-							if
-								ground_angle <= WALKABLE_ANGLE
-								and actual_step_height <= stepSize
-								and actual_step_height > MIN_STEP_HEIGHT
-							then
-								next_pos = step_down_trace.endpos
-								last_pos = next_pos
-								positions[#positions + 1] = last_pos
-								was_onground = true
-								goto continue
-							end
-						end
-					end
-				end
-			end
-
-			-- Slide along surface
-			next_pos = trace.endpos
-			local dot = smoothed_velocity:Dot(trace.plane)
-			smoothed_velocity = smoothed_velocity - trace.plane * dot
-		end
-
-		last_pos = next_pos
+		last_pos = new_pos
+		smoothed_velocity = new_velocity
 		positions[#positions + 1] = last_pos
 
 		-- Update ground state and apply gravity
@@ -429,8 +662,6 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 		elseif smoothed_velocity.z < 0 then
 			smoothed_velocity.z = 0
 		end
-
-		::continue::
 	end
 
 	return positions
