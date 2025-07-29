@@ -164,7 +164,7 @@ local paths = {
 }
 
 local original_gui_value = gui.GetValue("projectile aimbot")
-local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
+--local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
 
 local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
@@ -436,9 +436,9 @@ local function CreateMove(uCmd)
 	end
 
 	--- fuck you psilent
-	if tostring(client.GetConVar("cl_autoreload")) == "1" then
+	--[[if tostring(client.GetConVar("cl_autoreload")) == "1" then
 		client.SetConVar("cl_autoreload", "0")
-	end
+	end]]
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -558,24 +558,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	if not bIsSandvich and settings.psilent then
-		uCmd.sendpacket = false
-	end
-
-	uCmd.buttons = uCmd.buttons | IN_ATTACK
-	uCmd:SetViewAngles(angle:Unpack())
-	displayed_time = globals.CurTime() + 1
-	paths.player_path = player_positions
-	paths.proj_path = proj_sim.Run(
-		pLocal,
-		pWeapon,
-		vecWeaponFirePos + weaponInfo.m_vecAbsoluteOffset,
-		angle:Forward(),
-		total_time,
-		weaponInfo
-	)
-
-	--[[local bAttack = false
+	local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
 
 	if bIsBeggar then
@@ -633,7 +616,7 @@ local function CreateMove(uCmd)
 		if not bIsSandvich and settings.psilent then
 			uCmd:SetSendPacket(false)
 		end
-	end]]
+	end
 end
 
 --- Terminator (titaniummachine1) made this
@@ -767,7 +750,7 @@ local function Unload()
 	proj_sim = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
-	client.SetConVar("cl_autoreload", original_auto_reload)
+	--client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -4194,15 +4177,15 @@ function wep_utils.CanShoot()
 		return false
 	end
 
-	local lastfiretime = GetLastFireTime(weapon)
+	--[[local lastfiretime = GetLastFireTime(weapon)
 
 	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 
-	old_weapon = weapon:GetIndex()
-	return nextAttack <= globals.CurTime()
+	old_weapon = weapon:GetIndex()]]
+	return GetNextPrimaryAttack(weapon) <= globals.CurTime()
 end
 
 do

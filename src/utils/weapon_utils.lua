@@ -29,15 +29,15 @@ function wep_utils.CanShoot()
 		return false
 	end
 
-	local lastfiretime = GetLastFireTime(weapon)
+	--[[local lastfiretime = GetLastFireTime(weapon)
 
 	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 
-	old_weapon = weapon:GetIndex()
-	return nextAttack <= globals.CurTime()
+	old_weapon = weapon:GetIndex()]]
+	return GetNextPrimaryAttack(weapon) <= globals.CurTime()
 end
 
 do
