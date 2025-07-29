@@ -35,7 +35,7 @@ function sim.CreateProjectile(pWeapon) end
 ---@param vecForward Vector3
 ---@param nTime number
 ---@param weapon_info WeaponInfo
----@return ProjSimRet
+---@return ProjSimRet, boolean
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info) end
 
 return sim

@@ -409,7 +409,6 @@ AppendItemDefinitions(
 aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	iType = PROJECTILE_TYPE_PSEUDO,
 	vecVelocity = Vector3(1500, 0, 200),
-	flGravity = 1,
 	flDrag = 0.225,
 	flLifetime = 2.3,
 	flDamageRadius = 0,

@@ -79,7 +79,7 @@ end
 ---@param vecForward Vector3 The target direction the projectile should aim for
 ---@param nTime number Number of seconds we want to simulate
 ---@param weapon_info WeaponInfo
----@return ProjSimRet
+---@return ProjSimRet, boolean
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
 	if not projectile then
@@ -96,7 +96,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 
 	if not projectile then
 		printc(255, 0, 0, 255, "[PROJ AIMBOT] Failed to acquire projectile instance!")
-		return {}
+		return {}, false
 	end
 
 	projectile:Wake()
@@ -127,6 +127,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	local tickInterval = globals.TickInterval()
 	local running = true
 	local positions = {}
+	local full_sim = true
 
 	while running and env:GetSimulationTime() < nTime do
 		env:Simulate(tickInterval)
@@ -134,6 +135,10 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 		local currentPos = projectile:GetPosition()
 
 		local trace = engine.TraceHull(shootPos, currentPos, mins, maxs, MASK_SHOT_HULL, function(ent)
+			if ent:GetTeamNumber() ~= pLocal:GetTeamNumber() then
+				return false
+			end
+
 			return ent:GetIndex() ~= pLocal:GetIndex()
 		end)
 
@@ -146,13 +151,14 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 			positions[#positions + 1] = record
 			shootPos = currentPos
 		else
+			full_sim = false
 			break
 		end
 	end
 
 	env:ResetSimulationClock()
 	projectile:Sleep()
-	return positions
+	return positions, full_sim
 end
 
 return sim

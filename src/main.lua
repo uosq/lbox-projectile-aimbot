@@ -24,7 +24,7 @@ local version = "7"
 local settings = {
 	enabled = true,
 	autoshoot = true,
-	fov = 30.0,
+	fov = gui.GetValue("aim fov"),
 	max_sim_time = 2.0,
 	draw_proj_path = true,
 	draw_player_path = true,
@@ -437,7 +437,8 @@ local function CreateMove(uCmd)
 
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
 	local travel_time_est = (vecPosNextTick - vecHeadPos):Length() / forward_speed
-	local total_time = travel_time_est + nlatency + detonate_time
+	local choked_time = (clientstate:GetChokedCommands() / 66) * 1000
+	local total_time = travel_time_est + nlatency + detonate_time + choked_time
 
 	if total_time > settings.max_sim_time or total_time > weaponInfo.m_flLifetime then
 		return nil
@@ -502,9 +503,22 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	local charge_time = GetCharge(pWeapon)
+	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+	local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
+	if not angle then
+		return
+	end
+
+	local proj_path, full_proj_path =
+		proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+
+	if not full_proj_path then
+		return
+	end
+
 	local bAttack = false
 	local bIsStickybombLauncher = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER
-	local charge_time = GetCharge(pWeapon)
 
 	local function FireWeapon(isSandvich)
 		if not isSandvich and settings.psilent then
@@ -562,17 +576,11 @@ local function CreateMove(uCmd)
 	end
 
 	if bAttack == true then
-		local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
-		local angle = math_utils.SolveBallisticArc(vecWeaponFirePos, predicted_target_pos, forward_speed, gravity)
-		if not angle then
-			return
-		end
-
 		uCmd:SetViewAngles(angle:Unpack())
 
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = player_positions
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_path
 	end
 end
 
