@@ -469,7 +469,7 @@ local function CreateMove(uCmd)
 
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
+	local is_visible = trace and trace.fraction >= 0.9
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
@@ -505,7 +505,7 @@ local function CreateMove(uCmd)
 
 	-- Recheck trace for final prediction
 	trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
+	if not trace or trace.fraction < 0.9 then
 		return
 	end
 
