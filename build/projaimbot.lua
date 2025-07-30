@@ -3328,52 +3328,58 @@ ZERO-GC SIMULATION MODULE - CRITICAL PERFORMANCE RULES
 ===============================================================================
 ]]
 
-local sim = {}
+local sim               = {}
 
-local MASK_SHOT_HULL = MASK_SHOT_HULL
-local MASK_PLAYERSOLID = MASK_PLAYERSOLID
-local DoTraceHull = engine.TraceHull
-local TraceLine = engine.TraceLine
-local Vector3 = Vector3
-local math_deg = math.deg
-local math_rad = math.rad
-local math_atan = math.atan
-local math_cos = math.cos
-local math_sin = math.sin
-local math_abs = math.abs
-local math_acos = math.acos
-local math_min = math.min
-local math_max = math.max
-local math_floor = math.floor
-local math_pi = math.pi
+local MASK_SHOT_HULL    = MASK_SHOT_HULL
+local MASK_PLAYERSOLID  = MASK_PLAYERSOLID
+local DoTraceHull       = engine.TraceHull
+local TraceLine         = engine.TraceLine
+local Vector3           = Vector3
+local math_deg          = math.deg
+local math_rad          = math.rad
+local math_atan         = math.atan
+local math_cos          = math.cos
+local math_sin          = math.sin
+local math_abs          = math.abs
+local math_acos         = math.acos
+local math_min          = math.min
+local math_max          = math.max
+local math_floor        = math.floor
+local math_pi           = math.pi
+
+-- user-tuned defaults (will be nil the first time you boot)
+_G.MAX_SAMPLES          = _G.MAX_SAMPLES or 8
+_G.SMOOTH_ALPHA_G       = _G.SMOOTH_ALPHA_G or 0.392 -- on-ground EMA alpha
+_G.SMOOTH_ALPHA_A       = _G.SMOOTH_ALPHA_A or 0.127 -- in-air  EMA alpha
 
 -- constants
-local MAX_SAMPLES = 8
-local MIN_SPEED = 25        -- HU/s
-local MAX_ANGULAR_VEL = 540 -- deg/s
-local WALKABLE_ANGLE = 45   -- degrees
-local MIN_VELOCITY_Z = 0.1
-local AIR_SPEED_CAP = 30.0
-local AIR_ACCELERATE = 10.0    -- Default air acceleration value
+-- will be resolved at runtime so the tuner / cfg can override
+local MAX_SAMPLES       = _G.MAX_SAMPLES
+local MIN_SPEED         = 25  -- HU/s
+local MAX_ANGULAR_VEL   = 540 -- deg/s
+local WALKABLE_ANGLE    = 45  -- degrees
+local MIN_VELOCITY_Z    = 0.1
+local AIR_SPEED_CAP     = 30.0
+local AIR_ACCELERATE    = 10.0 -- Default air acceleration value
 local GROUND_ACCELERATE = 10.0 -- Default ground acceleration value
-local SURFACE_FRICTION = 1.0   -- Default surface friction
+local SURFACE_FRICTION  = 1.0  -- Default surface friction
 
-local MAX_CLIP_PLANES = 5
-local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
+local MAX_CLIP_PLANES   = 5
+local DIST_EPSILON      = 0.03125 -- Small epsilon for step calculations
 
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
 
 ---@type table<number, Sample[]>
-local position_samples = {}
+local position_samples  = {}
 
-local zero_vector = Vector3(0, 0, 0)
-local up_vector = Vector3(0, 0, 1)
+local zero_vector       = Vector3(0, 0, 0)
+local up_vector         = Vector3(0, 0, 1)
 
 -- Reusable temp vectors for zero-GC operations
-local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
-local tmp4 = Vector3() -- for wishdir (GC‑free)
+local tmp1, tmp2, tmp3  = Vector3(), Vector3(), Vector3()
+local tmp4              = Vector3() -- for wishdir (GC‑free)
 
 ---@param vec Vector3
 local function NormalizeVector(vec)
@@ -3571,11 +3577,11 @@ local function GetSmoothedAngularVelocity(pEntity)
 
 	-- Simple exponential smoothing for few samples
 	local grounded = IsPlayerOnGround(pEntity)
-	local base_alpha = grounded and 1 or 0.2
+	local base_alpha = grounded and _G.SMOOTH_ALPHA_G or _G.SMOOTH_ALPHA_A
 	local smoothed = ang_vels[1]
 
 	for i = 2, #ang_vels do
-		local alpha = math_max(0.05, math_min(base_alpha, 0.4))
+		local alpha = math_max(0.05, math_min(base_alpha, 0.45)) -- keep the safety clamp
 		smoothed = smoothed * (1 - alpha) + ang_vels[i] * alpha
 	end
 
