@@ -459,17 +459,21 @@ local function CreateMove(uCmd)
 
 	local predicted_target_pos = player_positions[#player_positions] or vecTargetOrigin
 
+	-- Make traces ignore *us* and also the target's **current** position,
+	-- because we're aiming at where he *will* be, not where he is now.
 	local function shouldHit(ent)
-		if ent:GetIndex() == pLocal:GetIndex() then
-			return false
+		if not ent then -- world / sky / nil
+			return true -- trace should go on
 		end
-
+		if ent == pLocal or ent == pTarget then
+			return false -- pretend they don't exist
+		end
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	local is_visible = trace and trace.fraction >= 0.9
+	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
@@ -505,7 +509,7 @@ local function CreateMove(uCmd)
 
 	-- Recheck trace for final prediction
 	trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	if not trace or trace.fraction < 0.9 then
+	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
 		return
 	end
 
@@ -570,7 +574,7 @@ local function CreateMove(uCmd)
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
-		if not bIsSandvich and settings.psilent then
+		if not bIsSandvich and settings.psilent and (uCmd.buttons & IN_RELOAD) ~= 0 then
 			uCmd:SetSendPacket(false)
 		end
 	end
