@@ -485,7 +485,8 @@ local function CreateMove(uCmd)
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
 	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
 
-	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
+	local det_mult = pWeapon:AttributeHookFloat("sticky_arm_time")
+	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
 	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
 	local choked_time = (clientstate:GetChokedCommands() / 66) * 1000
 	local total_time = travel_time_est + nlatency + detonate_time + choked_time
