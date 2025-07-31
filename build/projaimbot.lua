@@ -1,3 +1,4 @@
+-- Bundled by luabundle {"version":"1.7.0"}
 local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (function(superRequire)
 	local loadingPlaceholder = {[{}] = true}
 
@@ -3271,74 +3272,6 @@ end)
 __bundle_register("src.simulation.player", function(require, _LOADED, __bundle_register, __bundle_modules)
 ---@diagnostic disable: duplicate-doc-field, missing-fields
 
---[[
-===============================================================================
-ZERO-GC SIMULATION MODULE - CRITICAL PERFORMANCE RULES
-===============================================================================
-
-⚠️  WARNING: This module maintains ZERO garbage collection in hot loops.
-    Breaking these rules will cause performance degradation and stuttering.
-
-✅ CONTEXT - What's Already Working:
-• Vector3() returns objects with x, y, z fields
-• tmp1, tmp2, tmp3 are reusable vector instances (declared globally)
-• sim.Run() main loop allocates NO new Vector3()
-• NormalizeVector() allocates only when needed (acceptable outside hot loop)
-• StepMove() allocations are isolated from main loop
-
-🔒 CRITICAL RULES - NEVER BREAK THESE:
-
-1. NO Vector3() ALLOCATION IN LOOPS
-   ❌ BAD:  for i = 1, 100 do local vec = Vector3() end
-   ✅ GOOD: tmp1.x, tmp1.y, tmp1.z = ... (reuse existing)
-
-2. NO ASSUMPTIONS ABOUT VECTOR METHODS
-   ❌ BAD:  vec:Set(other) or vec:AddMul(other, s)
-   ✅ GOOD: vec.x = other.x; vec.y = other.y; vec.z = other.z
-
-3. NO VECTOR OPERATORS IN HOT PATHS
-   ❌ BAD:  smoothed_velocity = smoothed_velocity * 0.9
-   ✅ GOOD: smoothed_velocity.x = smoothed_velocity.x * 0.9
-
-4. ALL TEMP VECTORS DECLARED AT TOP
-   ✅ GOOD: local tmp4 = Vector3() (next to tmp1, tmp2, tmp3)
-   ❌ BAD:  local temp = Vector3() (inside functions)
-
-5. ALL TRACES REUSE TMP VECTORS
-   ❌ BAD:  local trace_start = Vector3(...)
-   ✅ GOOD: tmp1.x, tmp1.y, tmp1.z = ...; TraceLine(tmp1, ...)
-
-6. PRIMITIVE MATH ONLY IN HOT LOOPS
-   ❌ BAD:  vec = vec + other or vec = vec * scalar
-   ✅ GOOD: vec.x = vec.x + other.x; vec.x = vec.x * scalar
-
-7. NO FRESH ALLOCATIONS IN RETURN PATHS
-   ❌ BAD:  return Vector3(x, y, z) (from hot functions)
-   ✅ GOOD: tmp1.x, tmp1.y, tmp1.z = x, y, z; return tmp1
-
-🧪 PERFORMANCE VALIDATION:
-• Test: 64 players × 128 ticks
-• Monitor: collectgarbage("count")
-• Pass: < 0.1 KB GC per loop
-• Fail: > 0.1 KB GC per loop
-
-📋 SAFE PATTERNS:
-• Reuse tmp1, tmp2, tmp3 for short-lived calculations
-• Use inline field assignments for vector updates
-• Declare all reusable vectors at file top
-• Use scalar math operations
-• Create local helper functions (not methods)
-
-🚫 FORBIDDEN PATTERNS:
-• Vector3() in any loop
-• Vector operators (+, -, *, /) in hot paths
-• Assumptions about Vector3 metatable methods
-• Temporary vector creation mid-function
-• Fresh allocations in return statements from hot functions
-
-===============================================================================
-]]
-
 local sim = {}
 
 local MASK_SHOT_HULL = MASK_SHOT_HULL
@@ -3359,7 +3292,6 @@ local math_floor = math.floor
 local math_pi = math.pi
 
 -- constants
-local MAX_SAMPLES = 8
 local MIN_SPEED = 25        -- HU/s
 local MAX_ANGULAR_VEL = 540 -- deg/s
 local WALKABLE_ANGLE = 45   -- degrees
@@ -4226,7 +4158,7 @@ local ItemDefinitions = {}
 
 
 local old_weapon, lastFire, nextAttack = nil, 0, 0
-   
+
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
 end

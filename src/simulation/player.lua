@@ -56,26 +56,6 @@ local function NormalizeVector(vec)
 	return len == 0 and vec or vec / len --branchless
 end
 
--- Helper functions for vector operations (no metatable modifications)
----@param vec Vector3
----@param other Vector3
----@param s number
-local function AddMul(vec, other, s)
-	vec.x = vec.x + other.x * s
-	vec.y = vec.y + other.y * s
-	vec.z = vec.z + other.z * s
-	return vec
-end
-
----@param vec Vector3
----@param other Vector3
-local function Set(vec, other)
-	vec.x = other.x
-	vec.y = other.y
-	vec.z = other.z
-	return vec
-end
-
 ---@param velocity Vector3
 ---@param normal Vector3
 ---@param overbounce number
