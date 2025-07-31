@@ -70,6 +70,7 @@ local settings = {
 	autoshoot = true,
 	fov = gui.GetValue("aim fov"),
 	max_sim_time = 2.0,
+	draw_time = 1.0,
 	draw_proj_path = true,
 	draw_player_path = true,
 	draw_bounding_box = true,
@@ -601,18 +602,16 @@ local function CreateMove(uCmd)
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = true -- special case for sandvich
 	else         -- generic weapons
-		if wep_utils.CanShoot() then
-			if settings.autoshoot then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK
-			end
+		if settings.autoshoot then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
 
-			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				bAttack = true
-			end
+		if (uCmd.buttons & IN_ATTACK) ~= 0 then
+			bAttack = true
 		end
 	end
 
-	if bAttack == true then
+	if bAttack == true and wep_utils.CanShoot() then
 		local can_psilent = not bIsSandvich and settings.psilent
 
 		if can_psilent then
@@ -620,7 +619,7 @@ local function CreateMove(uCmd)
 		end
 
 		uCmd:SetViewAngles(angle:Unpack())
-		displayed_time = globals.CurTime() + 1
+		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 	end
@@ -725,6 +724,7 @@ local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
+		return
 	end
 
 	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
@@ -735,6 +735,7 @@ local function Draw()
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
+			draw.Color(136, 192, 208, 255)
 			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
 		end
 	end
@@ -765,7 +766,6 @@ local function Unload()
 	proj_sim = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
-	--client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -1064,6 +1064,12 @@ function gui.init(settings, version)
 		return y
 	end
 
+	local function get_slider_y()
+		local y = btn_starty
+		btn_starty = y +  45
+		return y
+	end
+
 	do
 		local w, h = draw.GetScreenSize()
 		window.x = (w // 2) - (window.width // 2)
@@ -1229,6 +1235,8 @@ function gui.init(settings, version)
 
 	menu:make_tab("misc")
 
+	btn_starty = 25
+
 	local sim_time_slider = menu:make_slider()
 	assert(sim_time_slider, "sim time slider is nil somehow!")
 
@@ -1240,7 +1248,7 @@ function gui.init(settings, version)
 	sim_time_slider.value = settings.max_sim_time
 	sim_time_slider.width = component_width * 2
 	sim_time_slider.x = 10
-	sim_time_slider.y = 25
+	sim_time_slider.y = get_slider_y()
 
 	sim_time_slider.func = function()
 		settings.max_sim_time = sim_time_slider.value
@@ -1257,7 +1265,7 @@ function gui.init(settings, version)
 	max_distance_slider.value = settings.max_distance
 	max_distance_slider.width = component_width * 2
 	max_distance_slider.x = 10
-	max_distance_slider.y = 70
+	max_distance_slider.y = get_slider_y()
 
 	max_distance_slider.func = function()
 		settings.max_distance = max_distance_slider.value
@@ -1274,7 +1282,7 @@ function gui.init(settings, version)
 	fov_slider.value = settings.fov
 	fov_slider.width = component_width * 2
 	fov_slider.x = 10
-	fov_slider.y = 115
+	fov_slider.y = get_slider_y()
 
 	fov_slider.func = function()
 		settings.fov = fov_slider.value
@@ -1288,13 +1296,30 @@ function gui.init(settings, version)
 	priotity_slider.label = "min priority"
 	priotity_slider.max = 10
 	priotity_slider.min = 0
-	priotity_slider.value = 0
+	priotity_slider.value = settings.min_priority
 	priotity_slider.width = component_width * 2
 	priotity_slider.x = 10
-	priotity_slider.y = 160
+	priotity_slider.y = get_slider_y()
 
 	priotity_slider.func = function()
 		settings.min_priority = priotity_slider.value // 1
+	end
+
+	local time_slider = menu:make_slider()
+	assert(time_slider, "time slider is nil somehow!")
+
+	time_slider.font = font
+	time_slider.height = 20
+	time_slider.label = "draw time"
+	time_slider.max = 10
+	time_slider.min = 0
+	time_slider.value = settings.draw_time
+	time_slider.width = component_width * 2
+	time_slider.x = 10
+	time_slider.y = get_slider_y()
+
+	time_slider.func = function()
+		settings.draw_time = time_slider.value
 	end
 
 	menu:make_tab("conditions")

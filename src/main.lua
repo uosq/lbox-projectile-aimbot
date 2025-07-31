@@ -26,6 +26,7 @@ local settings = {
 	autoshoot = true,
 	fov = gui.GetValue("aim fov"),
 	max_sim_time = 2.0,
+	draw_time = 1.0,
 	draw_proj_path = true,
 	draw_player_path = true,
 	draw_bounding_box = true,
@@ -557,18 +558,16 @@ local function CreateMove(uCmd)
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = true -- special case for sandvich
 	else         -- generic weapons
-		if wep_utils.CanShoot() then
-			if settings.autoshoot then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK
-			end
+		if settings.autoshoot then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
 
-			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				bAttack = true
-			end
+		if (uCmd.buttons & IN_ATTACK) ~= 0 then
+			bAttack = true
 		end
 	end
 
-	if bAttack == true then
+	if bAttack == true and wep_utils.CanShoot() then
 		local can_psilent = not bIsSandvich and settings.psilent
 
 		if can_psilent then
@@ -576,7 +575,7 @@ local function CreateMove(uCmd)
 		end
 
 		uCmd:SetViewAngles(angle:Unpack())
-		displayed_time = globals.CurTime() + 1
+		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 	end
@@ -681,6 +680,7 @@ local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
+		return
 	end
 
 	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
@@ -691,6 +691,7 @@ local function Draw()
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
+			draw.Color(136, 192, 208, 255)
 			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
 		end
 	end
@@ -721,7 +722,6 @@ local function Unload()
 	proj_sim = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
-	--client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
