@@ -277,7 +277,7 @@ end
 ---@param pLocal Entity
 ---@param shootpos Vector3
 ---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
----@return PlayerInfo
+---@return PlayerInfo?
 local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	local best_target = {
 		angle = nil,
@@ -378,6 +378,10 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 		best_target.pos = bestEntity:GetAbsOrigin()
 	end
 
+	if best_target.index == nil then
+		return nil
+	end
+
 	return best_target
 end
 
@@ -412,8 +416,8 @@ local function GetCharge(pWeapon)
 	return charge_time
 end
 
----@param uCmd UserCmd
-local function CreateMove(uCmd)
+----@param uCmd UserCmd
+--[[local function CreateMove(uCmd)
 	if not settings.enabled then
 		return
 	end
@@ -446,7 +450,7 @@ local function CreateMove(uCmd)
 	--- fuck you psilent
 	--[[if tostring(client.GetConVar("cl_autoreload")) == "1" then
 		client.SetConVar("cl_autoreload", "0")
-	end]]
+	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -625,7 +629,6 @@ local function CreateMove(uCmd)
 		local can_psilent = not bIsSandvich and settings.psilent-- and m_iReloadMode == 0
 
 		if can_psilent then
-			uCmd:SetButtons(uCmd:GetButtons() | IN_ATTACK)
 			uCmd.sendpacket = false
 		end
 
@@ -634,6 +637,143 @@ local function CreateMove(uCmd)
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 		return
+	end
+end]]
+
+---@param uCmd UserCmd
+local function CreateMove(uCmd)
+	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+		return
+	end
+
+	local pLocal = entities.GetLocalPlayer()
+	if pLocal == nil then
+		return
+	end
+
+	local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon")
+	if pWeapon == nil then
+		return
+	end
+
+	local players = entities.FindByClass("CTFPlayer")
+	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	local pTargetInfo = GetClosestEntityToFov(pLocal, vecHeadPos, players, false)
+	if pTargetInfo == nil then
+		return
+	end
+
+	local pTarget = entities.GetByIndex(pTargetInfo.index)
+	if pTarget == nil then
+		return
+	end
+
+	local vecTargetOrigin = pTarget:GetAbsOrigin()
+	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+	local charge_time = GetCharge(pWeapon)
+
+	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
+	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
+
+	local det_mult = pWeapon:AttributeHookFloat("sticky_arm_time")
+	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
+	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
+	local total_time = travel_time_est + detonate_time
+	local step_size = pTarget:GetPropFloat("m_flStepSize")
+	local choked_time = clientstate:GetChokedCommands()
+	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
+
+	local player_path = player_sim.Run(step_size, pTarget, vecTargetOrigin, time_ticks)
+	if player_path == nil then
+		return
+	end
+
+		-- Make traces ignore *us* and also the target's **current** position,
+	-- because we're aiming at where he *will* be, not where he is now.
+	local function shouldHit(ent)
+		if not ent then -- world / sky / nil
+			return true -- trace should go on
+		end
+		if ent == pLocal or ent == pTarget then
+			return false -- pretend they don't exist
+		end
+		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
+	end
+
+	local vecPredictedPos = player_path[#player_path]
+	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
+	local trace = engine.TraceHull(vecHeadPos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
+
+	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local iWeaponID = pWeapon:GetWeaponID()
+	local bAimAtTeamMates = false
+	local bIsSandvich = false
+
+	if iWeaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
+		bAimAtTeamMates = true
+		bIsSandvich = true
+	elseif iWeaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW then
+		bAimAtTeamMates = true
+	end
+
+	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
+
+	if (not is_visible or bIsHuntsman) and settings.multipointing then
+		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+
+		multipoint:Set(
+			pLocal,
+			pWeapon,
+			pTarget,
+			bIsHuntsman,
+			bAimAtTeamMates,
+			vecHeadPos,
+			vecPredictedPos,
+			weaponInfo,
+			math_utils,
+			settings.max_distance,
+			bSplashWeapon,
+			ent_utils,
+			settings
+		)
+
+		local best_multipoint = multipoint:GetBestHitPoint()
+		if not best_multipoint then
+			return
+		end
+
+		vecPredictedPos = best_multipoint
+	end
+
+	trace = engine.TraceHull(vecHeadPos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
+		return
+	end
+
+	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+	local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
+	if angle == nil then
+		return
+	end
+
+	if wep_utils.CanShoot() then
+		if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
+
+		if (uCmd.buttons & IN_ATTACK) ~= 0 then
+			if settings.psilent then
+				uCmd.sendpacket = false
+			end
+			uCmd.viewangles = Vector3(angle:Unpack())
+			displayed_time = globals.CurTime() + settings.draw_time
+			paths.player_path = player_path
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+		end
 	end
 end
 
