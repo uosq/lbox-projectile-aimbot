@@ -184,46 +184,30 @@ local function GetSmoothedAngularVelocity(pEntity)
 	end
 
 	local ang_vels = {}
-	local weights = {}
-	local total_weight = 0
 	local two_pi = 2 * math_pi
-	local min_speed = MIN_SPEED or 5       -- You can tune this
-	local max_ang_vel = MAX_ANGULAR_VEL or 180  -- degrees per second cap
 
-	-- Robust angle difference in radians
-	local function AngleDiffRad(a, b)
-		local diff = a - b
-		while diff > math.pi do diff = diff - two_pi end
-		while diff < -math.pi do diff = diff + two_pi end
-		return diff
-	end
-
-	-- Collect angular velocities
+	-- calculate angular velocities from at least 3 samples
 	for i = 1, #samples - 2 do
 		local s1, s2, s3 = samples[i], samples[i + 1], samples[i + 2]
 		local dt1, dt2 = s2.time - s1.time, s3.time - s2.time
 
 		if dt1 > 0 and dt2 > 0 then
+			-- Calculate velocities
 			local vel1 = (s2.pos - s1.pos) / dt1
 			local vel2 = (s3.pos - s2.pos) / dt2
 
-			local speed1 = vel1:Length()
-			local speed2 = vel2:Length()
-
-			if speed1 >= min_speed and speed2 >= min_speed then
+			-- Skip low-speed samples
+			if vel1:Length() >= MIN_SPEED and vel2:Length() >= MIN_SPEED then
+				-- Calculate angular change
 				local yaw1 = math_atan(vel1.y, vel1.x)
 				local yaw2 = math_atan(vel2.y, vel2.x)
+				local diff = math_deg((yaw2 - yaw1 + math_pi) % two_pi - math_pi)
 
-				local diff = math_deg(AngleDiffRad(yaw2, yaw1))
-				local avg_dt = (dt1 + dt2) * 0.5
-				local angular_velocity = diff / avg_dt
+				local angular_velocity = diff / ((dt1 + dt2) * 0.5)
 
-				-- filter based on hard cap
-				if math_abs(angular_velocity) < max_ang_vel then
-					local weight = (speed1 + speed2) * 0.5
-					table.insert(ang_vels, angular_velocity)
-					table.insert(weights, weight)
-					total_weight = total_weight + weight
+				-- Filter extreme values
+				if math_abs(angular_velocity) < MAX_ANGULAR_VEL then
+					ang_vels[#ang_vels + 1] = angular_velocity
 				end
 			end
 		end
@@ -233,53 +217,25 @@ local function GetSmoothedAngularVelocity(pEntity)
 		return 0
 	end
 
-	-- irq filtering
-	table.sort(ang_vels)
-	local q1 = ang_vels[math.floor(#ang_vels * 0.25) + 1]
-	local q3 = ang_vels[math.floor(#ang_vels * 0.75) + 1]
-	local iqr = q3 - q1
-	local lower = q1 - 1.5 * iqr
-	local upper = q3 + 1.5 * iqr
-
-	local filtered = {}
-	local filtered_weights = {}
-	local filtered_total_weight = 0
-
-	for i, v in ipairs(ang_vels) do
-		if v >= lower and v <= upper then
-			table.insert(filtered, v)
-			table.insert(filtered_weights, weights[i])
-			filtered_total_weight = filtered_total_weight + weights[i]
-		end
+	-- Use median for outlier rejection
+	if #ang_vels >= 3 then
+		table.sort(ang_vels)
+		local mid = math_floor(#ang_vels * 0.5) + 1
+		return ang_vels[mid]
 	end
 
-	if #filtered == 0 then
-		return 0
+	-- Simple exponential smoothing for few samples
+	local grounded = IsPlayerOnGround(pEntity)
+	local base_alpha = grounded and SMOOTH_ALPHA_G or SMOOTH_ALPHA_A
+	local smoothed = ang_vels[1]
+
+	for i = 2, #ang_vels do
+		local alpha = math_max(0.05, math_min(base_alpha, 0.4))
+		smoothed = smoothed * (1 - alpha) + ang_vels[i] * alpha
 	end
 
-	-- Use weighted average
-	local weighted_sum = 0
-	for i = 1, #filtered do
-		weighted_sum = weighted_sum + filtered[i] * filtered_weights[i]
-	end
-
-	local result = weighted_sum / filtered_total_weight
-
-	-- back to exponential smoothing for very small sample size
-	if #filtered < 3 then
-		local grounded = IsPlayerOnGround(pEntity)
-		local alpha = math_max(0.05, math_min(grounded and SMOOTH_ALPHA_G or SMOOTH_ALPHA_A, 0.4))
-
-		local smoothed = filtered[1]
-		for i = 2, #filtered do
-			smoothed = smoothed * (1 - alpha) + filtered[i] * alpha
-		end
-		return smoothed
-	end
-
-	return result
+	return smoothed
 end
-
 
 local function GetEnemyTeam()
 	local pLocal = entities.GetLocalPlayer()
