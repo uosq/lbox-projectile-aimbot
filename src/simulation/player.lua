@@ -32,6 +32,10 @@ local SURFACE_FRICTION = 1.0 -- Default surface friction
 local MAX_CLIP_PLANES = 5
 local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
 
+local MAX_SAMPLES      = 8       -- tuned window size
+local SMOOTH_ALPHA_G   = 0.392   -- tuned ground α
+local SMOOTH_ALPHA_A   = 0.127   -- tuned air α
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
@@ -268,7 +272,7 @@ local function GetSmoothedAngularVelocity(pEntity)
 
 	-- Simple exponential smoothing for few samples
 	local grounded = IsPlayerOnGround(pEntity)
-	local base_alpha = grounded and 1 or 0.2
+	local base_alpha = grounded and SMOOTH_ALPHA_G or SMOOTH_ALPHA_A
 	local smoothed = ang_vels[1]
 
 	for i = 2, #ang_vels do
