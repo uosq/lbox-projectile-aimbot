@@ -1,0 +1,3 @@
+[33m00b05eb[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m some optymisations for player prediction
+[33maf5dcc6[m[33m ([m[1;31mupstream/main[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m another hacky solution, now if you reload it just doenst shoot :(
+[33m35049df[m hacky fix for the weapon firing, disabling auto reload

@@ -408,6 +408,8 @@ local function CreateMove(uCmd)
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	-- real charge for bows / stickies / Beggar etc.
+	local charge_time = GetCharge(pWeapon)
 
 	local players = entities.FindByClass("CTFPlayer")
 
@@ -435,7 +437,7 @@ local function CreateMove(uCmd)
 		return nil
 	end
 
-	local velocity_vector = weaponInfo:GetVelocity(0)
+	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
 	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
 
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 or 0
@@ -456,17 +458,21 @@ local function CreateMove(uCmd)
 
 	local predicted_target_pos = player_positions[#player_positions] or vecTargetOrigin
 
+	-- Make traces ignore *us* and also the target's **current** position,
+	-- because we're aiming at where he *will* be, not where he is now.
 	local function shouldHit(ent)
-		if ent:GetIndex() == pLocal:GetIndex() then
-			return false
+		if not ent then -- world / sky / nil
+			return true -- trace should go on
 		end
-
+		if ent == pLocal or ent == pTarget then
+			return false -- pretend they don't exist
+		end
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
 	local trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	local is_visible = trace and trace.fraction >= 0.9
+	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
@@ -502,11 +508,10 @@ local function CreateMove(uCmd)
 
 	-- Recheck trace for final prediction
 	trace = engine.TraceHull(vecWeaponFirePos, predicted_target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	if not trace or trace.fraction < 0.9 then
+	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
 		return
 	end
 
-	local charge_time = GetCharge(pWeapon)
 	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
 	local angle = math_utils.SolveBallisticArc(vecHeadPos, predicted_target_pos, forward_speed, gravity)
 	if not angle then
@@ -551,7 +556,7 @@ local function CreateMove(uCmd)
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = true -- special case for sandvich
-	else -- generic weapons
+	else         -- generic weapons
 		if wep_utils.CanShoot() then
 			if settings.autoshoot then
 				uCmd.buttons = uCmd.buttons | IN_ATTACK
