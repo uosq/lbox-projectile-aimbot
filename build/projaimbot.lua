@@ -619,6 +619,8 @@ local function CreateMove(uCmd)
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
 	end
+
+	uCmd.buttons = uCmd.buttons & ~IN_RELOAD
 end
 
 --- Terminator (titaniummachine1) made this
@@ -4190,9 +4192,9 @@ function wep_utils.CanShoot()
 
 	local lastfiretime = GetLastFireTime(weapon)
 
-	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
+	if lastfiretime ~= lastFire or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
-		nextAttack = GetNextPrimaryAttack(weapon) + (clientstate:GetChokedCommands() * 66.67)/1000
+		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 
 	old_weapon = weapon:GetIndex()

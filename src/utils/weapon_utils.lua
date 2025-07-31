@@ -5,6 +5,13 @@ local ItemDefinitions = {}
 
 local old_weapon, lastFire, nextAttack = nil, 0, 0
 
+local RELOAD_STATE = {
+	TF_RELOAD_START = 0,
+	TF_RELOADING = 1,
+	TF_RELOADING_CONTINUE = 2,
+	TF_RELOAD_FINISH = 3
+}
+
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
 end
@@ -30,14 +37,36 @@ function wep_utils.CanShoot()
 	end
 
 	local lastfiretime = GetLastFireTime(weapon)
+	local m_iReloadMode = weapon:GetPropInt("m_iReloadMode")
 
-	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
+	if lastfiretime ~= lastFire or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
-		nextAttack = GetNextPrimaryAttack(weapon) + (clientstate:GetChokedCommands() * 66.67)/1000
+		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 
 	old_weapon = weapon:GetIndex()
 	return nextAttack <= globals.CurTime()
+end
+
+function wep_utils.CanReload()
+	local player = entities:GetLocalPlayer()
+	if not player then
+		return false
+	end
+
+	local weapon = player:GetPropEntity("m_hActiveWeapon")
+	if not weapon or not weapon:IsValid() then
+		return false
+	end
+
+	local m_iReloadMode = weapon:GetPropInt("m_iReloadMode")
+
+	--- we are not reloading
+	if m_iReloadMode == RELOAD_STATE.TF_RELOADING then
+		return true
+	end
+
+	return false
 end
 
 do
