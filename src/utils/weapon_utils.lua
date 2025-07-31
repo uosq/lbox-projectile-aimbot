@@ -3,7 +3,7 @@ local wep_utils = {}
 ---@type table<integer, integer>
 local ItemDefinitions = {}
 
-local old_weapon, lastFire, nextAttack = 0, 0, 0
+local old_weapon, lastFire, nextAttack = nil, 0, 0
 
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
@@ -29,15 +29,15 @@ function wep_utils.CanShoot()
 		return false
 	end
 
-	--[[local lastfiretime = GetLastFireTime(weapon)
+	local lastfiretime = GetLastFireTime(weapon)
 
 	if lastFire ~= lastfiretime or weapon:GetIndex() ~= old_weapon then
 		lastFire = lastfiretime
-		nextAttack = GetNextPrimaryAttack(weapon)
+		nextAttack = GetNextPrimaryAttack(weapon) + (clientstate:GetChokedCommands() * 66.67)/1000
 	end
 
-	old_weapon = weapon:GetIndex()]]
-	return GetNextPrimaryAttack(weapon) <= globals.CurTime()
+	old_weapon = weapon:GetIndex()
+	return nextAttack <= globals.CurTime()
 end
 
 do

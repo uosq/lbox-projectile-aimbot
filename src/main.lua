@@ -1,7 +1,7 @@
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v7
+	Update: v7-experimental
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -31,7 +31,7 @@ local settings = {
 	draw_bounding_box = true,
 	draw_only = false,
 	max_distance = 2048,
-	multipointing = true,
+	multipointing = false,
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
@@ -54,7 +54,7 @@ local settings = {
 		["aim teleporters"] = true,
 	},
 
-	psilent = true,
+	psilent = false,
 
 	ignore_conds = {
 		cloaked = true,
@@ -379,9 +379,6 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local players = entities.FindByClass("CTFPlayer")
-	player_sim.RunBackground(players)
-
 	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
 	if not CanRun(pLocal, pWeapon, bIsBeggar, false) then
 		return
@@ -411,6 +408,8 @@ local function CreateMove(uCmd)
 
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+
+	local players = entities.FindByClass("CTFPlayer")
 
 	local best_target = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimAtTeamMates)
 	if not best_target.index then
@@ -565,13 +564,16 @@ local function CreateMove(uCmd)
 	end
 
 	if bAttack == true then
+		local can_psilent = not bIsSandvich and settings.psilent
+
+		if can_psilent then
+			uCmd:SetSendPacket(false)
+		end
+
 		uCmd:SetViewAngles(angle:Unpack())
 		displayed_time = globals.CurTime() + 1
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
-		if not bIsSandvich and settings.psilent then
-			uCmd:SetSendPacket(false)
-		end
 	end
 end
 
@@ -694,9 +696,17 @@ local function Draw()
 	end
 end
 
+local function FrameStage(stage)
+	if stage == E_ClientFrameStage.FRAME_NET_UPDATE_END then
+		local players = entities.FindByClass("CTFPlayer")
+		player_sim.RunBackground(players)
+	end
+end
+
 local function Unload()
 	callbacks.Unregister("CreateMove", "ProjAimbot CreateMove")
 	callbacks.Unregister("Draw", "ProjAimbot Draw")
+	callbacks.Unregister("FrameStageNotify", "ProjAimbot FrameStage")
 	menu.unload()
 
 	paths = nil
@@ -712,6 +722,7 @@ end
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
 callbacks.Register("Draw", "ProjAimbot Draw", Draw)
 callbacks.Register("Unload", Unload)
+callbacks.Register("FrameStageNotify", "ProjAimbot FrameStage", FrameStage)
 
 printc(252, 186, 3, 255, string.format("Navet's Projectile Aimbot (v%s) loaded", version))
 printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")
