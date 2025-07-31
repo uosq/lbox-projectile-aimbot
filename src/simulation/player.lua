@@ -511,7 +511,7 @@ end
 ---@param time integer
 ---@return Vector3[]
 function sim.Run(stepSize, pTarget, initial_pos, time)
-	local smoothed_velocity = pTarget:EstimateAbsVelocity()
+	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval

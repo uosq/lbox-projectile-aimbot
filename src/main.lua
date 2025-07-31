@@ -121,9 +121,13 @@ local paths = {
 }
 
 local original_gui_value = gui.GetValue("projectile aimbot")
---local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
+local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
 
 local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
+	if clientstate:GetChokedCommands() > 0 then
+		return
+	end
+
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
 		return false
 	end
@@ -151,6 +155,11 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
 		return false
 	end
+
+	--[[local m_iReloadMode = pWeapon:GetPropInt("m_iReloadMode")
+	if m_iReloadMode ~= 0 then
+		return false
+	end]]
 
 	return true
 end
@@ -381,6 +390,7 @@ local function CreateMove(uCmd)
 	end
 
 	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
+
 	if not CanRun(pLocal, pWeapon, bIsBeggar, false) then
 		return
 	end
@@ -558,27 +568,27 @@ local function CreateMove(uCmd)
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = true -- special case for sandvich
-	else         -- generic weapons
+	else -- generic weapons
 		if settings.autoshoot then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if (uCmd.buttons & IN_ATTACK) ~= 0 then
-			bAttack = true
-		end
+		bAttack = (uCmd.buttons & IN_ATTACK) ~= 0
 	end
 
-	if bAttack == true and wep_utils.CanShoot() then
-		local can_psilent = not bIsSandvich and settings.psilent
+	if bAttack then
+		local m_iReloadMode = pWeapon:GetPropInt("m_iReloadMode")
+		local can_psilent = not bIsSandvich and settings.psilent-- and m_iReloadMode == 0
 
 		if can_psilent then
-			uCmd:SetSendPacket(false)
+			uCmd.sendpacket = false
 		end
 
 		uCmd:SetViewAngles(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		return
 	end
 end
 
@@ -723,6 +733,7 @@ local function Unload()
 	proj_sim = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
+	client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)

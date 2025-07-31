@@ -165,9 +165,13 @@ local paths = {
 }
 
 local original_gui_value = gui.GetValue("projectile aimbot")
---local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
+local original_auto_reload = tostring(client.GetConVar("cl_autoreload"))
 
 local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
+	if clientstate:GetChokedCommands() > 0 then
+		return
+	end
+
 	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
 		return false
 	end
@@ -195,6 +199,11 @@ local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
 	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
 		return false
 	end
+
+	--[[local m_iReloadMode = pWeapon:GetPropInt("m_iReloadMode")
+	if m_iReloadMode ~= 0 then
+		return false
+	end]]
 
 	return true
 end
@@ -425,6 +434,7 @@ local function CreateMove(uCmd)
 	end
 
 	local bIsBeggar = pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX
+
 	if not CanRun(pLocal, pWeapon, bIsBeggar, false) then
 		return
 	end
@@ -602,27 +612,28 @@ local function CreateMove(uCmd)
 	elseif bIsSandvich then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		bAttack = true -- special case for sandvich
-	else         -- generic weapons
+	else -- generic weapons
 		if settings.autoshoot then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if (uCmd.buttons & IN_ATTACK) ~= 0 then
-			bAttack = true
-		end
+		bAttack = (uCmd.buttons & IN_ATTACK) ~= 0
 	end
 
-	if bAttack == true and wep_utils.CanShoot() then
-		local can_psilent = not bIsSandvich and settings.psilent
+	if bAttack then
+		local m_iReloadMode = pWeapon:GetPropInt("m_iReloadMode")
+		local can_psilent = not bIsSandvich and settings.psilent-- and m_iReloadMode == 0
 
 		if can_psilent then
-			uCmd:SetSendPacket(false)
+			uCmd:SetButtons(uCmd:GetButtons() | IN_ATTACK)
+			uCmd.sendpacket = false
 		end
 
 		uCmd:SetViewAngles(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_positions
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		return
 	end
 end
 
@@ -767,6 +778,7 @@ local function Unload()
 	proj_sim = nil
 
 	gui.SetValue("projectile aimbot", original_gui_value)
+	client.SetConVar("cl_autoreload", original_auto_reload)
 end
 
 callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
@@ -780,7 +792,6 @@ printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while
 if gui.GetValue("projectile aimbot") ~= "none" then
 	gui.SetValue("projectile aimbot", "none")
 end
-
 end)
 __bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
 -- Constants
@@ -800,51 +811,6 @@ local FL_DUCKING = 1
 ---@field private math_utils MathLib
 ---@field private iMaxDistance integer
 local multipoint = {}
-
-local offset_multipliers = {
-	splash = {
-		{ "legs", { { 0, 0, 0 }, { 0, 0, 0.2 } } },
-		{ "chest", { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
-		{ "head", { { 0, 0, 0.9 } } },
-	},
-	huntsman = {
-		{ "chest", { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
-		{ "legs", { { 0, 0, 0.2 } } },
-	},
-	normal = {
-		{ "chest", { { 0, 0, 0.5 } } },
-		{ "right_shoulder", { { 0.6, 0, 0.5 } } },
-		{ "left_shoulder", { { -0.6, 0, 0.5 } } },
-		{ "head", { { 0, 0, 0.9 } } },
-		{ "legs", { { 0, 0, 0.2 } } },
-	},
-}
-
--- Robust normalization function that handles edge cases
-local function SafeNormalize(vec)
-	if not vec then
-		return nil
-	end
-
-	local length = vec:Length()
-	if length < 0.001 then
-		return nil -- Vector is too small to normalize
-	end
-
-	-- Try the built-in Normalize method first
-	local normalized = vec:Normalize()
-	if normalized then
-		return normalized
-	end
-
-	-- Fallback: manual normalization
-	local inv_length = 1.0 / length
-	return Vector3(vec.x * inv_length, vec.y * inv_length, vec.z * inv_length)
-end
 
 ---@return Vector3?
 function multipoint:GetBestHitPoint()
@@ -3809,7 +3775,7 @@ end
 ---@param time integer
 ---@return Vector3[]
 function sim.Run(stepSize, pTarget, initial_pos, time)
-	local smoothed_velocity = pTarget:EstimateAbsVelocity()
+	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
@@ -4162,37 +4128,39 @@ local wep_utils = {}
 ---@type table<integer, integer>
 local ItemDefinitions = {}
 
-
 local old_weapon, lastFire, nextAttack = nil, 0, 0
 
 local function GetLastFireTime(weapon)
 	return weapon:GetPropFloat("LocalActiveTFWeaponData", "m_flLastFireTime")
 end
+
 local function GetNextPrimaryAttack(weapon)
 	return weapon:GetPropFloat("LocalActiveWeaponData", "m_flNextPrimaryAttack")
 end
+
 --- https://www.unknowncheats.me/forum/team-fortress-2-a/273821-canshoot-function.html
 function wep_utils.CanShoot()
 	local player = entities:GetLocalPlayer()
 	if not player then
 		return false
 	end
+
 	local weapon = player:GetPropEntity("m_hActiveWeapon")
 	if not weapon or not weapon:IsValid() then
 		return false
 	end
+
 	if weapon:GetPropInt("LocalWeaponData", "m_iClip1") == 0 then
 		return false
 	end
 
 	local lastfiretime = GetLastFireTime(weapon)
-
-	if lastfiretime ~= lastFire or weapon:GetIndex() ~= old_weapon then
+	if lastFire ~= lastfiretime or weapon ~= old_weapon then
 		lastFire = lastfiretime
 		nextAttack = GetNextPrimaryAttack(weapon)
 	end
 
-	old_weapon = weapon:GetIndex()
+	old_weapon = weapon
 	return nextAttack <= globals.CurTime()
 end
 
