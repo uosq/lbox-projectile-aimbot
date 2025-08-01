@@ -431,6 +431,12 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
+		uCmd.buttons = uCmd.buttons | IN_ATTACK2
+		uCmd.viewangles = Vector3(angle:Unpack())
+		displayed_time = globals.CurTime() + settings.draw_time
+		paths.player_path = player_path
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -482,7 +488,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	if pWeapon:IsMeleeWeapon() then
+	if pWeapon:IsMeleeWeapon() and pWeapon:GetWeaponID() ~= E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		return false
 	end
 

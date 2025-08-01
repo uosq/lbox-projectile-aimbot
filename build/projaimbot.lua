@@ -475,6 +475,12 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
 		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
+		uCmd.buttons = uCmd.buttons | IN_ATTACK2
+		uCmd.viewangles = Vector3(angle:Unpack())
+		displayed_time = globals.CurTime() + settings.draw_time
+		paths.player_path = player_path
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -526,7 +532,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	if pWeapon:IsMeleeWeapon() then
+	if pWeapon:IsMeleeWeapon() and pWeapon:GetWeaponID() ~= E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		return false
 	end
 
@@ -3233,7 +3239,6 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	-- Calculate the final velocity vector with proper upward component
 	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
 
-	-- Get gravity and apply it to the physics environment
 	local has_gravity = pWeapon:GetWeaponProjectileType() ~= E_ProjectileType.TF_PROJECTILE_ROCKET
 	if has_gravity then
 		env:SetGravity(Vector3(0, 0, -800))
@@ -3337,10 +3342,83 @@ local up_vector = Vector3(0, 0, 1)
 local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
 local tmp4 = Vector3() -- for wishdir (GC‑free)
 
+---@param pEntity Entity
+local function InWater(pEntity)
+	local mins, maxs = pEntity:GetMins(), pEntity:GetMaxs()
+	local origin = pEntity:GetAbsOrigin()
+	local pos = origin + (mins + maxs) * 0.5
+	local contents = engine.GetPointContents(pos)
+	return (contents & MASK_WATER) ~= 0
+end
+
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
 	return len == 0 and vec or vec / len --branchless
+end
+
+
+---@param velocity Vector3
+---@param forward Vector3
+---@param right Vector3
+---@param up Vector3
+---@param forward_move number
+---@param side_move number
+---@param up_move number
+---@param client_max_speed number
+---@param max_speed number
+---@param surface_friction number
+---@param dt number
+local function ApplyWaterMove(velocity, forward, right, up, forward_move, side_move, up_move, client_max_speed, max_speed, surface_friction, dt)
+	-- Calculate wishvel
+	tmp1.x = forward.x * forward_move + right.x * side_move
+	tmp1.y = forward.y * forward_move + right.y * side_move
+	tmp1.z = forward.z * forward_move + right.z * side_move
+
+	local sv_friction = client.GetConVar("sv_friction")
+	local sv_accelerate = client.GetConVar("sv_accelerate")
+
+	-- Simple logic to simulate sinking/staying/ascending
+	if forward_move == 0 and side_move == 0 and up_move == 0 then
+		tmp1.z = tmp1.z - 60
+	else
+		local upward = forward_move * forward.z * 2
+		upward = math_min(math_max(upward, 0), client_max_speed)
+		tmp1.z = tmp1.z + up_move + upward
+	end
+
+	-- Normalize and scale
+	tmp4.x, tmp4.y, tmp4.z = tmp1.x, tmp1.y, tmp1.z
+	local wishspeed = NormalizeVector(tmp4):Length()
+	if wishspeed > max_speed then
+		local scale = max_speed / wishspeed
+		tmp1 = tmp1 * scale
+		wishspeed = max_speed
+	end
+
+	wishspeed = wishspeed * 0.8
+
+	-- Water friction
+	local speed = velocity:Length()
+	if speed > 0 then
+		local newspeed = speed - dt * speed * sv_friction * surface_friction
+		if newspeed < 0.1 then newspeed = 0 end
+		local scale = newspeed / speed
+		velocity.x = velocity.x * scale
+		velocity.y = velocity.y * scale
+		velocity.z = velocity.z * scale
+	end
+
+	-- Water acceleration
+	local currentspeed = velocity:Dot(tmp4)
+	local addspeed = wishspeed - currentspeed
+	if addspeed > 0 then
+		local accelspeed = sv_accelerate * dt * wishspeed * surface_friction
+		if accelspeed > addspeed then accelspeed = addspeed end
+		velocity.x = velocity.x + accelspeed * tmp4.x
+		velocity.y = velocity.y + accelspeed * tmp4.y
+		velocity.z = velocity.z + accelspeed * tmp4.z
+	end
 end
 
 ---@param velocity Vector3
@@ -3854,61 +3932,84 @@ function sim.Run(pTarget, initial_pos, time)
 		local ground_trace = TraceLine(next_pos, tmp3, MASK_PLAYERSOLID, shouldHitEntity)
 		local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and smoothed_velocity.z <= MIN_VELOCITY_Z
 
-		-- ---  C. horizontal accel
-		local horizontal_vel = tmp3 -- re-use tmp3
-		horizontal_vel.x, horizontal_vel.y, horizontal_vel.z = smoothed_velocity.x, smoothed_velocity.y,
-			smoothed_velocity.z
-		horizontal_vel.z = 0
-		local horizontal_speed = horizontal_vel:Length()
+		if InWater(pTarget) then
+			print("hi")
+			tmp1 = Vector3(1, 0, 0)  -- forward
+			tmp2 = Vector3(0, 1, 0)  -- right
+			tmp3 = Vector3(0, 0, 1)  -- up
 
-		if horizontal_speed > 0.1 then
-			local inv_len = 1.0 / horizontal_speed
-			tmp4.x = horizontal_vel.x * inv_len
-			tmp4.y = horizontal_vel.y * inv_len
-			tmp4.z = 0
-			local wishdir = tmp4 -- alias for clarity; no alloc
-			local wishspeed = math_min(horizontal_speed, target_max_speed)
+			local forward_move = smoothed_velocity:Dot(tmp1)
+			local side_move    = smoothed_velocity:Dot(tmp2)
+			local up_move      = smoothed_velocity:Dot(tmp3)
 
-			if is_on_ground then
-				-- apply ground acceleration
-				AccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
-					GROUND_ACCELERATE, tick_interval, surface_friction)
-			else
-				-- apply air acceleration when not on ground and falling
-				if smoothed_velocity.z < 0 then
-					AirAccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
-						AIR_ACCELERATE, tick_interval, surface_friction)
+			ApplyWaterMove(
+				smoothed_velocity,
+				tmp1, tmp2, tmp3,
+				forward_move,
+				side_move,
+				up_move,
+				target_max_speed,
+				target_max_speed,
+				surface_friction,
+				tick_interval
+			)
+		else
+			-- ---  C. horizontal accel
+			local horizontal_vel = tmp3 -- re-use tmp3
+			horizontal_vel.x, horizontal_vel.y, horizontal_vel.z = smoothed_velocity.x, smoothed_velocity.y,
+				smoothed_velocity.z
+			horizontal_vel.z = 0
+			local horizontal_speed = horizontal_vel:Length()
+
+			if horizontal_speed > 0.1 then
+				local inv_len = 1.0 / horizontal_speed
+				tmp4.x = horizontal_vel.x * inv_len
+				tmp4.y = horizontal_vel.y * inv_len
+				tmp4.z = 0
+				local wishdir = tmp4 -- alias for clarity; no alloc
+				local wishspeed = math_min(horizontal_speed, target_max_speed)
+
+				if is_on_ground then
+					-- apply ground acceleration
+					AccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
+						GROUND_ACCELERATE, tick_interval, surface_friction)
+				else
+					-- apply air acceleration when not on ground and falling
+					if smoothed_velocity.z < 0 then
+						AirAccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
+							AIR_ACCELERATE, tick_interval, surface_friction)
+					end
 				end
 			end
-		end
 
-		-- ---  D. clamp ground speed (no alloc)
-		if is_on_ground then
-			local vel_length = smoothed_velocity:Length()
-			if vel_length > target_max_speed then
-				local scale = target_max_speed / vel_length
-				smoothed_velocity.x = smoothed_velocity.x * scale
-				smoothed_velocity.y = smoothed_velocity.y * scale
-				smoothed_velocity.z = smoothed_velocity.z * scale
+			-- ---  D. clamp ground speed (no alloc)
+			if is_on_ground then
+				local vel_length = smoothed_velocity:Length()
+				if vel_length > target_max_speed then
+					local scale = target_max_speed / vel_length
+					smoothed_velocity.x = smoothed_velocity.x * scale
+					smoothed_velocity.y = smoothed_velocity.y * scale
+					smoothed_velocity.z = smoothed_velocity.z * scale
+				end
 			end
+
+			-- ---  E. physics move (StepMove still allocates internally)
+			local new_pos, new_velocity = StepMove(
+				last_pos,
+				smoothed_velocity,
+				tick_interval,
+				mins,
+				maxs,
+				shouldHitEntity,
+				pTarget,
+				surface_friction,
+				step_size
+			)
+	
+			last_pos = new_pos
+			smoothed_velocity = new_velocity
+			positions[#positions + 1] = last_pos
 		end
-
-		-- ---  E. physics move (StepMove still allocates internally)
-		local new_pos, new_velocity = StepMove(
-			last_pos,
-			smoothed_velocity,
-			tick_interval,
-			mins,
-			maxs,
-			shouldHitEntity,
-			pTarget,
-			surface_friction,
-			step_size
-		)
-
-		last_pos = new_pos
-		smoothed_velocity = new_velocity
-		positions[#positions + 1] = last_pos
 
 		-- ---  F. gravity
 		was_onground = is_on_ground
