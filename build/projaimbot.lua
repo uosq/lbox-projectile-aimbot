@@ -573,11 +573,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local step_size = pTarget:GetPropFloat("m_flStepSize")
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
-	local player_path = player_sim.Run(step_size, pTarget, vecTargetOrigin, time_ticks)
+	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
 	if player_path == nil then
 		return
 	end
@@ -3793,12 +3792,11 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
 	return final_origin, final_velocity, final_blocked, step_height
 end
 
----@param stepSize number
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
 ---@return Vector3[]
-function sim.Run(stepSize, pTarget, initial_pos, time)
+function sim.Run(pTarget, initial_pos, time)
 	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
@@ -3814,7 +3812,7 @@ function sim.Run(stepSize, pTarget, initial_pos, time)
 
 	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 	local down_vector = tmp1
-	down_vector.x, down_vector.y, down_vector.z = 0, 0, -stepSize -- re-use tmp1
+	down_vector.x, down_vector.y, down_vector.z = 0, 0, -step_size -- re-use tmp1
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw

@@ -529,11 +529,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local step_size = pTarget:GetPropFloat("m_flStepSize")
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
-	local player_path = player_sim.Run(step_size, pTarget, vecTargetOrigin, time_ticks)
+	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
 	if player_path == nil then
 		return
 	end
