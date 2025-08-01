@@ -557,8 +557,12 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+	if weaponInfo == nil then
+		return
+	end
+
+	local vecTargetOrigin = pTarget:GetAbsOrigin()
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
@@ -568,11 +572,11 @@ local function CreateMove(uCmd)
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
 	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
 	local total_time = travel_time_est + detonate_time
-	
+
 	if total_time > settings.max_sim_time then
 		return
 	end
-	
+
 	local step_size = pTarget:GetPropFloat("m_flStepSize")
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time

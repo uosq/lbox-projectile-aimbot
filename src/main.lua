@@ -513,8 +513,12 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
 	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
+	if weaponInfo == nil then
+		return
+	end
+
+	local vecTargetOrigin = pTarget:GetAbsOrigin()
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
