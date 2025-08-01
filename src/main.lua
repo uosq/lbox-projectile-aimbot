@@ -1,7 +1,7 @@
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v7-experimental
+	Update: v8
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -12,13 +12,9 @@
 
 ---@diagnostic disable: cast-local-type
 
---[[
-	TODO: add the other weapon logic!
-]]
-
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "7"
+local version = "8"
 
 local settings = {
 	enabled = true,
@@ -539,6 +535,21 @@ local function CreateMove(uCmd)
 
 	local player_path = player_sim.Run(step_size, pTarget, vecTargetOrigin, time_ticks)
 	if player_path == nil then
+		return
+	end
+
+	if settings.draw_only then
+		local vecPredictedPos = player_path[#player_path]
+		local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+		local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
+		if angle == nil then
+			return
+		end
+
+		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
+		paths.player_path = player_path
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end
 
