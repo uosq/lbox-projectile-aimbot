@@ -30,8 +30,8 @@ local settings = {
 	draw_player_path = true,
 	draw_bounding_box = true,
 	draw_only = false,
-	max_distance = 2048,
-	multipointing = false,
+	max_distance = 1024,
+	multipointing = true,
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
@@ -54,7 +54,7 @@ local settings = {
 		["aim teleporters"] = true,
 	},
 
-	psilent = false,
+	psilent = true,
 
 	ignore_conds = {
 		cloaked = true,
@@ -524,6 +524,11 @@ local function CreateMove(uCmd)
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
 	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
 	local total_time = travel_time_est + detonate_time
+
+	if total_time > settings.max_sim_time then
+		return
+	end
+
 	local step_size = pTarget:GetPropFloat("m_flStepSize")
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
