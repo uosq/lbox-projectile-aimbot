@@ -116,6 +116,8 @@ local paths = {
 	player_path = {},
 }
 
+local multipoint_target_pos = nil
+
 local original_gui_value = gui.GetValue("projectile aimbot")
 
 local function ShouldSkipPlayer(pPlayer)
@@ -418,6 +420,8 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	multipoint_target_pos = nil
+
 	if settings.enabled == false then
 		return
 	end
@@ -537,7 +541,7 @@ local function CreateMove(uCmd)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	if (not is_visible or bIsHuntsman) and settings.multipointing then
+	if settings.multipointing then
 		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
@@ -565,6 +569,7 @@ local function CreateMove(uCmd)
 		end
 
 		vecPredictedPos = best_multipoint
+		multipoint_target_pos = best_multipoint
 	end
 
 	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
@@ -673,6 +678,31 @@ local function DrawProjPath()
 	end
 end
 
+local function DrawMultipointTarget()
+	if not multipoint_target_pos then
+		return
+	end
+
+	local screen_pos = client.WorldToScreen(multipoint_target_pos)
+	if not screen_pos then
+		return
+	end
+
+	-- Draw a small square at the multipoint target position
+	local square_size = 8
+	local half_size = square_size / 2
+
+	-- Draw filled square
+	draw.Color(255, 0, 0, 200) -- Red with alpha
+	draw.FilledRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+
+	-- Draw outline
+	draw.Color(255, 255, 255, 255) -- White outline
+	draw.OutlinedRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+end
+
 local function Draw()
 	if not settings.enabled then
 		return
@@ -681,6 +711,7 @@ local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
+		multipoint_target_pos = nil
 		return
 	end
 
@@ -701,6 +732,9 @@ local function Draw()
 		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
+
+	-- Draw multipoint target indicator
+	DrawMultipointTarget()
 end
 
 local function FrameStage(stage)

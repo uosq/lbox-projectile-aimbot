@@ -159,6 +159,8 @@ local paths = {
 	player_path = {},
 }
 
+local multipoint_target_pos = nil
+
 local original_gui_value = gui.GetValue("projectile aimbot")
 
 local function ShouldSkipPlayer(pPlayer)
@@ -461,6 +463,8 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	multipoint_target_pos = nil
+
 	if settings.enabled == false then
 		return
 	end
@@ -580,7 +584,7 @@ local function CreateMove(uCmd)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	if (not is_visible or bIsHuntsman) and settings.multipointing then
+	if settings.multipointing then
 		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
@@ -608,6 +612,7 @@ local function CreateMove(uCmd)
 		end
 
 		vecPredictedPos = best_multipoint
+		multipoint_target_pos = best_multipoint
 	end
 
 	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
@@ -716,6 +721,31 @@ local function DrawProjPath()
 	end
 end
 
+local function DrawMultipointTarget()
+	if not multipoint_target_pos then
+		return
+	end
+
+	local screen_pos = client.WorldToScreen(multipoint_target_pos)
+	if not screen_pos then
+		return
+	end
+
+	-- Draw a small square at the multipoint target position
+	local square_size = 8
+	local half_size = square_size / 2
+
+	-- Draw filled square
+	draw.Color(255, 0, 0, 200) -- Red with alpha
+	draw.FilledRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+
+	-- Draw outline
+	draw.Color(255, 255, 255, 255) -- White outline
+	draw.OutlinedRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+end
+
 local function Draw()
 	if not settings.enabled then
 		return
@@ -724,6 +754,7 @@ local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
+		multipoint_target_pos = nil
 		return
 	end
 
@@ -744,6 +775,9 @@ local function Draw()
 		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
+
+	-- Draw multipoint target indicator
+	DrawMultipointTarget()
 end
 
 local function FrameStage(stage)
@@ -780,6 +814,7 @@ printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while
 if gui.GetValue("projectile aimbot") ~= "none" then
 	gui.SetValue("projectile aimbot", "none")
 end
+
 end)
 __bundle_register("src.multipoint", function(require, _LOADED, __bundle_register, __bundle_modules)
 -- Constants
@@ -861,7 +896,7 @@ function multipoint:GetBestHitPoint()
 
 	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
 	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 10)
+	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 5)
 
 	local fallback_points = {
 		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
@@ -901,45 +936,45 @@ function multipoint:GetBestHitPoint()
 		{ pos = Vector3(target_width / 2, 0, target_height),                      name = "top_right" },
 	}
 
-	-- 1. Bows/headshot weapons
+	-- Ustal punkt priorytetowy w zależności od typu broni:
+	-- dla łuku celujemy w głowę, dla broni splash w stopy (10 jednostek nad predicted pos),
+	-- w przeciwnym razie domyślnie w środek hitboxa.
+	local primary_pos
 	if self.bIsHuntsman then
-		if self.settings.hitparts.head and head_pos and canShootToPoint(head_pos) then
-			return head_pos
+		if self.settings.hitparts.head and head_pos then
+			primary_pos = head_pos
+		else
+			primary_pos = center_pos
 		end
-		if canShootToPoint(center_pos) then
-			return center_pos
+	elseif self.bIsSplash then
+		if self.settings.hitparts.feet and is_on_ground then
+			primary_pos = feet_pos
+		else
+			primary_pos = center_pos
 		end
-		if self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-			return feet_pos
-		end
-		for _, point in ipairs(fallback_points) do
-			local test_pos = self.vecPredictedPos + point.pos
-			if canShootToPoint(test_pos) then
-				return test_pos
-			end
-		end
-		return nil
+	else
+		primary_pos = center_pos
 	end
 
-	-- 2. Explosive projectiles: feet first if enabled and on ground
-	if self.bIsSplash and self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-		return feet_pos
+	-- Najpierw próbujemy trafić w punkt priorytetowy.
+	if primary_pos and canShootToPoint(primary_pos) then
+		return primary_pos
 	end
-	-- Center next
-	if canShootToPoint(center_pos) then
+
+	-- Jeżeli punkt priorytetowy nie był środkiem, spróbuj środka.
+	if primary_pos ~= center_pos and canShootToPoint(center_pos) then
 		return center_pos
 	end
 
-	-- Try fallback points
+	-- Iteruj po punktach fallback (multipoint) i zwróć pierwszy osiągalny.
 	for _, point in ipairs(fallback_points) do
 		local test_pos = self.vecPredictedPos + point.pos
-
 		if canShootToPoint(test_pos) then
 			return test_pos
 		end
 	end
 
-	-- Fallback: return center position if all else fails
+	-- Ostateczny fallback: zwróć centrum.
 	return center_pos
 end
 
