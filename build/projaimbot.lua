@@ -233,6 +233,18 @@ local function GetCharge(pWeapon)
 	return charge_time
 end
 
+---@param weaponInfo WeaponInfo
+---@param player_path PredictionResult
+local function CanShootFromDistance(weaponInfo, player_path)
+	if weaponInfo:HasGravity() then
+		if paths.proj_path and #paths.proj_path then
+			local distance = (paths.proj_path[#paths.proj_path].pos - player_path[#player_path]):Length()
+			return distance < 50
+		end
+	end
+	return #paths.proj_path > 0
+end
+
 ---@param uCmd UserCmd
 ---@param pWeapon Entity
 ---@param pLocal Entity
@@ -281,7 +293,14 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		if charge > 0 then
+		if charge > 0 and wep_utils.CanShoot() then
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+				charge)
+
+			if not CanShootFromDistance(weaponInfo, player_path) then
+				return
+			end
+
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			if settings.psilent then
 				uCmd.sendpacket = false
@@ -289,8 +308,6 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.viewangles = Vector3(angle:Unpack())
 			displayed_time = globals.CurTime() + settings.draw_time
 			paths.player_path = player_path
-			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
-				charge)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
