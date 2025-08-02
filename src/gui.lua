@@ -9,7 +9,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 function gui.init(settings, version)
 	local window = menu:make_window()
 	window.width = 670
-	window.height = 225
+	window.height = 270
 
 	local btn_starty = 10
 	local component_width = 260
@@ -134,6 +134,19 @@ function gui.init(settings, version)
 		draw_multipoint_target_btn.enabled = settings.draw_multipoint_target
 	end
 
+	local cancel_shot_btn = menu:make_checkbox()
+	cancel_shot_btn.height = component_height
+	cancel_shot_btn.width = component_width
+	cancel_shot_btn.label = "cancel shot"
+	cancel_shot_btn.enabled = settings.cancel_shot
+	cancel_shot_btn.x = 10
+	cancel_shot_btn.y = get_btn_y()
+
+	cancel_shot_btn.func = function()
+		settings.cancel_shot = not settings.cancel_shot
+		cancel_shot_btn.enabled = settings.cancel_shot
+	end
+
 	--- right side
 
 	btn_starty = 10
@@ -193,6 +206,20 @@ function gui.init(settings, version)
 			btn.enabled = settings.ents[name]
 		end
 	end
+
+	local wait_charge_btn = menu:make_checkbox()
+	wait_charge_btn.height = component_height
+	wait_charge_btn.width = component_width
+	wait_charge_btn.label = "wait for charge (laggy)"
+	wait_charge_btn.enabled = settings.wait_for_charge
+	wait_charge_btn.x = component_width + 20
+	wait_charge_btn.y = get_btn_y()
+
+	wait_charge_btn.func = function()
+		settings.wait_for_charge = not settings.wait_for_charge
+		wait_charge_btn.enabled = settings.wait_for_charge
+	end
+
 	---
 
 	menu:make_tab("misc")
@@ -282,6 +309,23 @@ function gui.init(settings, version)
 
 	time_slider.func = function()
 		settings.draw_time = time_slider.value
+	end
+
+	local percent_slider = menu:make_slider()
+	assert(percent_slider, "max percentage slider is nil somehow!")
+
+	percent_slider.font = font
+	percent_slider.height = 20
+	percent_slider.label = "max charge (%)"
+	percent_slider.max = 100
+	percent_slider.min = 0
+	percent_slider.value = settings.max_percent
+	percent_slider.width = component_width * 2
+	percent_slider.x = 10
+	percent_slider.y = get_slider_y()
+
+	percent_slider.func = function()
+		settings.max_percent = percent_slider.value
 	end
 
 	menu:make_tab("conditions")
