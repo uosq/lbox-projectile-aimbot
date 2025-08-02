@@ -615,19 +615,100 @@ local function CreateMove(uCmd)
 		multipoint_target_pos = best_multipoint
 	end
 
-	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-	local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
-	if angle == nil then
+	-- Two-pass aiming system for precise targeting
+	local function TryAimAtPoint(target_pos)
+		-- First pass: Aim at the target point
+		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
+		local first_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos, forward_speed, gravity)
+		if not first_angle then
+			return nil, nil
+		end
+
+		-- Get our weapon fire position for this angle
+		local first_fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, first_angle, pWeapon:IsViewModelFlipped())
+
+		-- Check if we can hit the target from our fire position
+		local first_trace = engine.TraceHull(first_fire_pos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if not first_trace or (first_trace.fraction < 0.9 and first_trace.entity ~= pTarget) then
+			return nil, nil
+		end
+
+		-- Second pass: Make target "aim back" at our fire position
+		-- Calculate direction from target to our fire position
+		local target_to_fire_dir = math_utils.NormalizeVector(first_fire_pos - target_pos)
+
+		-- Get the target's "shoot position" (where they would shoot from if aiming at our fire pos)
+		local target_shoot_pos = target_pos + target_to_fire_dir * 50 -- Approximate weapon offset
+
+		-- Now solve aiming at the target's shoot position
+		local final_angle = math_utils.SolveBallisticArc(vecHeadPos, target_shoot_pos, forward_speed, gravity)
+		if not final_angle then
+			return nil, nil
+		end
+
+		-- Get our final fire position
+		local final_fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, final_angle, pWeapon:IsViewModelFlipped())
+
+		-- Final trace check
+		local final_trace = engine.TraceHull(final_fire_pos, target_shoot_pos, vecMins, vecMaxs, MASK_SHOT_HULL,
+			shouldHit)
+		if not final_trace or (final_trace.fraction < 0.9 and final_trace.entity ~= pTarget) then
+			return nil, nil
+		end
+
+		return final_angle, final_fire_pos
+	end
+
+	-- Try aiming at the predicted position
+	local final_angle, final_fire_pos = TryAimAtPoint(vecPredictedPos)
+
+	-- If multipoint is enabled and first attempt failed, try multipoint positions
+	if not final_angle and settings.multipointing then
+		-- Get all available multipoint positions
+		local multipoint_positions = {}
+
+		-- Add primary positions based on weapon type
+		if bIsHuntsman and settings.hitparts.head then
+			local head_pos = vecPredictedPos + Vector3(0, 0, 82)
+			table.insert(multipoint_positions, head_pos)
+		end
+
+		if bSplashWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
+			local feet_pos = vecPredictedPos + Vector3(0, 0, 10)
+			table.insert(multipoint_positions, feet_pos)
+		end
+
+		-- Add center position
+		table.insert(multipoint_positions, vecPredictedPos)
+
+		-- Add fallback multipoint positions
+		local fallback_points = {
+			{ pos = Vector3(0, 0, 41) }, -- Center height
+			{ pos = Vector3(0, 0, 20) }, -- Lower center
+			{ pos = Vector3(0, 0, 60) }, -- Upper center
+		}
+
+		for _, point in ipairs(fallback_points) do
+			local test_pos = vecPredictedPos + point.pos
+			table.insert(multipoint_positions, test_pos)
+		end
+
+		-- Try each position until one works
+		for _, pos in ipairs(multipoint_positions) do
+			final_angle, final_fire_pos = TryAimAtPoint(pos)
+			if final_angle then
+				multipoint_target_pos = pos
+				break
+			end
+		end
+	end
+
+	if not final_angle then
 		return
 	end
 
-	local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
-	trace = engine.TraceHull(vecWeaponFirePos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
-		return
-	end
-
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vecWeaponFirePos, weaponInfo, total_time, charge_time)
+	HandleWeaponFiring(uCmd, pLocal, pWeapon, final_angle, player_path, final_fire_pos, weaponInfo, total_time,
+		charge_time)
 end
 
 --- Terminator (titaniummachine1) made this
