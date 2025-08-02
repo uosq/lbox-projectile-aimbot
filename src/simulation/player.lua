@@ -32,7 +32,7 @@ local SURFACE_FRICTION = 1.0   -- Default surface friction
 local MAX_CLIP_PLANES = 5
 local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
 
-local MAX_SAMPLES      = 8       -- tuned window size
+local MAX_SAMPLES      = 16       -- tuned window size
 local SMOOTH_ALPHA_G   = 0.392   -- tuned ground α
 local SMOOTH_ALPHA_A   = 0.127   -- tuned air α
 

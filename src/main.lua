@@ -26,13 +26,13 @@ local settings = {
 	draw_player_path = true,
 	draw_bounding_box = true,
 	draw_only = false,
+	draw_multipoint_target = false,
 	max_distance = 1024,
-	multipointing = true,
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
 	explosive = true,
-	aim_circle = true,
+	multipointing = true,
 
 	hitparts = {
 		head = true,
@@ -85,6 +85,7 @@ local player_sim = require("src.simulation.player")
 assert(player_sim, "[PROJ AIMBOT] Player prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Player prediction module loaded")
 
+---@type ProjectileSimulation
 local proj_sim = require("src.simulation.proj")
 assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
@@ -255,13 +256,13 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -276,10 +277,54 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
 				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
-					charge_time)
+					charge)
 			end
 		end
 	end
+end
+
+---@param position Vector3
+---@param mins Vector3
+---@param maxs Vector3
+---@param pTarget Entity
+---@param step_height number
+---@return boolean
+local function IsOnGround(position, mins, maxs, pTarget, step_height)
+	local target_index = pTarget:GetIndex()
+
+	local function shouldHit(ent)
+		return ent:GetIndex() ~= target_index
+	end
+
+	-- Trace down from bottom of bounding box
+	local bbox_bottom = position + Vector3(0, 0, mins.z)
+	local trace_end = bbox_bottom + Vector3(0, 0, -step_height)
+
+	local trace = engine.TraceHull(bbox_bottom, trace_end, Vector3(), Vector3(), MASK_SHOT_HULL, shouldHit)
+
+	if trace and trace.fraction < 1 then
+		-- Check walkability
+		local ground_angle = math.deg(math.acos(trace.plane:Dot(Vector3(0, 0, 1))))
+
+		if ground_angle <= 45 then
+			-- Verify we can fit above the surface
+			local hit_point = bbox_bottom + (trace_end - bbox_bottom) * trace.fraction
+			local step_test_start = hit_point + Vector3(0, 0, step_height)
+			local step_trace = engine.TraceHull(step_test_start, position, mins, maxs, MASK_SHOT_HULL, shouldHit)
+
+			return not step_trace or step_trace.fraction >= 1
+		end
+	end
+
+	return false
+end
+
+---@param pEntity Entity
+---@return boolean
+local function IsPlayerOnGround(pEntity)
+	local mins, maxs = pEntity:GetMins(), pEntity:GetMaxs()
+	local origin = pEntity:GetAbsOrigin()
+	return IsOnGround(origin, mins, maxs, pEntity, pEntity:GetPropFloat("m_flStepSize"))
 end
 
 ---@param uCmd UserCmd
@@ -401,20 +446,18 @@ local function CreateMove(uCmd)
 
 	local vecPredictedPos = player_path[#player_path]
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecHeadPos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	if settings.multipointing then
-		local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
+	local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
+	if settings.multipointing then
 		multipoint:Set(
 			pLocal,
 			pWeapon,
@@ -498,7 +541,7 @@ local function CreateMove(uCmd)
 			table.insert(multipoint_positions, head_pos)
 		end
 
-		if bExplosiveWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
+		if bExplosiveWeapon and settings.hitparts.feet and IsPlayerOnGround(pTarget) then
 			local feet_pos = vecPredictedPos + Vector3(0, 0, 10)
 			table.insert(multipoint_positions, feet_pos)
 		end
@@ -528,7 +571,7 @@ local function CreateMove(uCmd)
 		end
 	end
 
-	if not final_angle then
+	if not final_angle or not final_fire_pos then
 		return
 	end
 
@@ -683,7 +726,9 @@ local function Draw()
 	end
 
 	-- Draw multipoint target indicator
-	DrawMultipointTarget()
+	if settings.draw_multipoint_target then
+		DrawMultipointTarget()
+	end
 end
 
 local function FrameStage(stage)

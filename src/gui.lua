@@ -112,7 +112,7 @@ function gui.init(settings, version)
 	draw_only_btn.height = component_height
 	draw_only_btn.width = component_width
 	draw_only_btn.label = "draw only"
-	draw_only_btn.enabled = settings.draw_only
+	draw_only_btn.enabled = settings.draw_multipoint_target
 	draw_only_btn.x = 10
 	draw_only_btn.y = get_btn_y()
 
@@ -121,35 +121,22 @@ function gui.init(settings, version)
 		draw_only_btn.enabled = settings.draw_only
 	end
 
-	local psilent_btn = menu:make_checkbox()
-	psilent_btn.height = component_height
-	psilent_btn.width = component_width
-	psilent_btn.label = "silent+"
-	psilent_btn.enabled = settings.psilent
-	psilent_btn.x = 10
-	psilent_btn.y = get_btn_y()
+	local draw_multipoint_target_btn = menu:make_checkbox()
+	draw_multipoint_target_btn.height = component_height
+	draw_multipoint_target_btn.width = component_width
+	draw_multipoint_target_btn.label = "draw multpoint target"
+	draw_multipoint_target_btn.enabled = settings.draw_only
+	draw_multipoint_target_btn.x = 10
+	draw_multipoint_target_btn.y = get_btn_y()
 
-	psilent_btn.func = function()
-		settings.psilent = not settings.psilent
-		psilent_btn.enabled = settings.psilent
+	draw_multipoint_target_btn.func = function()
+		settings.draw_multipoint_target = not settings.draw_multipoint_target
+		draw_multipoint_target_btn.enabled = settings.draw_multipoint_target
 	end
 
 	--- right side
 
 	btn_starty = 10
-
-	local multipoint_btn = menu:make_checkbox()
-	multipoint_btn.height = component_height
-	multipoint_btn.width = component_width
-	multipoint_btn.label = "multipoint"
-	multipoint_btn.enabled = settings.multipointing
-	multipoint_btn.x = component_width + 20
-	multipoint_btn.y = get_btn_y()
-
-	multipoint_btn.func = function()
-		settings.multipointing = not settings.multipointing
-		multipoint_btn.enabled = settings.multipointing
-	end
 
 	local allow_aim_at_teammates_btn = menu:make_checkbox()
 	allow_aim_at_teammates_btn.height = component_height
@@ -162,6 +149,19 @@ function gui.init(settings, version)
 	allow_aim_at_teammates_btn.func = function()
 		settings.allow_aim_at_teammates = not settings.allow_aim_at_teammates
 		allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	end
+
+	local psilent_btn = menu:make_checkbox()
+	psilent_btn.height = component_height
+	psilent_btn.width = component_width
+	psilent_btn.label = "silent+"
+	psilent_btn.enabled = settings.psilent
+	psilent_btn.x = component_width + 20
+	psilent_btn.y = get_btn_y()
+
+	psilent_btn.func = function()
+		settings.psilent = not settings.psilent
+		psilent_btn.enabled = settings.psilent
 	end
 
 	local lag_comp_btn = menu:make_checkbox()
@@ -323,8 +323,23 @@ function gui.init(settings, version)
 	--local hitpoints_tab = menu:make_tab("hitpoints")
 	menu:make_tab("hitpoints")
 
-	column = 1
-	left_column_count = 0
+	btn_starty = 10
+
+	local multipoint_btn = menu:make_checkbox()
+	multipoint_btn.height = component_height
+	multipoint_btn.width = component_width
+	multipoint_btn.label = "multipoint"
+	multipoint_btn.enabled = settings.multipointing
+	multipoint_btn.x = 10
+	multipoint_btn.y = get_btn_y()
+
+	multipoint_btn.func = function()
+		settings.multipointing = not settings.multipointing
+		multipoint_btn.enabled = settings.multipointing
+	end
+
+	column = 2
+	left_column_count = 1
 	right_column_count = 0
 
 	for name, enabled in pairs(settings.hitparts) do
@@ -357,37 +372,6 @@ function gui.init(settings, version)
 			btn.enabled = settings.hitparts[name]
 		end
 	end
-
-	--- happy now lsp?
-	--[[if hitpoints_tab then
-		menu:set_tab_draw_function(hitpoints_tab, function(current_window, current_tab, content_offset)
-			local head_width = 20
-			local centerx = (content_offset // 2) + current_window.x + (current_window.width // 2) - (head_width // 2)
-			local y = window.y + (window.height // 2) - 50
-
-			draw.Color(150, 255, 150, 255)
-			draw.OutlinedCircle(centerx, y, head_width, 32)
-
-			--- torso
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + head_width, centerx, y + 100)
-
-			--- left leg
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + 100, centerx - 20, y + 150)
-
-			--- right leg
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + 100, centerx + 20, y + 150)
-
-			--- left arm
-			draw.Color(255, 100, 100, 255)
-			draw.Line(centerx, y + head_width, centerx - 55, y + 70)
-
-			--- right arm
-			draw.Line(centerx, y + head_width, centerx + 55, y + 70)
-		end)
-	end]]
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")

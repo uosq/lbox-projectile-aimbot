@@ -70,13 +70,13 @@ local settings = {
 	draw_player_path = true,
 	draw_bounding_box = true,
 	draw_only = false,
+	draw_multipoint_target = false,
 	max_distance = 1024,
-	multipointing = true,
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
 	explosive = true,
-	aim_circle = true,
+	multipointing = true,
 
 	hitparts = {
 		head = true,
@@ -129,6 +129,7 @@ local player_sim = require("src.simulation.player")
 assert(player_sim, "[PROJ AIMBOT] Player prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Player prediction module loaded")
 
+---@type ProjectileSimulation
 local proj_sim = require("src.simulation.proj")
 assert(proj_sim, "[PROJ AIMBOT] Projectile prediction module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Projectile prediction module loaded")
@@ -299,13 +300,13 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -320,10 +321,54 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
 				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
-					charge_time)
+					charge)
 			end
 		end
 	end
+end
+
+---@param position Vector3
+---@param mins Vector3
+---@param maxs Vector3
+---@param pTarget Entity
+---@param step_height number
+---@return boolean
+local function IsOnGround(position, mins, maxs, pTarget, step_height)
+	local target_index = pTarget:GetIndex()
+
+	local function shouldHit(ent)
+		return ent:GetIndex() ~= target_index
+	end
+
+	-- Trace down from bottom of bounding box
+	local bbox_bottom = position + Vector3(0, 0, mins.z)
+	local trace_end = bbox_bottom + Vector3(0, 0, -step_height)
+
+	local trace = engine.TraceHull(bbox_bottom, trace_end, Vector3(), Vector3(), MASK_SHOT_HULL, shouldHit)
+
+	if trace and trace.fraction < 1 then
+		-- Check walkability
+		local ground_angle = math.deg(math.acos(trace.plane:Dot(Vector3(0, 0, 1))))
+
+		if ground_angle <= 45 then
+			-- Verify we can fit above the surface
+			local hit_point = bbox_bottom + (trace_end - bbox_bottom) * trace.fraction
+			local step_test_start = hit_point + Vector3(0, 0, step_height)
+			local step_trace = engine.TraceHull(step_test_start, position, mins, maxs, MASK_SHOT_HULL, shouldHit)
+
+			return not step_trace or step_trace.fraction >= 1
+		end
+	end
+
+	return false
+end
+
+---@param pEntity Entity
+---@return boolean
+local function IsPlayerOnGround(pEntity)
+	local mins, maxs = pEntity:GetMins(), pEntity:GetMaxs()
+	local origin = pEntity:GetAbsOrigin()
+	return IsOnGround(origin, mins, maxs, pEntity, pEntity:GetPropFloat("m_flStepSize"))
 end
 
 ---@param uCmd UserCmd
@@ -445,20 +490,18 @@ local function CreateMove(uCmd)
 
 	local vecPredictedPos = player_path[#player_path]
 	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace = engine.TraceHull(vecHeadPos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	if settings.multipointing then
-		local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
+	local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+		or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
+	if settings.multipointing then
 		multipoint:Set(
 			pLocal,
 			pWeapon,
@@ -542,7 +585,7 @@ local function CreateMove(uCmd)
 			table.insert(multipoint_positions, head_pos)
 		end
 
-		if bExplosiveWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
+		if bExplosiveWeapon and settings.hitparts.feet and IsPlayerOnGround(pTarget) then
 			local feet_pos = vecPredictedPos + Vector3(0, 0, 10)
 			table.insert(multipoint_positions, feet_pos)
 		end
@@ -572,7 +615,7 @@ local function CreateMove(uCmd)
 		end
 	end
 
-	if not final_angle then
+	if not final_angle or not final_fire_pos then
 		return
 	end
 
@@ -727,7 +770,9 @@ local function Draw()
 	end
 
 	-- Draw multipoint target indicator
-	DrawMultipointTarget()
+	if settings.draw_multipoint_target then
+		DrawMultipointTarget()
+	end
 end
 
 local function FrameStage(stage)
@@ -773,7 +818,6 @@ __bundle_register("src.target_selector", function(require, _LOADED, __bundle_reg
 ]]
 
 local math_utils   = require("src.utils.math")
-local ent_utils    = require("src.utils.entity")
 
 -- =============== Tunables ===============
 local DAM_DEFAULT  = 50 -- default damage if you don't have per-weapon value here
@@ -1117,82 +1161,6 @@ function TargetSelector.ShouldSkipPlayer(pPlayer, settings)
 end
 
 return TargetSelector
-
-end)
-__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
-local ent_utils = {}
-
----@param plocal Entity
-function ent_utils.GetShootPosition(plocal)
-	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-end
-
----@param entity Entity
----@return table<integer, Vector3>
-function ent_utils.GetBones(entity)
-	local model = entity:GetModel()
-	local studioHdr = models.GetStudioModel(model)
-
-	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
-	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
-	local hitboxes = hitboxSet:GetHitboxes()
-
-	--boneMatrices is an array of 3x4 float matrices
-	local boneMatrices = entity:SetupBones()
-
-    local bones = {}
-
-	for i = 1, #hitboxes do
-		local hitbox = hitboxes[i]
-		local bone = hitbox:GetBone()
-
-		local boneMatrix = boneMatrices[bone]
-
-		if boneMatrix == nil then
-			goto continue
-		end
-
-		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
-
-        bones[i] = bonePos
-		::continue::
-	end
-
-    return bones
-end
-
----@param player Entity
----@param shootpos Vector3
----@param viewangle EulerAngles
----@param PREFERRED_BONES table
-function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
-	local bones = ent_utils.GetBones(player)
-	local info = {}
-	info.fov = math.huge
-	info.angle = nil
-	info.index = nil
-	info.pos = nil
-
-	for _, preferred_bone in ipairs(PREFERRED_BONES) do
-		local bonePos = bones[preferred_bone]
-		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
-
-		if trace and trace.fraction >= 0.6 then
-			local angle = utils.PositionAngles(shootpos, bonePos)
-			local fov = utils.AngleFov(angle, viewangle)
-
-			if fov < info.fov then
-				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
-				info.pos = bonePos
-				break --- found a suitable bone, no need to check the other ones
-			end
-		end
-	end
-
-	return info
-end
-
-return ent_utils
 
 end)
 __bundle_register("src.utils.math", function(require, _LOADED, __bundle_register, __bundle_modules)
@@ -1667,7 +1635,7 @@ function gui.init(settings, version)
 	draw_only_btn.height = component_height
 	draw_only_btn.width = component_width
 	draw_only_btn.label = "draw only"
-	draw_only_btn.enabled = settings.draw_only
+	draw_only_btn.enabled = settings.draw_multipoint_target
 	draw_only_btn.x = 10
 	draw_only_btn.y = get_btn_y()
 
@@ -1676,35 +1644,22 @@ function gui.init(settings, version)
 		draw_only_btn.enabled = settings.draw_only
 	end
 
-	local psilent_btn = menu:make_checkbox()
-	psilent_btn.height = component_height
-	psilent_btn.width = component_width
-	psilent_btn.label = "silent+"
-	psilent_btn.enabled = settings.psilent
-	psilent_btn.x = 10
-	psilent_btn.y = get_btn_y()
+	local draw_multipoint_target_btn = menu:make_checkbox()
+	draw_multipoint_target_btn.height = component_height
+	draw_multipoint_target_btn.width = component_width
+	draw_multipoint_target_btn.label = "draw multpoint target"
+	draw_multipoint_target_btn.enabled = settings.draw_only
+	draw_multipoint_target_btn.x = 10
+	draw_multipoint_target_btn.y = get_btn_y()
 
-	psilent_btn.func = function()
-		settings.psilent = not settings.psilent
-		psilent_btn.enabled = settings.psilent
+	draw_multipoint_target_btn.func = function()
+		settings.draw_multipoint_target = not settings.draw_multipoint_target
+		draw_multipoint_target_btn.enabled = settings.draw_multipoint_target
 	end
 
 	--- right side
 
 	btn_starty = 10
-
-	local multipoint_btn = menu:make_checkbox()
-	multipoint_btn.height = component_height
-	multipoint_btn.width = component_width
-	multipoint_btn.label = "multipoint"
-	multipoint_btn.enabled = settings.multipointing
-	multipoint_btn.x = component_width + 20
-	multipoint_btn.y = get_btn_y()
-
-	multipoint_btn.func = function()
-		settings.multipointing = not settings.multipointing
-		multipoint_btn.enabled = settings.multipointing
-	end
 
 	local allow_aim_at_teammates_btn = menu:make_checkbox()
 	allow_aim_at_teammates_btn.height = component_height
@@ -1717,6 +1672,19 @@ function gui.init(settings, version)
 	allow_aim_at_teammates_btn.func = function()
 		settings.allow_aim_at_teammates = not settings.allow_aim_at_teammates
 		allow_aim_at_teammates_btn.enabled = settings.allow_aim_at_teammates
+	end
+
+	local psilent_btn = menu:make_checkbox()
+	psilent_btn.height = component_height
+	psilent_btn.width = component_width
+	psilent_btn.label = "silent+"
+	psilent_btn.enabled = settings.psilent
+	psilent_btn.x = component_width + 20
+	psilent_btn.y = get_btn_y()
+
+	psilent_btn.func = function()
+		settings.psilent = not settings.psilent
+		psilent_btn.enabled = settings.psilent
 	end
 
 	local lag_comp_btn = menu:make_checkbox()
@@ -1878,8 +1846,23 @@ function gui.init(settings, version)
 	--local hitpoints_tab = menu:make_tab("hitpoints")
 	menu:make_tab("hitpoints")
 
-	column = 1
-	left_column_count = 0
+	btn_starty = 10
+
+	local multipoint_btn = menu:make_checkbox()
+	multipoint_btn.height = component_height
+	multipoint_btn.width = component_width
+	multipoint_btn.label = "multipoint"
+	multipoint_btn.enabled = settings.multipointing
+	multipoint_btn.x = 10
+	multipoint_btn.y = get_btn_y()
+
+	multipoint_btn.func = function()
+		settings.multipointing = not settings.multipointing
+		multipoint_btn.enabled = settings.multipointing
+	end
+
+	column = 2
+	left_column_count = 1
 	right_column_count = 0
 
 	for name, enabled in pairs(settings.hitparts) do
@@ -1912,37 +1895,6 @@ function gui.init(settings, version)
 			btn.enabled = settings.hitparts[name]
 		end
 	end
-
-	--- happy now lsp?
-	--[[if hitpoints_tab then
-		menu:set_tab_draw_function(hitpoints_tab, function(current_window, current_tab, content_offset)
-			local head_width = 20
-			local centerx = (content_offset // 2) + current_window.x + (current_window.width // 2) - (head_width // 2)
-			local y = window.y + (window.height // 2) - 50
-
-			draw.Color(150, 255, 150, 255)
-			draw.OutlinedCircle(centerx, y, head_width, 32)
-
-			--- torso
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + head_width, centerx, y + 100)
-
-			--- left leg
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + 100, centerx - 20, y + 150)
-
-			--- right leg
-			draw.Color(150, 255, 150, 255)
-			draw.Line(centerx, y + 100, centerx + 20, y + 150)
-
-			--- left arm
-			draw.Color(255, 100, 100, 255)
-			draw.Line(centerx, y + head_width, centerx - 55, y + 70)
-
-			--- right arm
-			draw.Line(centerx, y + head_width, centerx + 55, y + 70)
-		end)
-	end]]
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
@@ -3812,7 +3764,7 @@ local SURFACE_FRICTION = 1.0   -- Default surface friction
 local MAX_CLIP_PLANES = 5
 local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
 
-local MAX_SAMPLES      = 8       -- tuned window size
+local MAX_SAMPLES      = 16       -- tuned window size
 local SMOOTH_ALPHA_G   = 0.392   -- tuned ground α
 local SMOOTH_ALPHA_A   = 0.127   -- tuned air α
 
@@ -4426,6 +4378,82 @@ function sim.Run(pTarget, initial_pos, time)
 end
 
 return sim
+
+end)
+__bundle_register("src.utils.entity", function(require, _LOADED, __bundle_register, __bundle_modules)
+local ent_utils = {}
+
+---@param plocal Entity
+function ent_utils.GetShootPosition(plocal)
+	return plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+end
+
+---@param entity Entity
+---@return table<integer, Vector3>
+function ent_utils.GetBones(entity)
+	local model = entity:GetModel()
+	local studioHdr = models.GetStudioModel(model)
+
+	local myHitBoxSet = entity:GetPropInt("m_nHitboxSet")
+	local hitboxSet = studioHdr:GetHitboxSet(myHitBoxSet)
+	local hitboxes = hitboxSet:GetHitboxes()
+
+	--boneMatrices is an array of 3x4 float matrices
+	local boneMatrices = entity:SetupBones()
+
+    local bones = {}
+
+	for i = 1, #hitboxes do
+		local hitbox = hitboxes[i]
+		local bone = hitbox:GetBone()
+
+		local boneMatrix = boneMatrices[bone]
+
+		if boneMatrix == nil then
+			goto continue
+		end
+
+		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
+
+        bones[i] = bonePos
+		::continue::
+	end
+
+    return bones
+end
+
+---@param player Entity
+---@param shootpos Vector3
+---@param viewangle EulerAngles
+---@param PREFERRED_BONES table
+function ent_utils.FindVisibleBodyPart(player, shootpos, utils, viewangle, PREFERRED_BONES)
+	local bones = ent_utils.GetBones(player)
+	local info = {}
+	info.fov = math.huge
+	info.angle = nil
+	info.index = nil
+	info.pos = nil
+
+	for _, preferred_bone in ipairs(PREFERRED_BONES) do
+		local bonePos = bones[preferred_bone]
+		local trace = engine.TraceLine(shootpos, bonePos, MASK_SHOT_HULL)
+
+		if trace and trace.fraction >= 0.6 then
+			local angle = utils.PositionAngles(shootpos, bonePos)
+			local fov = utils.AngleFov(angle, viewangle)
+
+			if fov < info.fov then
+				info.fov, info.angle, info.index = fov, angle, player:GetIndex()
+				info.pos = bonePos
+				break --- found a suitable bone, no need to check the other ones
+			end
+		end
+	end
+
+	return info
+end
+
+return ent_utils
 
 end)
 __bundle_register("src.utils.weapon_utils", function(require, _LOADED, __bundle_register, __bundle_modules)

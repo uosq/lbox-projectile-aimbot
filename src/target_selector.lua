@@ -4,7 +4,6 @@
 ]]
 
 local math_utils   = require("src.utils.math")
-local ent_utils    = require("src.utils.entity")
 
 -- =============== Tunables ===============
 local DAM_DEFAULT  = 50 -- default damage if you don't have per-weapon value here
