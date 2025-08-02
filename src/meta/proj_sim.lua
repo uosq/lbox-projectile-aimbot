@@ -35,7 +35,8 @@ function sim.CreateProjectile(pWeapon) end
 ---@param vecForward Vector3
 ---@param nTime number
 ---@param weapon_info WeaponInfo
+---@param charge_time number The charge time (0.0 to 1.0 for bows, 0.0 to 4.0 for stickies)
 ---@return ProjSimRet, boolean
-function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info) end
+function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, charge_time) end
 
 return sim

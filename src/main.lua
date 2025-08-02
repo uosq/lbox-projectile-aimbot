@@ -107,6 +107,7 @@ local E_TFCOND = E_TFCOND
 
 local displayed_time = 0.0
 local BEGGARS_BAZOOKA_INDEX = 730
+local LOOSE_CANNON_INDEX = 996
 
 --local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
 local target_min_hull, target_max_hull = Vector3(), Vector3()
@@ -301,12 +302,16 @@ end
 local function GetCharge(pWeapon)
 	local charge_time = 0.0
 
+	if not pWeapon then
+		return charge_time
+	end
+
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		-- check if bow is currently being charged
 		local charge_begin_time = pWeapon:GetChargeBeginTime()
 
 		-- if charge_begin_time is 0, the bow isn't charging
-		if charge_begin_time > 0 then
+		if charge_begin_time and charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			-- clamp charge time between 0 and 1 second (full charge)
 			charge_time = math.max(0, math.min(charge_time, 1.0))
@@ -317,11 +322,19 @@ local function GetCharge(pWeapon)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		local charge_begin_time = pWeapon:GetChargeBeginTime()
 
-		if charge_begin_time > 0 then
+		if charge_begin_time and charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			if charge_time > 4.0 then
 				charge_time = 0.0
 			end
+		end
+	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == LOOSE_CANNON_INDEX then -- The Loose Cannon
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		if charge_begin_time and charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- Loose Cannon has a maximum charge time of 1 second
+			charge_time = math.max(0, math.min(charge_time, 1.0))
 		end
 	end
 
@@ -351,7 +364,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				uCmd.viewangles = Vector3(angle:Unpack())
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
-				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+					charge)
 			end
 		else
 			if settings.autoshoot and wep_utils.CanShoot() then
@@ -370,7 +384,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.viewangles = Vector3(angle:Unpack())
 			displayed_time = globals.CurTime() + settings.draw_time
 			paths.player_path = player_path
-			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+				charge)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		if settings.autoshoot and wep_utils.CanShoot() then
@@ -385,20 +400,21 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.viewangles = Vector3(angle:Unpack())
 			displayed_time = globals.CurTime() + settings.draw_time
 			paths.player_path = player_path
-			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+				charge)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -412,7 +428,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				uCmd.viewangles = Vector3(angle:Unpack())
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
-				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+					charge_time)
 			end
 		end
 	end
@@ -517,7 +534,8 @@ local function CreateMove(uCmd)
 
 		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
+			charge_time)
 		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end
