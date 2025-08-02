@@ -857,7 +857,7 @@ end
 local function GetVisibilityWeight(pLocal, pTarget)
     if not pLocal or not pTarget then return 0 end
     local localViewPos  = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-    local targetViewPos = pTarget:GetAbsOrigin() + pTarget:GetPropVector("localdata", "m_vecViewOffset[0]")
+    local targetViewPos = pTarget:GetAbsOrigin() + (pTarget:IsPlayer() and pTarget:GetPropVector("localdata", "m_vecViewOffset[0]") or Vector3())
     local tr            = engine.TraceLine(localViewPos, targetViewPos, MASK_SHOT)
     -- be generous: either we hit the target, or almost no obstruction
     if tr and (tr.entity == pTarget or tr.fraction > 0.98) then
