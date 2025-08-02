@@ -1,4 +1,3 @@
--- Bundled by luabundle {"version":"1.7.0"}
 local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (function(superRequire)
 	local loadingPlaceholder = {[{}] = true}
 
@@ -862,44 +861,44 @@ function multipoint:GetBestHitPoint()
 
 	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
 	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos
+	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 10)
 
 	local fallback_points = {
 		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0), name = "bottom_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, 0), name = "bottom_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, 0), name = "bottom_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, 0), name = "bottom_corner_4" },
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0),                 name = "bottom_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, 0),                  name = "bottom_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, 0),                  name = "bottom_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, 0),                   name = "bottom_corner_4" },
 
 		-- Mid-height corners (body level)
 		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_4" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2),  name = "mid_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2),  name = "mid_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2),   name = "mid_corner_4" },
 
 		-- Mid-points on edges (body level)
-		{ pos = Vector3(0, -target_depth / 2, target_height / 2), name = "mid_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height / 2), name = "mid_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height / 2), name = "mid_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height / 2), name = "mid_right" },
+		{ pos = Vector3(0, -target_depth / 2, target_height / 2),                 name = "mid_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height / 2),                  name = "mid_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height / 2),                 name = "mid_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height / 2),                  name = "mid_right" },
 
 		-- Bottom mid-points (legs level)
-		{ pos = Vector3(0, -target_depth / 2, 0), name = "bottom_front" },
-		{ pos = Vector3(0, target_depth / 2, 0), name = "bottom_back" },
-		{ pos = Vector3(-target_width / 2, 0, 0), name = "bottom_left" },
-		{ pos = Vector3(target_width / 2, 0, 0), name = "bottom_right" },
+		{ pos = Vector3(0, -target_depth / 2, 0),                                 name = "bottom_front" },
+		{ pos = Vector3(0, target_depth / 2, 0),                                  name = "bottom_back" },
+		{ pos = Vector3(-target_width / 2, 0, 0),                                 name = "bottom_left" },
+		{ pos = Vector3(target_width / 2, 0, 0),                                  name = "bottom_right" },
 
 		-- Top corners (head level)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height), name = "top_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height), name = "top_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height), name = "top_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height), name = "top_corner_4" },
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height),     name = "top_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height),      name = "top_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height),      name = "top_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height),       name = "top_corner_4" },
 
 		-- Top mid-points (head level)
-		{ pos = Vector3(0, -target_depth / 2, target_height), name = "top_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height), name = "top_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height), name = "top_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height), name = "top_right" },
+		{ pos = Vector3(0, -target_depth / 2, target_height),                     name = "top_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height),                      name = "top_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height),                     name = "top_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height),                      name = "top_right" },
 	}
 
 	-- 1. Bows/headshot weapons
@@ -2439,7 +2438,7 @@ __bundle_register("src.projectile_info", function(require, _LOADED, __bundle_reg
 --[[
     This is a port of the GetProjectileInformation function
     from GoodEvening's Visualize Arc Trajectories
-    
+
     His Github: https://github.com/GoodEveningFellOff
     Source: https://github.com/GoodEveningFellOff/Lmaobox-Scripts/blob/main/Visualize%20Arc%20Trajectories/dev.lua
 --]]
@@ -2501,10 +2500,10 @@ local function DefineProjectileDefinition(tbl)
 		m_sModelName = tbl.sModelName or "",
 
 		GetOffset = not tbl.GetOffset
-				and function(self, bDucking, bIsFlipped)
-					return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
-						or self.m_vecOffset
-				end
+			and function(self, bDucking, bIsFlipped)
+				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
+					or self.m_vecOffset
+			end
 			or tbl.GetOffset, -- self, bDucking, bIsFlipped
 
 		GetAngleOffset = (not tbl.GetAngleOffset) and function(self, flChargeBeginTime)
@@ -2515,14 +2514,14 @@ local function DefineProjectileDefinition(tbl)
 			local resultTrace = TRACE_HULL(
 				vecLocalView,
 				vecLocalView
-					+ VEC_ROT(
-						self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped),
-						vecViewAngles
-					),
+				+ VEC_ROT(
+					self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped),
+					vecViewAngles
+				),
 				-Vector3(8, 8, 8),
 				Vector3(8, 8, 8),
-				100679691
-			) -- MASK_SOLID_BRUSHONLY
+				MASK_SHOT_HULL
+			) -- MASK_SHOT_HULL
 
 			return (not resultTrace.startsolid) and resultTrace.endpos or nil
 		end,
@@ -2999,7 +2998,7 @@ aProjectileInfo[26] = DefineSimulProjectileDefinition({
 		local vecFirePos = pLocalPlayer:GetAbsOrigin()
 			+ ((Vector3(0, 0, 50) + (vecViewAngles:Forward() * 32)) * pLocalPlayer:GetPropFloat("m_flModelScale"))
 
-		local resultTrace = TRACE_HULL(vecLocalView, vecFirePos, -Vector3(8, 8, 8), Vector3(8, 8, 8), 100679691) -- MASK_SOLID_BRUSHONLY
+		local resultTrace = TRACE_HULL(vecLocalView, vecFirePos, -Vector3(8, 8, 8), Vector3(8, 8, 8), MASK_SHOT_HULL) -- MASK_SOLID_BRUSHONLY
 
 		return (resultTrace.fraction == 1) and resultTrace.endpos or nil
 	end,
@@ -3078,7 +3077,7 @@ aProjectileInfo[32] = DefinePseudoProjectileDefinition({
 	vecVelocity = Vector3(500, 0, 0),
 	vecMaxs = Vector3(17, 17, 10),
 	flGravity = 1.02,
-	iTraceMask = 33636363, -- MASK_PLAYERSOLID
+	iTraceMask = MASK_SHOT_HULL, -- MASK_SHOT_HULL
 	iCollisionType = COLLISION_HEAL_HURT,
 })
 

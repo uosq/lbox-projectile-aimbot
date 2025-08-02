@@ -1,7 +1,7 @@
 --[[
     This is a port of the GetProjectileInformation function
     from GoodEvening's Visualize Arc Trajectories
-    
+
     His Github: https://github.com/GoodEveningFellOff
     Source: https://github.com/GoodEveningFellOff/Lmaobox-Scripts/blob/main/Visualize%20Arc%20Trajectories/dev.lua
 --]]
@@ -63,10 +63,10 @@ local function DefineProjectileDefinition(tbl)
 		m_sModelName = tbl.sModelName or "",
 
 		GetOffset = not tbl.GetOffset
-				and function(self, bDucking, bIsFlipped)
-					return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
-						or self.m_vecOffset
-				end
+			and function(self, bDucking, bIsFlipped)
+				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z)
+					or self.m_vecOffset
+			end
 			or tbl.GetOffset, -- self, bDucking, bIsFlipped
 
 		GetAngleOffset = (not tbl.GetAngleOffset) and function(self, flChargeBeginTime)
@@ -77,14 +77,14 @@ local function DefineProjectileDefinition(tbl)
 			local resultTrace = TRACE_HULL(
 				vecLocalView,
 				vecLocalView
-					+ VEC_ROT(
-						self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped),
-						vecViewAngles
-					),
+				+ VEC_ROT(
+					self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped),
+					vecViewAngles
+				),
 				-Vector3(8, 8, 8),
 				Vector3(8, 8, 8),
-				100679691
-			) -- MASK_SOLID_BRUSHONLY
+				MASK_SHOT_HULL
+			) -- MASK_SHOT_HULL
 
 			return (not resultTrace.startsolid) and resultTrace.endpos or nil
 		end,
@@ -561,7 +561,7 @@ aProjectileInfo[26] = DefineSimulProjectileDefinition({
 		local vecFirePos = pLocalPlayer:GetAbsOrigin()
 			+ ((Vector3(0, 0, 50) + (vecViewAngles:Forward() * 32)) * pLocalPlayer:GetPropFloat("m_flModelScale"))
 
-		local resultTrace = TRACE_HULL(vecLocalView, vecFirePos, -Vector3(8, 8, 8), Vector3(8, 8, 8), 100679691) -- MASK_SOLID_BRUSHONLY
+		local resultTrace = TRACE_HULL(vecLocalView, vecFirePos, -Vector3(8, 8, 8), Vector3(8, 8, 8), MASK_SHOT_HULL) -- MASK_SOLID_BRUSHONLY
 
 		return (resultTrace.fraction == 1) and resultTrace.endpos or nil
 	end,
@@ -640,7 +640,7 @@ aProjectileInfo[32] = DefinePseudoProjectileDefinition({
 	vecVelocity = Vector3(500, 0, 0),
 	vecMaxs = Vector3(17, 17, 10),
 	flGravity = 1.02,
-	iTraceMask = 33636363, -- MASK_PLAYERSOLID
+	iTraceMask = MASK_SHOT_HULL, -- MASK_SHOT_HULL
 	iCollisionType = COLLISION_HEAL_HURT,
 })
 

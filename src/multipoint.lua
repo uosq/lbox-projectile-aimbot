@@ -77,44 +77,44 @@ function multipoint:GetBestHitPoint()
 
 	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
 	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos
+	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 10)
 
 	local fallback_points = {
 		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0), name = "bottom_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, 0), name = "bottom_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, 0), name = "bottom_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, 0), name = "bottom_corner_4" },
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0),                 name = "bottom_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, 0),                  name = "bottom_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, 0),                  name = "bottom_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, 0),                   name = "bottom_corner_4" },
 
 		-- Mid-height corners (body level)
 		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_4" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2),  name = "mid_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2),  name = "mid_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2),   name = "mid_corner_4" },
 
 		-- Mid-points on edges (body level)
-		{ pos = Vector3(0, -target_depth / 2, target_height / 2), name = "mid_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height / 2), name = "mid_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height / 2), name = "mid_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height / 2), name = "mid_right" },
+		{ pos = Vector3(0, -target_depth / 2, target_height / 2),                 name = "mid_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height / 2),                  name = "mid_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height / 2),                 name = "mid_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height / 2),                  name = "mid_right" },
 
 		-- Bottom mid-points (legs level)
-		{ pos = Vector3(0, -target_depth / 2, 0), name = "bottom_front" },
-		{ pos = Vector3(0, target_depth / 2, 0), name = "bottom_back" },
-		{ pos = Vector3(-target_width / 2, 0, 0), name = "bottom_left" },
-		{ pos = Vector3(target_width / 2, 0, 0), name = "bottom_right" },
+		{ pos = Vector3(0, -target_depth / 2, 0),                                 name = "bottom_front" },
+		{ pos = Vector3(0, target_depth / 2, 0),                                  name = "bottom_back" },
+		{ pos = Vector3(-target_width / 2, 0, 0),                                 name = "bottom_left" },
+		{ pos = Vector3(target_width / 2, 0, 0),                                  name = "bottom_right" },
 
 		-- Top corners (head level)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height), name = "top_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height), name = "top_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height), name = "top_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height), name = "top_corner_4" },
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height),     name = "top_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height),      name = "top_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height),      name = "top_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height),       name = "top_corner_4" },
 
 		-- Top mid-points (head level)
-		{ pos = Vector3(0, -target_depth / 2, target_height), name = "top_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height), name = "top_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height), name = "top_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height), name = "top_right" },
+		{ pos = Vector3(0, -target_depth / 2, target_height),                     name = "top_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height),                      name = "top_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height),                     name = "top_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height),                      name = "top_right" },
 	}
 
 	-- 1. Bows/headshot weapons
