@@ -78,7 +78,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 	-- Calculate the final velocity vector with proper upward component
 	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
 
-	local has_gravity = pWeapon:GetWeaponProjectileType() ~= E_ProjectileType.TF_PROJECTILE_ROCKET
+	local has_gravity = weapon_info:HasGravity()
 	if has_gravity then
 		env:SetGravity(Vector3(0, 0, -800))
 	else

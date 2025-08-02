@@ -21,12 +21,16 @@
 ---@field m_bStopOnHittingEnemy boolean
 ---@field m_bCharges boolean
 ---@field m_sModelName string
+---@field m_bHasGravity boolean
 local WeaponInfo = {}
 
 ---@param bDucking boolean
 ---@param bIsFlipped boolean
 ---@return Vector3
 function WeaponInfo:GetOffset(bDucking, bIsFlipped) end
+
+---@return boolean
+function WeaponInfo:HasGravity() end
 
 ---@param flChargeBeginTime number
 ---@return Vector3

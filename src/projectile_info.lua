@@ -61,6 +61,7 @@ local function DefineProjectileDefinition(tbl)
 		m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false,
 		m_bCharges = tbl.bCharges or false,
 		m_sModelName = tbl.sModelName or "",
+		m_bHasGravity = tbl.bGravity == nil and true or tbl.bGravity,
 
 		GetOffset = not tbl.GetOffset
 			and function(self, bDucking, bIsFlipped)
@@ -104,6 +105,10 @@ local function DefineProjectileDefinition(tbl)
 		GetLifetime = (not tbl.GetLifetime) and function(self, ...)
 			return self.m_flLifetime
 		end or tbl.GetLifetime, -- self, flChargeBeginTime
+
+		HasGravity = (not tbl.HasGravity) and function(self, ...)
+			return self.m_bHasGravity
+		end or tbl.HasGravity,
 	}
 end
 
@@ -210,6 +215,7 @@ aProjectileInfo[1] = DefineBasicProjectileDefinition({
 	vecMaxs = Vector3(0, 0, 0),
 	iAlignDistance = 2000,
 	flDamageRadius = 146,
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
@@ -222,6 +228,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	iCollisionType = COLLISION_NONE,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -230,6 +237,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	flDamageRadius = 116.8,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -247,6 +255,7 @@ AppendItemDefinitions(
 aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(2000, 0, 0),
 	flDamageRadius = 44,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -255,6 +264,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(1550, 0, 0),
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -262,6 +272,7 @@ AppendItemDefinitions(
 	513 -- The Original
 )
 aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	bGravity = false,
 	GetOffset = function(self, bDucking)
 		return Vector3(23.5, 0, bDucking and 8 or -3)
 	end,
@@ -275,6 +286,7 @@ AppendItemDefinitions(
 aProjectileInfo[8] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(600, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(3, 7, -9)
@@ -289,6 +301,7 @@ aProjectileInfo[9] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(1200, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
 	iAlignDistance = 2000,
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, -8 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
@@ -584,6 +597,7 @@ AppendItemDefinitions(
 	441 -- The Cow Mangler 5000
 )
 aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	bGravity = false,
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3)
 	end,
@@ -597,6 +611,7 @@ AppendItemDefinitions(
 aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
 	vecAbsoluteOffset = Vector3(0, 0, -13),
 	flCollideWithTeammatesDelay = 0,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -622,6 +637,7 @@ aProjectileInfo[31] = DefineBasicProjectileDefinition({
 	vecMaxs = Vector3(1, 1, 1),
 	flCollideWithTeammatesDelay = 99999,
 	flLifetime = 1.25,
+	bGravity = false,
 })
 
 AppendItemDefinitions(

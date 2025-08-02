@@ -244,10 +244,11 @@ end
 ---@param charge number
 local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vecHeadPos, weaponInfo, total_time, charge)
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		if settings.autoshoot and wep_utils.CanShoot() then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
+
 		if charge > 0 then
-			if settings.autoshoot and wep_utils.CanShoot() then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK
-			end
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
 				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 				if settings.psilent then
@@ -258,10 +259,6 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				paths.player_path = player_path
 				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
 					charge)
-			end
-		else
-			if settings.autoshoot and wep_utils.CanShoot() then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 			end
 		end
 	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
@@ -3012,6 +3009,7 @@ local function DefineProjectileDefinition(tbl)
 		m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false,
 		m_bCharges = tbl.bCharges or false,
 		m_sModelName = tbl.sModelName or "",
+		m_bHasGravity = tbl.bGravity == nil and true or tbl.bGravity,
 
 		GetOffset = not tbl.GetOffset
 			and function(self, bDucking, bIsFlipped)
@@ -3055,6 +3053,10 @@ local function DefineProjectileDefinition(tbl)
 		GetLifetime = (not tbl.GetLifetime) and function(self, ...)
 			return self.m_flLifetime
 		end or tbl.GetLifetime, -- self, flChargeBeginTime
+
+		HasGravity = (not tbl.HasGravity) and function(self, ...)
+			return self.m_bHasGravity
+		end or tbl.HasGravity,
 	}
 end
 
@@ -3161,6 +3163,7 @@ aProjectileInfo[1] = DefineBasicProjectileDefinition({
 	vecMaxs = Vector3(0, 0, 0),
 	iAlignDistance = 2000,
 	flDamageRadius = 146,
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
@@ -3173,6 +3176,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	iCollisionType = COLLISION_NONE,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3181,6 +3185,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	flDamageRadius = 116.8,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3198,6 +3203,7 @@ AppendItemDefinitions(
 aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(2000, 0, 0),
 	flDamageRadius = 44,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3206,6 +3212,7 @@ AppendItemDefinitions(
 )
 aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(1550, 0, 0),
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3213,6 +3220,7 @@ AppendItemDefinitions(
 	513 -- The Original
 )
 aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	bGravity = false,
 	GetOffset = function(self, bDucking)
 		return Vector3(23.5, 0, bDucking and 8 or -3)
 	end,
@@ -3226,6 +3234,7 @@ AppendItemDefinitions(
 aProjectileInfo[8] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(600, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(3, 7, -9)
@@ -3240,6 +3249,7 @@ aProjectileInfo[9] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(1200, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
 	iAlignDistance = 2000,
+	bGravity = false,
 
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, -8 * (bIsFlipped and -1 or 1), bDucking and 8 or -3)
@@ -3535,6 +3545,7 @@ AppendItemDefinitions(
 	441 -- The Cow Mangler 5000
 )
 aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	bGravity = false,
 	GetOffset = function(self, bDucking, bIsFlipped)
 		return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3)
 	end,
@@ -3548,6 +3559,7 @@ AppendItemDefinitions(
 aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
 	vecAbsoluteOffset = Vector3(0, 0, -13),
 	flCollideWithTeammatesDelay = 0,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3573,6 +3585,7 @@ aProjectileInfo[31] = DefineBasicProjectileDefinition({
 	vecMaxs = Vector3(1, 1, 1),
 	flCollideWithTeammatesDelay = 99999,
 	flLifetime = 1.25,
+	bGravity = false,
 })
 
 AppendItemDefinitions(
@@ -3679,7 +3692,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 	-- Calculate the final velocity vector with proper upward component
 	local velocity = (vecForward * forward_speed) + (Vector3(0, 0, 1) * upward_speed)
 
-	local has_gravity = pWeapon:GetWeaponProjectileType() ~= E_ProjectileType.TF_PROJECTILE_ROCKET
+	local has_gravity = weapon_info:HasGravity()
 	if has_gravity then
 		env:SetGravity(Vector3(0, 0, -800))
 	else

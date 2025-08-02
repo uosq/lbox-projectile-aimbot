@@ -200,10 +200,11 @@ end
 ---@param charge number
 local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vecHeadPos, weaponInfo, total_time, charge)
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+		if settings.autoshoot and wep_utils.CanShoot() then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK
+		end
+
 		if charge > 0 then
-			if settings.autoshoot and wep_utils.CanShoot() then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK
-			end
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
 				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 				if settings.psilent then
@@ -214,10 +215,6 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				paths.player_path = player_path
 				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
 					charge)
-			end
-		else
-			if settings.autoshoot and wep_utils.CanShoot() then
-				uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
 			end
 		end
 	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
