@@ -31,7 +31,7 @@ local settings = {
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
-	splash = true,
+	explosive = true,
 	aim_circle = true,
 
 	hitparts = {
@@ -560,10 +560,13 @@ local function CreateMove(uCmd)
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
 	if settings.multipointing then
-		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+		local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
 		multipoint:Set(
 			pLocal,
@@ -576,7 +579,7 @@ local function CreateMove(uCmd)
 			weaponInfo,
 			math_utils,
 			settings.max_distance,
-			bSplashWeapon,
+			bExplosiveWeapon,
 			ent_utils,
 			settings
 		)
@@ -648,7 +651,7 @@ local function CreateMove(uCmd)
 			table.insert(multipoint_positions, head_pos)
 		end
 
-		if bSplashWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
+		if bExplosiveWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
 			local feet_pos = vecPredictedPos + Vector3(0, 0, 10)
 			table.insert(multipoint_positions, feet_pos)
 		end
