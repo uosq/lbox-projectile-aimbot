@@ -143,110 +143,120 @@ local multipoint = require("src.multipoint")
 assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
-local draw = draw
-local entities = entities
-local engine = engine
-local E_TFCOND = E_TFCOND
+local draw                             = draw
+local entities                         = entities
+local engine                           = engine
+local E_TFCOND                         = E_TFCOND
 
-local displayed_time = 0.0
-local BEGGARS_BAZOOKA_INDEX = 730
-local LOOSE_CANNON_INDEX = 996
+local displayed_time                   = 0.0
+local BEGGARS_BAZOOKA_INDEX            = 730
+local LOOSE_CANNON_INDEX               = 996
 
 --local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
 local target_min_hull, target_max_hull = Vector3(), Vector3()
 
-local paths = {
+local paths                            = {
 	proj_path = {},
 	player_path = {},
 }
 
-local multipoint_target_pos = nil
+local multipoint_target_pos            = nil
 
-local original_gui_value = gui.GetValue("projectile aimbot")
+local original_gui_value               = gui.GetValue("projectile aimbot")
 
---- Calculates a normalized weight [0-1] based on the target's health
--- @param health number: Target's current health
--- @param damage number: Your projectile's base damage
--- @return number: Weight score in range [0, 1]
-local function GetHealthWeight(health, damage)
-	local MAX_HEALTH = 300 -- Clamp upper health (heavy with overheal etc.)
-	health = math.min(health, MAX_HEALTH)
+-- =============== Tunables ===============
+local DAM_DEFAULT                      = 50 -- default damage if you don't have per-weapon value here
+local MAX_HP_CLAMP                     = 300
 
-	if health > damage then
-		-- Linear decrease from 1 to 0.5 as target becomes killable
-		local normalized = (MAX_HEALTH - health) / (MAX_HEALTH - damage)
-		return 1.0 - (0.5 * normalized)
-	elseif health == damage then
-		return 0.5 -- Exactly killable
-	else
-		-- Logarithmic growth from 0.5 to 1 with diminishing returns
-		local fraction = (damage - health) / damage
-		return 0.5 + 0.5 * (1 - math.exp(-6 * fraction))
-	end
+local FOV_K                            = 6.0 -- higher => FOV weight dies faster with angle
+local DIST_K_NEAR                      = 4.0 -- rise sharpness from 0 -> plateau
+local DIST_K_FAR                       = 4.0 -- decay sharpness from plateau -> max
+local HP_K_LOW                         = 6.0 -- health < damage (how fast 1 -> 0.5)
+local HP_K_HIGH                        = 4.0 -- health > damage (how fast 0.5 -> 0)
+
+-- Component importances (sum doesn't have to be 1, we gate by visibility anyway)
+local W_FOV                            = 0.45
+local W_DIST                           = 0.25
+local W_HEALTH                         = 0.30
+
+-- =============== Helpers ===============
+-- exp01_pos: map x in [0,1] -> [0,1] with exponential *rise* (0->0, 1->1)
+local function exp01_pos(x, k)
+	if k == 0 then return x end
+	local denom = 1 - math.exp(-k)
+	if denom == 0 then return x end
+	return (1 - math.exp(-k * x)) / denom
 end
 
---- Distance weight: continuous 0 → 0.5 up to plateau, then half-exponential down to 0 at maxDist
--- w(0)=0, w(plateau)=0.5, w(maxDist)=0
--- If maxDist < plateau, the "plateau" is clamped to maxDist (so it still rises to 0.5 at the end).
--- @param distance number
--- @param plateau  number|nil  -- default 200
--- @param maxDist  number|nil  -- default 2000
--- @param kRise    number|nil  -- curvature 0..plateau (default 4.0)
--- @param kDecay   number|nil  -- curvature plateau..maxDist (default 4.0)
--- @return number in [0,1]
-local function GetDistanceWeight(distance, plateau, maxDist, kRise, kDecay)
-	plateau  = plateau or 100
-	maxDist  = math.max(0, maxDist or 2000)
-	kRise    = kRise or 4.0 -- higher -> quicker rise to 0.5
-	kDecay   = kDecay or 4.0 -- higher -> slower fall after plateau
+-- exp01_neg: map x in [0,1] -> [1,0] with exponential *decay* (0->1, 1->0)
+local function exp01_neg(x, k)
+	if k == 0 then return 1 - x end
+	local eK = math.exp(-k)
+	local denom = 1 - eK
+	if denom == 0 then return 1 - x end
+	return (math.exp(-k * x) - eK) / denom
+end
 
-	-- clamp inputs
+-- =============== Visibility ===============
+-- 1 if visible, 0 if not (gate)
+local function GetVisibilityWeight(pLocal, pTarget)
+	if not pLocal or not pTarget then return 0 end
+	local localViewPos  = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	local targetViewPos = pTarget:GetAbsOrigin() + pTarget:GetPropVector("localdata", "m_vecViewOffset[0]")
+	local tr            = engine.TraceLine(localViewPos, targetViewPos, MASK_SHOT)
+	-- be generous: either we hit the target, or almost no obstruction
+	if tr and (tr.entity == pTarget or tr.fraction > 0.98) then
+		return 1
+	end
+	return 0
+end
+
+-- =============== FOV ===============
+-- 1 at fov=0 → exponentially to 0 at fov=maxFov
+local function GetFovWeight(fov, maxFov, k)
+	k = k or FOV_K
+	maxFov = math.max(1e-6, maxFov or 180)
+	fov = math.max(0, math.min(fov or 0, maxFov))
+	local s = fov / maxFov
+	return exp01_neg(s, k) -- 0->1, 1->0
+end
+
+-- =============== Distance ===============
+-- Continuous:
+--   d in [0, P]: 0 -> 0.5 (exp rise)
+--   d in [P, M]: 0.5 -> 0   (half-exp decay)
+local function GetDistanceWeight(distance, plateau, maxDist, kNear, kFar)
+	plateau  = plateau or 200
+	maxDist  = math.max(0, maxDist or 2000)
+	kNear    = kNear or DIST_K_NEAR
+	kFar     = kFar or DIST_K_FAR
+
 	distance = math.max(0, math.min(distance or 0, maxDist))
 	plateau  = math.min(plateau, maxDist)
 
-	-- normalized exponential helper: maps x in [0,1] to [0,1] with exp curve
-	local function exp01(x, k)
-		if k == 0 then return x end
-		local denom = 1 - math.exp(-k)
-		if denom == 0 then return x end
-		return (1 - math.exp(-k * x)) / denom
-	end
-
 	if distance <= plateau then
-		-- 0..plateau : rise from 0 to 0.5
 		local s = (plateau > 0) and (distance / plateau) or 1.0
-		return 0.5 * exp01(s, kRise)
+		return 0.5 * exp01_pos(s, kNear) -- 0..0.5
 	else
-		-- plateau..maxDist : health-right-like decay from 0.5 to 0
 		local u = (maxDist > plateau) and ((distance - plateau) / (maxDist - plateau)) or 1.0
-		-- decay is half-exponential, normalized so u=0 -> 0.5 and u=1 -> 0
-		return 0.5 * exp01(1 - u, kDecay)
+		return 0.5 * exp01_neg(u, kFar) -- 0.5..0
 	end
 end
 
---- Visibility check: traces from our view position to target's view position
--- @param pLocal Entity: Local player
--- @param pTarget Entity: Target player
--- @return number: 1 if visible, 0 if not visible
-local function GetVisibilityWeight(pLocal, pTarget)
-	if not pLocal or not pTarget then
-		return 0
-	end
+-- =============== Health ===============
+-- Below damage: 1 at 1 HP → down to 0.5 at damage (exp decay)
+-- Above damage: 0.5 → 0 by MAX_HP_CLAMP (half-exp decay)
+local function GetHealthWeight(health, damage)
+	damage = math.max(1, damage or DAM_DEFAULT)
+	local H = math.max(0, math.min(health or 0, MAX_HP_CLAMP))
 
-	-- Get our view position
-	local localViewPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-
-	-- Get target's view position
-	local targetViewPos = pTarget:GetAbsOrigin() + pTarget:GetPropVector("localdata", "m_vecViewOffset[0]")
-
-	-- Trace from our view to target's view
-	local trace = engine.TraceLine(localViewPos, targetViewPos, MASK_SHOT)
-
-	-- Check if trace hit the target (visible) or something else (not visible)
-	if trace and trace.entity == pTarget then
-		return 1 -- Visible
+	if H <= damage then
+		local s = H / damage                       -- 0 -> 1 as HP approaches damage
+		local part = exp01_neg(s, HP_K_LOW)        -- 1..0
+		return 0.5 + 0.5 * part                    -- 1..0.5
 	else
-		return 0 -- Not visible
+		local u = (H - damage) / (MAX_HP_CLAMP - damage) -- 0..1
+		return 0.5 * exp01_neg(u, HP_K_HIGH)       -- 0.5..0
 	end
 end
 
@@ -331,7 +341,7 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 	-- Precompute max values for early rejection
 	local max_fov = settings.fov or 180
 	local max_distance = settings.max_distance or 0
-	local best_score = math.huge
+	local best_score = -math.huge
 
 	local localTeam = pLocal:GetTeamNumber()
 	local localPos = pLocal:GetAbsOrigin()
@@ -362,13 +372,27 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if not fov or fov > max_fov then
 				goto continue
 			end
-			-- Normalized weighting: all factors 0-1, lowest sum wins
-			local fov_weight = fov / max_fov                      -- 0-1, lower is better
-			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- 0-1, lower is better
-			local total_weight = fov_weight + dist_weight
+			-- Scoring: all factors 0-1, higher is better
+			local fov_weight = GetFovWeight(fov, max_fov)         -- [0,1], higher=better
+			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- [0,1], higher=better
+			local health_weight = 0                               -- [0,1], higher=better
+			local vis_weight = 1                                  -- [0,1], 1 if visible else 0
 
-			if total_weight < best_score then
-				best_score = total_weight
+			-- Objects (sentry/disp/tele) don't need health; players do:
+			if ent:IsPlayer() then
+				local assumed_damage = 50 -- TODO: fetch real for current weapon if you want
+				health_weight = GetHealthWeight(ent:GetHealth(), assumed_damage)
+				vis_weight = GetVisibilityWeight(pLocal, ent)
+			else
+				vis_weight = GetVisibilityWeight(pLocal, ent)
+			end
+
+			-- linear mix, then visibility gate
+			local score = (W_FOV * fov_weight) + (W_DIST * dist_weight) + (W_HEALTH * health_weight)
+			score = score * vis_weight -- invisible => 0
+
+			if score > best_score then
+				best_score = score
 				best_target.angle = angleToEntity
 				best_target.fov = fov
 				bestEntity = ent
@@ -429,15 +453,18 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			if not fov or fov > max_fov then
 				goto continue
 			end
-			-- Normalized weighting: all factors 0-1, lowest sum wins
-			local fov_weight = fov / max_fov                      -- 0-1, lower is better
-			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- 0-1, lower is better
-			local health_weight = GetHealthWeight(player:GetHealth(), 50) -- 0-1, lower is better (assume 50 damage)
-			local visibility_weight = GetVisibilityWeight(pLocal, player) -- 0-1, lower is better (0=visible, 1=not visible)
-			local total_weight = fov_weight + dist_weight + health_weight + visibility_weight
+			-- Scoring: all factors 0-1, higher is better
+			local fov_weight = GetFovWeight(fov, max_fov)         -- [0,1], higher=better
+			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- [0,1], higher=better
+			local health_weight = GetHealthWeight(player:GetHealth(), 50) -- [0,1], higher=better (assume 50 damage)
+			local vis_weight = GetVisibilityWeight(pLocal, player) -- [0,1], 1 if visible else 0
 
-			if total_weight < best_score then
-				best_score = total_weight
+			-- linear mix, then visibility gate
+			local score = (W_FOV * fov_weight) + (W_DIST * dist_weight) + (W_HEALTH * health_weight)
+			score = score * vis_weight -- invisible => 0
+
+			if score > best_score then
+				best_score = score
 				best_target.angle = angleToPlayer
 				best_target.fov = fov
 				bestEntity = player
