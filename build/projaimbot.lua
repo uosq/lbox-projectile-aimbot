@@ -383,7 +383,7 @@ local function CreateMove(uCmd)
 		return false
 	end
 
-	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+	if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
 		return
 	end
 
