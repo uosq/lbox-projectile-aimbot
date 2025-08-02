@@ -6,7 +6,7 @@ local FL_DUCKING = 1
 ---@field private pTarget Entity
 ---@field private pWeapon Entity
 ---@field private bIsHuntsman boolean
----@field private bIsSplash boolean
+---@field private bIsExplosive boolean
 ---@field private vecAimDir Vector3
 ---@field private vecPredictedPos Vector3
 ---@field private bAimTeamMate boolean
@@ -77,85 +77,91 @@ function multipoint:GetBestHitPoint()
 
 	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
 	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos
+	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 5)
 
-	local fallback_points = {
-		-- Bottom corners (feet/ground level, prioritized if feet are enabled)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0), name = "bottom_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, 0), name = "bottom_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, 0), name = "bottom_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, 0), name = "bottom_corner_4" },
+	-- For rockets and pipes, prioritize feet positions
+	local fallback_points = {}
 
-		-- Mid-height corners (body level)
+	-- For explosive weapons (rockets/pipes), prioritize feet and ground-level positions
+	fallback_points = {
+		-- Bottom corners (feet/ground level, highest priority for explosive)
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, 0),                 name = "bottom_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, 0),                  name = "bottom_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, 0),                  name = "bottom_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, 0),                   name = "bottom_corner_4" },
+
+		-- Bottom mid-points (legs level, high priority for explosive)
+		{ pos = Vector3(0, -target_depth / 2, 0),                                 name = "bottom_front" },
+		{ pos = Vector3(0, target_depth / 2, 0),                                  name = "bottom_back" },
+		{ pos = Vector3(-target_width / 2, 0, 0),                                 name = "bottom_left" },
+		{ pos = Vector3(target_width / 2, 0, 0),                                  name = "bottom_right" },
+
+		-- Mid-height corners (body level, medium priority)
 		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2), name = "mid_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2), name = "mid_corner_4" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height / 2),  name = "mid_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height / 2),  name = "mid_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height / 2),   name = "mid_corner_4" },
 
 		-- Mid-points on edges (body level)
-		{ pos = Vector3(0, -target_depth / 2, target_height / 2), name = "mid_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height / 2), name = "mid_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height / 2), name = "mid_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height / 2), name = "mid_right" },
+		{ pos = Vector3(0, -target_depth / 2, target_height / 2),                 name = "mid_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height / 2),                  name = "mid_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height / 2),                 name = "mid_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height / 2),                  name = "mid_right" },
 
-		-- Bottom mid-points (legs level)
-		{ pos = Vector3(0, -target_depth / 2, 0), name = "bottom_front" },
-		{ pos = Vector3(0, target_depth / 2, 0), name = "bottom_back" },
-		{ pos = Vector3(-target_width / 2, 0, 0), name = "bottom_left" },
-		{ pos = Vector3(target_width / 2, 0, 0), name = "bottom_right" },
+		-- Top corners (head level, lowest priority for explosive)
+		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height),     name = "top_corner_1" },
+		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height),      name = "top_corner_2" },
+		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height),      name = "top_corner_3" },
+		{ pos = Vector3(target_width / 2, target_depth / 2, target_height),       name = "top_corner_4" },
 
-		-- Top corners (head level)
-		{ pos = Vector3(-target_width / 2, -target_depth / 2, target_height), name = "top_corner_1" },
-		{ pos = Vector3(target_width / 2, -target_depth / 2, target_height), name = "top_corner_2" },
-		{ pos = Vector3(-target_width / 2, target_depth / 2, target_height), name = "top_corner_3" },
-		{ pos = Vector3(target_width / 2, target_depth / 2, target_height), name = "top_corner_4" },
-
-		-- Top mid-points (head level)
-		{ pos = Vector3(0, -target_depth / 2, target_height), name = "top_front" },
-		{ pos = Vector3(0, target_depth / 2, target_height), name = "top_back" },
-		{ pos = Vector3(-target_width / 2, 0, target_height), name = "top_left" },
-		{ pos = Vector3(target_width / 2, 0, target_height), name = "top_right" },
+		-- Top mid-points (head level, lowest priority for explosive)
+		{ pos = Vector3(0, -target_depth / 2, target_height),                     name = "top_front" },
+		{ pos = Vector3(0, target_depth / 2, target_height),                      name = "top_back" },
+		{ pos = Vector3(-target_width / 2, 0, target_height),                     name = "top_left" },
+		{ pos = Vector3(target_width / 2, 0, target_height),                      name = "top_right" },
 	}
 
-	-- 1. Bows/headshot weapons
+	-- Set primary point based on weapon type:
+	-- For huntsman: aim at head, for explosive weapons (rockets/pipes): aim at feet,
+	-- otherwise default to center of hitbox.
+	local primary_pos
 	if self.bIsHuntsman then
-		if self.settings.hitparts.head and head_pos and canShootToPoint(head_pos) then
-			return head_pos
+		if self.settings.hitparts.head and head_pos then
+			primary_pos = head_pos
+		else
+			primary_pos = center_pos
 		end
-		if canShootToPoint(center_pos) then
-			return center_pos
+	elseif self.bIsExplosive then
+		-- For explosive weapons (rockets/pipes), prioritize feet only when on ground
+		if is_on_ground then
+			primary_pos = feet_pos
+		else
+			-- If target is not on ground, default to center of mass
+			primary_pos = center_pos
 		end
-		if self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-			return feet_pos
-		end
-		for _, point in ipairs(fallback_points) do
-			local test_pos = self.vecPredictedPos + point.pos
-			if canShootToPoint(test_pos) then
-				return test_pos
-			end
-		end
-		return nil
+	else
+		primary_pos = center_pos
 	end
 
-	-- 2. Explosive projectiles: feet first if enabled and on ground
-	if self.bIsSplash and self.settings.hitparts.feet and is_on_ground and canShootToPoint(feet_pos) then
-		return feet_pos
+	-- First try to hit the primary point.
+	if primary_pos and canShootToPoint(primary_pos) then
+		return primary_pos
 	end
-	-- Center next
-	if canShootToPoint(center_pos) then
+
+	-- If primary point wasn't center, try center.
+	if primary_pos ~= center_pos and canShootToPoint(center_pos) then
 		return center_pos
 	end
 
-	-- Try fallback points
+	-- Iterate through fallback points (multipoint) and return first achievable one.
 	for _, point in ipairs(fallback_points) do
 		local test_pos = self.vecPredictedPos + point.pos
-
 		if canShootToPoint(test_pos) then
 			return test_pos
 		end
 	end
 
-	-- Fallback: return center position if all else fails
+	-- Ultimate fallback: return center.
 	return center_pos
 end
 
@@ -169,7 +175,7 @@ end
 ---@param weapon_info WeaponInfo
 ---@param math_utils MathLib
 ---@param iMaxDistance integer
----@param bIsSplash boolean
+---@param bIsExplosive boolean
 ---@param ent_utils table
 ---@param settings table
 function multipoint:Set(
@@ -183,7 +189,7 @@ function multipoint:Set(
 	weapon_info,
 	math_utils,
 	iMaxDistance,
-	bIsSplash,
+	bIsExplosive,
 	ent_utils,
 	settings
 )
@@ -198,7 +204,7 @@ function multipoint:Set(
 	self.math_utils = math_utils
 	self.iMaxDistance = iMaxDistance
 	self.vecPredictedPos = vecPredictedPos
-	self.bIsSplash = bIsSplash
+	self.bIsExplosive = bIsExplosive
 	self.ent_utils = ent_utils
 	self.settings = settings
 end

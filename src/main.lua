@@ -31,7 +31,7 @@ local settings = {
 	allow_aim_at_teammates = true,
 	ping_compensation = true,
 	min_priority = 0,
-	splash = true,
+	explosive = true,
 	aim_circle = true,
 
 	hitparts = {
@@ -100,196 +100,46 @@ local multipoint = require("src.multipoint")
 assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
-local draw = draw
-local entities = entities
-local engine = engine
-local E_TFCOND = E_TFCOND
+local target_selector = require("src.target_selector")
+assert(target_selector, "[PROJ AIMBOT] Target selector module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Target selector module loaded")
 
-local displayed_time = 0.0
-local BEGGARS_BAZOOKA_INDEX = 730
+local draw                             = draw
+local entities                         = entities
+local engine                           = engine
+local E_TFCOND                         = E_TFCOND
+
+local displayed_time                   = 0.0
+local BEGGARS_BAZOOKA_INDEX            = 730
+local LOOSE_CANNON_INDEX               = 996
 
 --local PLAYER_MIN_HULL, PLAYER_MAX_HULL = Vector3(-24.0, -24.0, 0.0), Vector3(24.0, 24.0, 82.0)
 local target_min_hull, target_max_hull = Vector3(), Vector3()
 
-local paths = {
+local paths                            = {
 	proj_path = {},
 	player_path = {},
 }
 
-local original_gui_value = gui.GetValue("projectile aimbot")
+local multipoint_target_pos            = nil
 
-local function ShouldSkipPlayer(pPlayer)
-	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
-		return true
-	end
+local original_gui_value               = gui.GetValue("projectile aimbot")
 
-	if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Kritzkrieged) and settings.ignore_conds.kritzkrieged then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Jarated) and settings.ignore_conds.jarated then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_Milked) and settings.ignore_conds.milked then
-		return true
-	end
-
-	if pPlayer:InCond(E_TFCOND.TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
-		return true
-	end
-
-	if playerlist.GetPriority(pPlayer) < 0 and not settings.ignore_conds.friends then
-		return true
-	end
-
-	if settings.min_priority > playerlist.GetPriority(pPlayer) then
-		return true
-	end
-
-	if settings.ignore_conds.vaccinator then
-		local resist_table = {
-			TFCond_UberBulletResist = 58,
-			TFCond_UberBlastResist = 59,
-			TFCond_UberFireResist = 60,
-			TFCond_SmallBulletResist = 61,
-			TFCond_SmallBlastResist = 62,
-			TFCond_SmallFireResist = 63,
-		}
-
-		for _, resist in pairs(resist_table) do
-			if pPlayer:InCond(resist) then
-				return true
-			end
-		end
-	end
-
-	return false
-end
-
+-- Target selection is now handled by the target_selector module
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
 ---@param shootpos Vector3
 ---@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
 ---@return PlayerInfo?
-local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
-	local best_target = {
-		angle = nil,
-		fov = settings.fov,
-		index = nil,
-		pos = nil,
-	}
+local function GetBestTarget(pLocal, shootpos, players, bAimTeamMate)
+	local best_target = target_selector.GetBestTarget(pLocal, shootpos, players, settings, bAimTeamMate)
 
-	local localTeam = pLocal:GetTeamNumber()
-	local localPos = pLocal:GetAbsOrigin()
-	local viewAngles = engine.GetViewAngles()
-
-	---@type Entity?
-	local bestEntity = nil
-
-	local function loop_entity_class(class_table)
-		for _, ent in pairs(class_table) do
-			if ent:GetTeamNumber() == pLocal:GetTeamNumber() and not bAimTeamMate then
-				goto continue
-			end
-
-			local origin = ent:GetAbsOrigin()
-			local dist = (origin - localPos):Length2D()
-			if dist > settings.max_distance then
-				goto continue
-			end
-
-			local angleToEntity = math_utils.PositionAngles(shootpos, origin)
-			local fov = math_utils.AngleFov(viewAngles, angleToEntity)
-			if fov and fov < best_target.fov then
-				best_target.angle = angleToEntity
-				best_target.fov = fov
-				bestEntity = ent
-			end
-
-			::continue::
+	if best_target and best_target.index then
+		local bestEntity = entities.GetByIndex(best_target.index)
+		if bestEntity then
+			target_max_hull = bestEntity:GetMaxs()
+			target_min_hull = bestEntity:GetMins()
 		end
-	end
-
-	if settings.ents["aim teleporters"] then
-		local teles = entities.FindByClass("CObjectTeleporter")
-		loop_entity_class(teles)
-	end
-
-	if settings.ents["aim dispensers"] then
-		loop_entity_class(entities.FindByClass("CObjectDispenser"))
-	end
-
-	if settings.ents["aim sentries"] then
-		loop_entity_class(entities.FindByClass("CObjectSentrygun"))
-	end
-
-	if settings.ents["aim players"] then
-		for _, player in pairs(players) do
-			if player:IsDormant() or not player:IsAlive() or player:GetIndex() == pLocal:GetIndex() then
-				goto continue
-			end
-
-			-- distance check
-			local playerPos = player:GetAbsOrigin()
-			local dist = (playerPos - localPos):Length()
-			if dist > settings.max_distance then
-				goto continue
-			end
-
-			if playerlist.GetPriority(player) < 0 and settings.ignore_conds.friends then
-				goto continue
-			end
-
-			-- team check
-			local isTeammate = player:GetTeamNumber() == localTeam
-			if bAimTeamMate ~= isTeammate then
-				goto continue
-			end
-
-			-- player conds
-			if ShouldSkipPlayer(player) then
-				goto continue
-			end
-
-			-- fov check
-			local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
-			local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
-			if fov and fov < best_target.fov then
-				best_target.angle = angleToPlayer
-				best_target.fov = fov
-				bestEntity = player
-			end
-
-			::continue::
-		end
-	end
-
-	if bestEntity then
-		target_max_hull = bestEntity:GetMaxs()
-		target_min_hull = bestEntity:GetMins()
-		best_target.index = bestEntity:GetIndex()
-		best_target.pos = bestEntity:GetAbsOrigin()
-	end
-
-	if best_target.index == nil then
-		return nil
 	end
 
 	return best_target
@@ -299,12 +149,16 @@ end
 local function GetCharge(pWeapon)
 	local charge_time = 0.0
 
+	if not pWeapon then
+		return charge_time
+	end
+
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		-- check if bow is currently being charged
 		local charge_begin_time = pWeapon:GetChargeBeginTime()
 
 		-- if charge_begin_time is 0, the bow isn't charging
-		if charge_begin_time > 0 then
+		if charge_begin_time and charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			-- clamp charge time between 0 and 1 second (full charge)
 			charge_time = math.max(0, math.min(charge_time, 1.0))
@@ -315,11 +169,19 @@ local function GetCharge(pWeapon)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		local charge_begin_time = pWeapon:GetChargeBeginTime()
 
-		if charge_begin_time > 0 then
+		if charge_begin_time and charge_begin_time > 0 then
 			charge_time = globals.CurTime() - charge_begin_time
 			if charge_time > 4.0 then
 				charge_time = 0.0
 			end
+		end
+	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == LOOSE_CANNON_INDEX then -- The Loose Cannon
+		local charge_begin_time = pWeapon:GetChargeBeginTime()
+
+		if charge_begin_time and charge_begin_time > 0 then
+			charge_time = globals.CurTime() - charge_begin_time
+			-- Loose Cannon has a maximum charge time of 1 second
+			charge_time = math.max(0, math.min(charge_time, 1.0))
 		end
 	end
 
@@ -349,7 +211,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				uCmd.viewangles = Vector3(angle:Unpack())
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
-				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+					charge)
 			end
 		else
 			if settings.autoshoot and wep_utils.CanShoot() then
@@ -368,7 +231,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.viewangles = Vector3(angle:Unpack())
 			displayed_time = globals.CurTime() + settings.draw_time
 			paths.player_path = player_path
-			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+				charge)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
 		if settings.autoshoot and wep_utils.CanShoot() then
@@ -383,20 +247,21 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 			uCmd.viewangles = Vector3(angle:Unpack())
 			displayed_time = globals.CurTime() + settings.draw_time
 			paths.player_path = player_path
-			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+			paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+				charge)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		uCmd.viewangles = Vector3(angle:Unpack())
 		displayed_time = globals.CurTime() + settings.draw_time
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo, charge_time)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -410,7 +275,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vec
 				uCmd.viewangles = Vector3(angle:Unpack())
 				displayed_time = globals.CurTime() + settings.draw_time
 				paths.player_path = player_path
-				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo)
+				paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecHeadPos, angle:Forward(), total_time, weaponInfo,
+					charge_time)
 			end
 		end
 	end
@@ -418,6 +284,8 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	multipoint_target_pos = nil
+
 	if settings.enabled == false then
 		return
 	end
@@ -465,7 +333,7 @@ local function CreateMove(uCmd)
 
 	local players = entities.FindByClass("CTFPlayer")
 	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local pTargetInfo = GetClosestEntityToFov(pLocal, vecHeadPos, players, bAimAtTeamMates)
+	local pTargetInfo = GetBestTarget(pLocal, vecHeadPos, players, bAimAtTeamMates)
 	if pTargetInfo == nil then
 		return
 	end
@@ -513,7 +381,8 @@ local function CreateMove(uCmd)
 
 		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
+			charge_time)
 		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end
@@ -537,11 +406,14 @@ local function CreateMove(uCmd)
 
 	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
 
-	if (not is_visible or bIsHuntsman) and settings.multipointing then
-		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
+	if settings.multipointing then
+		local bExplosiveWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
 		multipoint:Set(
 			pLocal,
@@ -554,7 +426,7 @@ local function CreateMove(uCmd)
 			weaponInfo,
 			math_utils,
 			settings.max_distance,
-			bSplashWeapon,
+			bExplosiveWeapon,
 			ent_utils,
 			settings
 		)
@@ -565,21 +437,103 @@ local function CreateMove(uCmd)
 		end
 
 		vecPredictedPos = best_multipoint
+		multipoint_target_pos = best_multipoint
 	end
 
-	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-	local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
-	if angle == nil then
+	-- Two-pass aiming system for precise targeting
+	local function TryAimAtPoint(target_pos)
+		-- First pass: Aim at the target point
+		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
+		local first_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos, forward_speed, gravity)
+		if not first_angle then
+			return nil, nil
+		end
+
+		-- Get our weapon fire position for this angle
+		local first_fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, first_angle, pWeapon:IsViewModelFlipped())
+
+		-- Check if we can hit the target from our fire position
+		local first_trace = engine.TraceHull(first_fire_pos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		if not first_trace or (first_trace.fraction < 0.9 and first_trace.entity ~= pTarget) then
+			return nil, nil
+		end
+
+		-- Second pass: Make target "aim back" at our fire position
+		-- Calculate direction from target to our fire position
+		local target_to_fire_dir = math_utils.NormalizeVector(first_fire_pos - target_pos)
+
+		-- Get the target's "shoot position" (where they would shoot from if aiming at our fire pos)
+		local target_shoot_pos = target_pos + target_to_fire_dir * 50 -- Approximate weapon offset
+
+		-- Now solve aiming at the target's shoot position
+		local final_angle = math_utils.SolveBallisticArc(vecHeadPos, target_shoot_pos, forward_speed, gravity)
+		if not final_angle then
+			return nil, nil
+		end
+
+		-- Get our final fire position
+		local final_fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, final_angle, pWeapon:IsViewModelFlipped())
+
+		-- Final trace check
+		local final_trace = engine.TraceHull(final_fire_pos, target_shoot_pos, vecMins, vecMaxs, MASK_SHOT_HULL,
+			shouldHit)
+		if not final_trace or (final_trace.fraction < 0.9 and final_trace.entity ~= pTarget) then
+			return nil, nil
+		end
+
+		return final_angle, final_fire_pos
+	end
+
+	-- Try aiming at the predicted position
+	local final_angle, final_fire_pos = TryAimAtPoint(vecPredictedPos)
+
+	-- If multipoint is enabled and first attempt failed, try multipoint positions
+	if not final_angle and settings.multipointing then
+		-- Get all available multipoint positions
+		local multipoint_positions = {}
+
+		-- Add primary positions based on weapon type
+		if bIsHuntsman and settings.hitparts.head then
+			local head_pos = vecPredictedPos + Vector3(0, 0, 82)
+			table.insert(multipoint_positions, head_pos)
+		end
+
+		if bExplosiveWeapon and settings.hitparts.feet and pTarget:IsOnGround() then
+			local feet_pos = vecPredictedPos + Vector3(0, 0, 10)
+			table.insert(multipoint_positions, feet_pos)
+		end
+
+		-- Add center position
+		table.insert(multipoint_positions, vecPredictedPos)
+
+		-- Add fallback multipoint positions
+		local fallback_points = {
+			{ pos = Vector3(0, 0, 41) }, -- Center height
+			{ pos = Vector3(0, 0, 20) }, -- Lower center
+			{ pos = Vector3(0, 0, 60) }, -- Upper center
+		}
+
+		for _, point in ipairs(fallback_points) do
+			local test_pos = vecPredictedPos + point.pos
+			table.insert(multipoint_positions, test_pos)
+		end
+
+		-- Try each position until one works
+		for _, pos in ipairs(multipoint_positions) do
+			final_angle, final_fire_pos = TryAimAtPoint(pos)
+			if final_angle then
+				multipoint_target_pos = pos
+				break
+			end
+		end
+	end
+
+	if not final_angle then
 		return
 	end
 
-	local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
-	trace = engine.TraceHull(vecWeaponFirePos, vecPredictedPos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
-	if not trace or (trace.fraction < 0.9 and trace.entity ~= pTarget) then
-		return
-	end
-
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, vecWeaponFirePos, weaponInfo, total_time, charge_time)
+	HandleWeaponFiring(uCmd, pLocal, pWeapon, final_angle, player_path, final_fire_pos, weaponInfo, total_time,
+		charge_time)
 end
 
 --- Terminator (titaniummachine1) made this
@@ -673,6 +627,31 @@ local function DrawProjPath()
 	end
 end
 
+local function DrawMultipointTarget()
+	if not multipoint_target_pos then
+		return
+	end
+
+	local screen_pos = client.WorldToScreen(multipoint_target_pos)
+	if not screen_pos then
+		return
+	end
+
+	-- Draw a small square at the multipoint target position
+	local square_size = 8
+	local half_size = square_size / 2
+
+	-- Draw filled square
+	draw.Color(255, 0, 0, 200) -- Red with alpha
+	draw.FilledRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+
+	-- Draw outline
+	draw.Color(255, 255, 255, 255) -- White outline
+	draw.OutlinedRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
+		screen_pos[1] + half_size, screen_pos[2] + half_size)
+end
+
 local function Draw()
 	if not settings.enabled then
 		return
@@ -681,6 +660,7 @@ local function Draw()
 	if displayed_time < globals.CurTime() then
 		paths.player_path = {}
 		paths.proj_path = {}
+		multipoint_target_pos = nil
 		return
 	end
 
@@ -701,6 +681,9 @@ local function Draw()
 		draw.Color(235, 203, 139, 255)
 		DrawProjPath()
 	end
+
+	-- Draw multipoint target indicator
+	DrawMultipointTarget()
 end
 
 local function FrameStage(stage)

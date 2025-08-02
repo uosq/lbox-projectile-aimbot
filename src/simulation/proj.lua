@@ -39,45 +39,15 @@ local function CreateProjectile(model, i)
 	return projectile
 end
 
----@param pWeapon Entity
-local function GetChargeTime(pWeapon)
-	local charge_time = 0.0
-
-	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
-		-- check if bow is currently being charged
-		local charge_begin_time = pWeapon:GetChargeBeginTime()
-
-		-- if charge_begin_time is 0, the bow isn't charging
-		if charge_begin_time > 0 then
-			charge_time = globals.CurTime() - charge_begin_time
-			-- clamp charge time between 0 and 1 second (full charge)
-			charge_time = math.max(0, math.min(charge_time, 1.0))
-		else
-			-- bow is not charging, use minimum speed
-			charge_time = 0.0
-		end
-	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		local charge_begin_time = pWeapon:GetChargeBeginTime()
-
-		if charge_begin_time > 0 then
-			charge_time = globals.CurTime() - charge_begin_time
-			if charge_time > 4.0 then
-				charge_time = 0.0
-			end
-		end
-	end
-
-	return charge_time
-end
-
 ---@param pLocal Entity The localplayer
 ---@param pWeapon Entity The localplayer's weapon
 ---@param shootPos Vector3
 ---@param vecForward Vector3 The target direction the projectile should aim for
 ---@param nTime number Number of seconds we want to simulate
 ---@param weapon_info WeaponInfo
+---@param charge_time number The charge time (0.0 to 1.0 for bows, 0.0 to 4.0 for stickies)
 ---@return ProjSimRet, boolean
-function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
+function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, charge_time)
 	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
 	if not projectile then
 		if weapon_info.m_sModelName and weapon_info.m_sModelName ~= "" then
@@ -99,10 +69,9 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	projectile:Wake()
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
-	local charge = GetChargeTime(pWeapon)
 
 	-- Get the velocity vector from weapon info (includes upward velocity)
-	local velocity_vector = weapon_info:GetVelocity(charge)
+	local velocity_vector = weapon_info:GetVelocity(charge_time)
 	local forward_speed = velocity_vector.x
 	local upward_speed = velocity_vector.z or 0
 
@@ -117,7 +86,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	end
 
 	projectile:SetPosition(shootPos, vecForward, true)
-	projectile:SetVelocity(velocity, weapon_info:GetAngularVelocity(charge))
+	projectile:SetVelocity(velocity, weapon_info:GetAngularVelocity(charge_time))
 
 	local tickInterval = globals.TickInterval()
 	local running = true

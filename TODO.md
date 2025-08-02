@@ -2,7 +2,7 @@
 
 Short term:
 
-- [x] Splash damage
+- [x] Explosive damage
 - [x] Multipointing
 
 ---
