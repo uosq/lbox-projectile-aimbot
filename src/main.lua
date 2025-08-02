@@ -32,6 +32,7 @@ local settings = {
 	ping_compensation = true,
 	min_priority = 0,
 	splash = true,
+	aim_circle = true,
 
 	hitparts = {
 		head = true,
@@ -116,47 +117,6 @@ local paths = {
 }
 
 local original_gui_value = gui.GetValue("projectile aimbot")
-
-local function CanRun(pLocal, pWeapon, bIsBeggar, bIgnoreKey)
-	if clientstate:GetChokedCommands() > 0 then
-		return
-	end
-
-	if pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_BULLET then
-		return false
-	end
-
-	if not wep_utils.CanShoot() and not bIsBeggar then
-		return false
-	end
-
-	if pWeapon:IsMeleeWeapon() then
-		return false
-	end
-
-	if bIgnoreKey == false and input.IsButtonDown(gui.GetValue("aim key")) == false then
-		return false
-	end
-
-	if pLocal:InCond(E_TFCOND.TFCond_Taunting) then
-		return false
-	end
-
-	if pLocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
-		return false
-	end
-
-	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
-		return false
-	end
-
-	--[[local m_iReloadMode = pWeapon:GetPropInt("m_iReloadMode")
-	if m_iReloadMode ~= 0 then
-		return false
-	end]]
-
-	return true
-end
 
 local function ShouldSkipPlayer(pPlayer)
 	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
@@ -545,7 +505,7 @@ local function CreateMove(uCmd)
 
 	if settings.draw_only then
 		local vecPredictedPos = player_path[#player_path]
-		local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
 		local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
 		if angle == nil then
 			return
@@ -607,7 +567,7 @@ local function CreateMove(uCmd)
 		vecPredictedPos = best_multipoint
 	end
 
-	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge_time)
+	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
 	local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
 	if angle == nil then
 		return

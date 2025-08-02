@@ -40,8 +40,7 @@ local function CreateProjectile(model, i)
 end
 
 ---@param pWeapon Entity
----@param weaponInfo WeaponInfo
-local function GetChargeTime(pWeapon, weaponInfo)
+local function GetChargeTime(pWeapon)
 	local charge_time = 0.0
 
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
@@ -100,8 +99,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info)
 	projectile:Wake()
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
-
-	local charge = GetChargeTime(pWeapon, weapon_info)
+	local charge = GetChargeTime(pWeapon)
 
 	-- Get the velocity vector from weapon info (includes upward velocity)
 	local velocity_vector = weapon_info:GetVelocity(charge)

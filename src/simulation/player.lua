@@ -108,6 +108,15 @@ local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
 end
 -- ===========================================================
 
+---@param vecPredictedPos Vector3
+---@param vecMins Vector3
+---@param vecMaxs Vector3
+local function InWater(vecPredictedPos, vecMins, vecMaxs)
+    local pos = vecPredictedPos + (vecMins + vecMaxs) * 0.5
+    local contents = engine.GetPointContents(pos)
+    return (contents & MASK_WATER) ~= 0
+end
+
 ---@param position Vector3
 ---@param mins Vector3
 ---@param maxs Vector3
