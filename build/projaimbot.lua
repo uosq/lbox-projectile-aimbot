@@ -525,7 +525,7 @@ local function CreateMove(uCmd)
 	end
 
 	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-	local angle = math_utils.SolveBallisticArc(vecHeadPos + weaponInfo.m_vecAbsoluteOffset, vecPredictedPos, forward_speed, gravity)
+	local angle = math_utils.SolveBallisticArc(vecHeadPos, vecPredictedPos, forward_speed, gravity)
 	if angle == nil then
 		return
 	end
