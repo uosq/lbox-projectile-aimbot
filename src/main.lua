@@ -34,9 +34,9 @@ local settings = {
 	explosive = true,
 	multipointing = true,
 
-	max_percent = 100,
-	wait_for_charge = true,
-	cancel_shot = true,
+	max_percent = 90,
+	wait_for_charge = false,
+	cancel_shot = false,
 
 	hitparts = {
 		head = true,
