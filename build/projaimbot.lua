@@ -164,6 +164,92 @@ local multipoint_target_pos = nil
 
 local original_gui_value = gui.GetValue("projectile aimbot")
 
+--- Calculates a normalized weight [0-1] based on the target's health
+-- @param health number: Target's current health
+-- @param damage number: Your projectile's base damage
+-- @return number: Weight score in range [0, 1]
+local function GetHealthWeight(health, damage)
+	local MAX_HEALTH = 300 -- Clamp upper health (heavy with overheal etc.)
+	health = math.min(health, MAX_HEALTH)
+
+	if health > damage then
+		-- Linear decrease from 1 to 0.5 as target becomes killable
+		local normalized = (MAX_HEALTH - health) / (MAX_HEALTH - damage)
+		return 1.0 - (0.5 * normalized)
+	elseif health == damage then
+		return 0.5 -- Exactly killable
+	else
+		-- Logarithmic growth from 0.5 to 1 with diminishing returns
+		local fraction = (damage - health) / damage
+		return 0.5 + 0.5 * (1 - math.exp(-6 * fraction))
+	end
+end
+
+--- Distance weight: continuous 0 → 0.5 up to plateau, then half-exponential down to 0 at maxDist
+-- w(0)=0, w(plateau)=0.5, w(maxDist)=0
+-- If maxDist < plateau, the "plateau" is clamped to maxDist (so it still rises to 0.5 at the end).
+-- @param distance number
+-- @param plateau  number|nil  -- default 200
+-- @param maxDist  number|nil  -- default 2000
+-- @param kRise    number|nil  -- curvature 0..plateau (default 4.0)
+-- @param kDecay   number|nil  -- curvature plateau..maxDist (default 4.0)
+-- @return number in [0,1]
+local function GetDistanceWeight(distance, plateau, maxDist, kRise, kDecay)
+	plateau  = plateau or 100
+	maxDist  = math.max(0, maxDist or 2000)
+	kRise    = kRise or 4.0 -- higher -> quicker rise to 0.5
+	kDecay   = kDecay or 4.0 -- higher -> slower fall after plateau
+
+	-- clamp inputs
+	distance = math.max(0, math.min(distance or 0, maxDist))
+	plateau  = math.min(plateau, maxDist)
+
+	-- normalized exponential helper: maps x in [0,1] to [0,1] with exp curve
+	local function exp01(x, k)
+		if k == 0 then return x end
+		local denom = 1 - math.exp(-k)
+		if denom == 0 then return x end
+		return (1 - math.exp(-k * x)) / denom
+	end
+
+	if distance <= plateau then
+		-- 0..plateau : rise from 0 to 0.5
+		local s = (plateau > 0) and (distance / plateau) or 1.0
+		return 0.5 * exp01(s, kRise)
+	else
+		-- plateau..maxDist : health-right-like decay from 0.5 to 0
+		local u = (maxDist > plateau) and ((distance - plateau) / (maxDist - plateau)) or 1.0
+		-- decay is half-exponential, normalized so u=0 -> 0.5 and u=1 -> 0
+		return 0.5 * exp01(1 - u, kDecay)
+	end
+end
+
+--- Visibility check: traces from our view position to target's view position
+-- @param pLocal Entity: Local player
+-- @param pTarget Entity: Target player
+-- @return number: 1 if visible, 0 if not visible
+local function GetVisibilityWeight(pLocal, pTarget)
+	if not pLocal or not pTarget then
+		return 0
+	end
+
+	-- Get our view position
+	local localViewPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+
+	-- Get target's view position
+	local targetViewPos = pTarget:GetAbsOrigin() + pTarget:GetPropVector("localdata", "m_vecViewOffset[0]")
+
+	-- Trace from our view to target's view
+	local trace = engine.TraceLine(localViewPos, targetViewPos, MASK_SHOT)
+
+	-- Check if trace hit the target (visible) or something else (not visible)
+	if trace and trace.entity == pTarget then
+		return 1 -- Visible
+	else
+		return 0 -- Not visible
+	end
+end
+
 local function ShouldSkipPlayer(pPlayer)
 	if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
 		return true
@@ -242,6 +328,11 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 		pos = nil,
 	}
 
+	-- Precompute max values for early rejection
+	local max_fov = settings.fov or 180
+	local max_distance = settings.max_distance or 0
+	local best_score = math.huge
+
 	local localTeam = pLocal:GetTeamNumber()
 	local localPos = pLocal:GetAbsOrigin()
 	local viewAngles = engine.GetViewAngles()
@@ -256,14 +347,28 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 			end
 
 			local origin = ent:GetAbsOrigin()
-			local dist = (origin - localPos):Length2D()
-			if dist > settings.max_distance then
+			local diff = origin - localPos
+			local dist = diff:Length()
+			-- early skip: too far
+			if dist > max_distance then
 				goto continue
 			end
-
 			local angleToEntity = math_utils.PositionAngles(shootpos, origin)
+			if not angleToEntity then
+				goto continue
+			end
 			local fov = math_utils.AngleFov(viewAngles, angleToEntity)
-			if fov and fov < best_target.fov then
+			-- early skip: fov outside allowed range
+			if not fov or fov > max_fov then
+				goto continue
+			end
+			-- Normalized weighting: all factors 0-1, lowest sum wins
+			local fov_weight = fov / max_fov                      -- 0-1, lower is better
+			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- 0-1, lower is better
+			local total_weight = fov_weight + dist_weight
+
+			if total_weight < best_score then
+				best_score = total_weight
 				best_target.angle = angleToEntity
 				best_target.fov = fov
 				bestEntity = ent
@@ -294,8 +399,9 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 
 			-- distance check
 			local playerPos = player:GetAbsOrigin()
-			local dist = (playerPos - localPos):Length()
-			if dist > settings.max_distance then
+			local diff = playerPos - localPos
+			local dist = diff:Length()
+			if dist > max_distance then
 				goto continue
 			end
 
@@ -316,8 +422,22 @@ local function GetClosestEntityToFov(pLocal, shootpos, players, bAimTeamMate)
 
 			-- fov check
 			local angleToPlayer = math_utils.PositionAngles(shootpos, playerPos)
+			if not angleToPlayer then
+				goto continue
+			end
 			local fov = math_utils.AngleFov(viewAngles, angleToPlayer)
-			if fov and fov < best_target.fov then
+			if not fov or fov > max_fov then
+				goto continue
+			end
+			-- Normalized weighting: all factors 0-1, lowest sum wins
+			local fov_weight = fov / max_fov                      -- 0-1, lower is better
+			local dist_weight = GetDistanceWeight(dist, 200, max_distance) -- 0-1, lower is better
+			local health_weight = GetHealthWeight(player:GetHealth(), 50) -- 0-1, lower is better (assume 50 damage)
+			local visibility_weight = GetVisibilityWeight(pLocal, player) -- 0-1, lower is better (0=visible, 1=not visible)
+			local total_weight = fov_weight + dist_weight + health_weight + visibility_weight
+
+			if total_weight < best_score then
+				best_score = total_weight
 				best_target.angle = angleToPlayer
 				best_target.fov = fov
 				bestEntity = player
