@@ -389,7 +389,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
+	--- p100 fix for something
+	local vecTargetOrigin = pTarget:GetAbsOrigin() + Vector3(0, 0, 1)
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
@@ -408,7 +409,7 @@ local function CreateMove(uCmd)
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
 	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
-	if player_path == nil then
+	if player_path == nil or #player_path == 0 then
 		return
 	end
 

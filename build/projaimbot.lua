@@ -433,7 +433,8 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
+	--- p100 fix for something
+	local vecTargetOrigin = pTarget:GetAbsOrigin() + Vector3(0, 0, 1)
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
@@ -452,7 +453,7 @@ local function CreateMove(uCmd)
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
 	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
-	if player_path == nil then
+	if player_path == nil or #player_path == 0 then
 		return
 	end
 
@@ -3753,6 +3754,10 @@ local MAX_SAMPLES      = 16       -- tuned window size
 local SMOOTH_ALPHA_G   = 0.392   -- tuned ground α
 local SMOOTH_ALPHA_A   = 0.127   -- tuned air α
 
+local COORD_FRACTIONAL_BITS =	5
+local COORD_DENOMINATOR =		(1<<(COORD_FRACTIONAL_BITS))
+local COORD_RESOLUTION =		(1.0/(COORD_DENOMINATOR))
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
@@ -4231,6 +4236,38 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
 	return final_origin, final_velocity, final_blocked, step_height
 end
 
+---@param vecPos Vector3
+---@param mins Vector3
+---@param maxs Vector3
+---@param step_size number
+---@param shouldHitEntity function
+local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
+	local up_start = Vector3(vecPos.x, vecPos.y, vecPos.z + 2)
+	local down_end = Vector3(vecPos.x, vecPos.y, vecPos.z - step_size)
+	local trace = DoTraceHull(
+		up_start,
+		down_end,
+		mins,
+		maxs,
+		MASK_PLAYERSOLID,
+		shouldHitEntity
+	)
+
+	if trace
+		and trace.fraction > 0.0 --- he must go somewhere
+		and trace.fraction < 1.0 --- hit something
+		and not trace.startsolid --- cant be embedded in a solid
+		and trace.plane.z >= 0.7 --- cant hit on a steep slope that we cant stand on anyway
+	then
+		local z_delta = math_abs(vecPos.z - trace.endpos.z)
+		if z_delta > 0.5 * COORD_RESOLUTION then
+			vecPos.x = trace.endpos.x
+			vecPos.y = trace.endpos.y
+			vecPos.z = trace.endpos.z
+		end
+	end
+end
+
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
@@ -4344,6 +4381,9 @@ function sim.Run(pTarget, initial_pos, time)
 			surface_friction,
 			step_size
 		)
+
+		-- try to keep player on ground after move
+		StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity
