@@ -500,7 +500,7 @@ local function CreateMove(uCmd)
 	end
 
 	local proj_path, full_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo, charge_time)
-	if not proj_path or #proj_path == 0 or not full_path then
+	if not proj_path or #proj_path == 0 then
 		return
 	end
 
