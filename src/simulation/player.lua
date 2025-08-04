@@ -40,6 +40,9 @@ local COORD_FRACTIONAL_BITS =	5
 local COORD_DENOMINATOR =		(1<<(COORD_FRACTIONAL_BITS))
 local COORD_RESOLUTION =		(1.0/(COORD_DENOMINATOR))
 
+local impact_planes = {}
+local MAX_IMPACT_PLANES = 5
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
@@ -53,6 +56,14 @@ local up_vector = Vector3(0, 0, 1)
 -- Reusable temp vectors for zero-GC operations
 local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
 local tmp4 = Vector3() -- for wishdir (GC‑free)
+
+--- it clears the impact planes
+--- call this every end of sim!
+local function ClearImpactPlanes()
+	for i = #impact_planes, 1, -1 do
+		impact_planes[i] = nil
+	end
+end
 
 ---@param vec Vector3
 local function NormalizeVector(vec)
@@ -84,7 +95,8 @@ end
 
 -- === GC‑FREE IN‑PLACE ACCELERATION =========================
 local function AccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
-	local currentspeed = v:Dot(wishdir)
+	--local currentspeed = v:Dot(wishdir)
+	local currentspeed = v:Length()
 	local addspeed     = wishspeed - currentspeed
 	if addspeed <= 0 then return end
 
@@ -99,7 +111,8 @@ end
 local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
 	if wishspeed > AIR_SPEED_CAP then wishspeed = AIR_SPEED_CAP end
 
-	local currentspeed = v:Dot(wishdir)
+	--local currentspeed = v:Dot(wishdir)
+	local currentspeed = v:Length()
 	local addspeed     = wishspeed - currentspeed
 	if addspeed <= 0 then return end
 
@@ -111,6 +124,71 @@ local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
 	v.z = v.z + accelspeed * wishdir.z
 end
 -- ===========================================================
+
+---@param velocity Vector3
+---@param original_velocity Vector3
+---@return Vector3, boolean
+local function RedirectGroundVelocity(velocity, original_velocity)
+	if #impact_planes >= MAX_IMPACT_PLANES then
+		return Vector3(0, 0, 0), false
+	end
+
+	local redirected = Vector3(velocity.x, velocity.y, velocity.z)
+
+	for i = 1, #impact_planes do
+		local normal = impact_planes[i]
+		if normal.z < 0 then
+			normal = NormalizeVector(Vector3(normal.x, normal.y, 0))
+		end
+
+		redirected = ClipVelocity(redirected, normal, 1.0)
+
+		-- Check if redirected velocity is valid against all planes
+		local valid = true
+		for j = 1, #impact_planes do
+			if j ~= i and redirected:Dot(impact_planes[j]) < 0 then
+				valid = false
+				break
+			end
+		end
+
+		if valid then
+			return redirected, redirected:Dot(original_velocity) > 0
+		end
+	end
+
+	-- If we reach here, velocity is invalid — maybe crease movement
+	if #impact_planes == 2 then
+		local crease = impact_planes[1]:Cross(impact_planes[2])
+		crease:Normalize()
+		local scalar = crease:Dot(velocity)
+		return crease * scalar, scalar > 0
+	end
+
+	return Vector3(0, 0, 0), false
+end
+
+---@param velocity Vector3
+---@param surface_friction number
+---@return Vector3
+local function RedirectAirVelocity(velocity, surface_friction)
+	if #impact_planes >= MAX_IMPACT_PLANES then
+		return Vector3(0, 0, 0)
+	end
+
+	local redirected = Vector3(velocity.x, velocity.y, velocity.z)
+
+	for _, normal in ipairs(impact_planes) do
+		if normal.z < 0 then
+			normal = NormalizeVector(Vector3(normal.x, normal.y, 0))
+		end
+
+		local overbounce = (normal.z > 0.7) and 1.0 or (1.0 + (1.0 - surface_friction))
+		redirected = ClipVelocity(redirected, normal, overbounce)
+	end
+
+	return redirected
+end
 
 ---@param vecPredictedPos Vector3
 ---@param vecMins Vector3
@@ -272,6 +350,7 @@ function sim.RunBackground(players)
 	end
 end
 
+---@param origin Vector3
 ---@param velocity Vector3
 ---@param frametime number
 ---@param mins Vector3
@@ -292,128 +371,112 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 	local allFraction = 0
 	local current_origin = Vector3(origin.x, origin.y, origin.z)
 
+	ClearImpactPlanes()
+
 	for bumpcount = 0, numbumps - 1 do
 		if velocity:Length() == 0.0 then
 			break
 		end
 
-		-- Calculate end position
 		local end_pos = current_origin + velocity * time_left
-
-		-- Trace from current origin to end position
 		local trace = DoTraceHull(current_origin, end_pos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
-
 		allFraction = allFraction + trace.fraction
 
-		-- If we started in a solid object or were in solid space the whole way
 		if trace.allsolid then
-			velocity = zero_vector
-			return current_origin, velocity, 4 -- blocked by floor and wall
+			return current_origin, Vector3(0, 0, 0), 4
 		end
 
-		-- If we moved some portion of the total distance
 		if trace.fraction > 0 then
 			if numbumps > 0 and trace.fraction == 1 then
-				-- Check for precision issues - verify we won't get stuck at end position
-				local stuck_trace =
-					DoTraceHull(trace.endpos, trace.endpos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+				local stuck_trace = DoTraceHull(trace.endpos, trace.endpos, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
 				if stuck_trace.startsolid or stuck_trace.fraction ~= 1.0 then
-					velocity = zero_vector
-					break
+					return current_origin, Vector3(0, 0, 0), 4
 				end
 			end
 
-			-- Actually covered some distance
 			current_origin = trace.endpos
 			original_velocity = Vector3(velocity.x, velocity.y, velocity.z)
 			numplanes = 0
 		end
 
-		-- If we covered the entire distance, we are done
 		if trace.fraction == 1 then
-			break -- moved the entire distance
-		end
-
-		-- Determine what we hit
-		if trace.plane.z > 0.7 then
-			blocked = blocked | 1 -- floor
-		end
-		if trace.plane.z == 0 then
-			blocked = blocked | 2 -- step/wall
-		end
-
-		-- Reduce time left by the fraction we moved
-		time_left = time_left - time_left * trace.fraction
-
-		-- Did we run out of planes to clip against?
-		if numplanes >= MAX_CLIP_PLANES then
-			velocity = zero_vector
 			break
 		end
 
-		-- Set up clipping plane
-		planes[numplanes + 1] = Vector3(trace.plane.x, trace.plane.y, trace.plane.z)
-		numplanes = numplanes + 1
+		if trace.plane.z > 0.7 then
+			blocked = blocked | 1
+		end
+		if trace.plane.z == 0 then
+			blocked = blocked | 2
+		end
 
-		-- Modify velocity so it parallels all of the clip planes
-		-- Reflect player velocity for first impact plane only
+		time_left = time_left - time_left * trace.fraction
+
+		if numplanes >= MAX_CLIP_PLANES then
+			return current_origin, Vector3(0, 0, 0), blocked
+		end
+
+		local normal = Vector3(trace.plane.x, trace.plane.y, trace.plane.z)
+		planes[numplanes + 1] = normal
+		numplanes = numplanes + 1
+		impact_planes[#impact_planes + 1] = normal
+
 		if numplanes == 1 and trace.plane.z <= 0.7 then
-			-- Wall bounce - simple reflection with bounce factor
 			local bounce_factor = 1.0 + (1.0 - surface_friction) * 0.5
 			new_velocity = ClipVelocity(original_velocity, planes[1], bounce_factor)
 			velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
 			original_velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
 		else
-			-- Multi-plane clipping
 			local i = 0
 			while i < numplanes do
 				velocity = ClipVelocity(original_velocity, planes[i + 1], 1.0)
 
-				-- Check if this velocity works with all planes
 				local j = 0
 				while j < numplanes do
-					if j ~= i then
-						if velocity:Dot(planes[j + 1]) < 0 then
-							break -- not ok
-						end
+					if j ~= i and velocity:Dot(planes[j + 1]) < 0 then
+						break
 					end
 					j = j + 1
 				end
 
-				if j == numplanes then -- Didn't have to re-clip
+				if j == numplanes then
 					break
 				end
 				i = i + 1
 			end
 
-			-- Did we go all the way through plane set?
 			if i == numplanes then
-				-- Velocity is set in clipping call
+				-- velocity OK
 			else
-				-- Go along the crease (intersection of two planes)
 				if numplanes ~= 2 then
-					velocity = zero_vector
-					break
+					return current_origin, Vector3(0, 0, 0), blocked
 				end
 
-				-- Calculate cross product for crease direction
-				local dir = planes[1]:Cross(planes[2])
-				dir = NormalizeVector(dir)
+				local dir = NormalizeVector(planes[1]:Cross(planes[2]))
 				local d = dir:Dot(velocity)
 				velocity = dir * d
 			end
 
-			-- If velocity is against the original velocity, stop to avoid oscillations
 			local d = velocity:Dot(primal_velocity)
 			if d <= 0 then
-				velocity = zero_vector
-				break
+				return current_origin, Vector3(0, 0, 0), blocked
 			end
 		end
 	end
 
+	-- Optional redirection here
+	local is_grounded = IsOnGround(current_origin, mins, maxs, pTarget, pTarget:GetPropFloat("m_flStepSize"))
+	if is_grounded then
+		local redirected, success = RedirectGroundVelocity(velocity, primal_velocity)
+		if success then
+			velocity = redirected
+		end
+	else
+		velocity = RedirectAirVelocity(velocity, surface_friction)
+	end
+
 	if allFraction == 0 then
-		velocity = zero_vector
+		velocity = Vector3(0, 0, 0)
 	end
 
 	return current_origin, velocity, blocked
@@ -535,11 +598,13 @@ local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
 		shouldHitEntity
 	)
 
+	local normal = math_acos(math.rad(trace.plane:Dot(up_vector)))
+
 	if trace
 		and trace.fraction > 0.0 --- he must go somewhere
 		and trace.fraction < 1.0 --- hit something
 		and not trace.startsolid --- cant be embedded in a solid
-		and trace.plane.z >= 0.7 --- cant hit on a steep slope that we cant stand on anyway
+		and normal >= 0.7 --- cant hit on a steep slope that we cant stand on anyway
 	then
 		local z_delta = math_abs(vecPos.z - trace.endpos.z)
 		if z_delta > 0.5 * COORD_RESOLUTION then
@@ -553,8 +618,9 @@ end
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
+---@param settings table
 ---@return Vector3[]
-function sim.Run(pTarget, initial_pos, time)
+function sim.Run(settings, pTarget, initial_pos, time)
 	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
@@ -566,7 +632,7 @@ function sim.Run(pTarget, initial_pos, time)
 	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
 	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
 
-	local positions = { initial_pos }
+	local positions = {}
 
 	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 	local down_vector = tmp1
@@ -574,7 +640,7 @@ function sim.Run(pTarget, initial_pos, time)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
-	if angular_velocity ~= 0 then
+	if angular_velocity ~= 0 and settings.sim.rotation then
 		local yaw = math_rad(angular_velocity)
 		cos_yaw, sin_yaw = math_cos(yaw), math_sin(yaw)
 	end
@@ -589,7 +655,7 @@ function sim.Run(pTarget, initial_pos, time)
 	-- ********* MAIN TICK LOOP *********
 	for i = 1, time do
 		-- ---  A. rotate velocity (no allocs)
-		if angular_velocity ~= 0 then
+		if angular_velocity ~= 0 and settings.sim.rotation then
 			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
@@ -619,7 +685,7 @@ function sim.Run(pTarget, initial_pos, time)
 		horizontal_vel.z = 0
 		local horizontal_speed = horizontal_vel:Length()
 
-		if horizontal_speed > 0.1 then
+		if horizontal_speed > 0.1 and settings.sim.acceleration then
 			local inv_len = 1.0 / horizontal_speed
 			tmp4.x = horizontal_vel.x * inv_len
 			tmp4.y = horizontal_vel.y * inv_len
@@ -665,7 +731,9 @@ function sim.Run(pTarget, initial_pos, time)
 		)
 
 		-- try to keep player on ground after move
-		StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+		if settings.sim.stay_on_ground then
+			StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+		end
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity
