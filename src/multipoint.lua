@@ -2,47 +2,70 @@
 local FL_DUCKING = 1
 
 ---@class Multipoint
----@field private pLocal Entity
----@field private pTarget Entity
----@field private pWeapon Entity
----@field private bIsHuntsman boolean
----@field private bIsExplosive boolean
----@field private vecAimDir Vector3
----@field private vecPredictedPos Vector3
----@field private bAimTeamMate boolean
----@field private vecHeadPos Vector3
----@field private weapon_info WeaponInfo
----@field private math_utils MathLib
----@field private iMaxDistance integer
-local multipoint = {}
+---@field m_pLocal Entity?
+---@field m_pTarget Entity?
+---@field m_pWeapon Entity?
+---@field m_bIsHuntsman boolean
+---@field m_bIsExplosive boolean
+---@field m_vecAimDir Vector3
+---@field m_vecPredictedPos Vector3
+---@field m_bAimTeamMate boolean
+---@field m_vecHeadPos Vector3
+---@field m_weaponInfo WeaponInfo?
+---@field m_mathUtils MathLib
+---@field m_iMaxDistance integer
+---@field m_bSplashWeapon boolean
+---@field m_bAimAtTeamMates boolean
+local multipoint = {
+	m_pLocal = nil,
+	m_pWeapon = nil,
+	m_pTarget = nil,
+	m_bIsHuntsman = false,
+	m_bAimTeamMate = false,
+	m_vecHeadPos = Vector3(),
+	m_vecShootPos = Vector3(),
+	m_weaponInfo = nil,
+	m_mathUtils = {},
+	m_iMaxDistance = 0,
+	m_vecPredictedPos = Vector3(),
+	m_bIsExplosive = false,
+	m_entUtils = {},
+	m_settings = {},
+	m_bSplashWeapon = false,
+	m_bAimAtTeamMates = false,
+}
 
 ---@return Vector3?
 function multipoint:GetBestHitPoint()
-	local maxs = self.pTarget:GetMaxs()
-	local mins = self.pTarget:GetMins()
+	if self.m_weaponInfo == nil then
+		return self.m_vecPredictedPos
+	end
+
+	local maxs = self.m_pTarget:GetMaxs()
+	local mins = self.m_pTarget:GetMins()
 
 	local target_height = maxs.z - mins.z
 	local target_width = maxs.x - mins.x
 	local target_depth = maxs.y - mins.y
 
-	local is_on_ground = (self.pTarget:GetPropInt("m_fFlags") & FL_ONGROUND) ~= 0
-	local vecMins, vecMaxs = self.weapon_info.m_vecMins, self.weapon_info.m_vecMaxs
+	local is_on_ground = (self.m_pTarget:GetPropInt("m_fFlags") & FL_ONGROUND) ~= 0
+	local vecMins, vecMaxs = self.m_weaponInfo.m_vecMins, self.m_weaponInfo.m_vecMaxs
 
 	local function shouldHit(ent)
 		if not ent then
 			return false
 		end
 
-		if ent:GetIndex() == self.pLocal:GetIndex() then
+		if ent:GetIndex() == self.m_pLocal:GetIndex() then
 			return false
 		end
 
 		-- For rockets, we want to hit enemies (different team)
 		-- For healing weapons, we want to hit teammates (same team)
-		if self.bAimTeamMate then
-			return ent:GetTeamNumber() == self.pTarget:GetTeamNumber()
+		if self.m_bAimTeamMate then
+			return ent:GetTeamNumber() == self.m_pTarget:GetTeamNumber()
 		else
-			return ent:GetTeamNumber() ~= self.pTarget:GetTeamNumber()
+			return ent:GetTeamNumber() ~= self.m_pTarget:GetTeamNumber()
 		end
 	end
 
@@ -53,31 +76,31 @@ function multipoint:GetBestHitPoint()
 		end
 
 		-- Use the same logic as main code: calculate aim direction first, then check if we can hit
-		local viewpos = self.pLocal:GetAbsOrigin() + self.pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+		local viewpos = self.m_pLocal:GetAbsOrigin() + self.m_pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
 
 		-- Calculate aim direction from viewpos to target
-		local aim_dir = self.math_utils.NormalizeVector(target_pos - viewpos)
+		local aim_dir = self.m_mathUtils.NormalizeVector(target_pos - viewpos)
 		if not aim_dir then
 			return false
 		end
 
 		-- Get weapon offset and calculate weapon fire position using the same logic as main code
-		local muzzle_offset = self.weapon_info:GetOffset(
-			(self.pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
-			self.pWeapon:IsViewModelFlipped()
+		local muzzle_offset = self.m_weaponInfo:GetOffset(
+			(self.m_pLocal:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0,
+			self.m_pWeapon:IsViewModelFlipped()
 		)
 		local vecWeaponFirePos = viewpos
-			+ self.math_utils.RotateOffsetAlongDirection(muzzle_offset, aim_dir)
-			+ self.weapon_info.m_vecAbsoluteOffset
+			+ self.m_mathUtils.RotateOffsetAlongDirection(muzzle_offset, aim_dir)
+			+ self.m_weaponInfo.m_vecAbsoluteOffset
 
 		-- Check if we can hit using TraceHull (same as main code)
 		local trace = engine.TraceHull(vecWeaponFirePos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
 		return trace and trace.fraction >= 1
 	end
 
-	local head_pos = self.ent_utils.GetBones and self.ent_utils.GetBones(self.pTarget)[1] or nil
-	local center_pos = self.vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = self.vecPredictedPos + Vector3(0, 0, 5)
+	local head_pos = self.m_entUtils.GetBones and self.m_entUtils.GetBones(self.m_pTarget)[1] or nil
+	local center_pos = self.m_vecPredictedPos + Vector3(0, 0, target_height / 2)
+	local feet_pos = self.m_vecPredictedPos + Vector3(0, 0, 5)
 
 	-- For rockets and pipes, prioritize feet positions
 	local fallback_points = {}
@@ -125,13 +148,13 @@ function multipoint:GetBestHitPoint()
 	-- For huntsman: aim at head, for explosive weapons (rockets/pipes): aim at feet,
 	-- otherwise default to center of hitbox.
 	local primary_pos
-	if self.bIsHuntsman then
-		if self.settings.hitparts.head and head_pos then
+	if self.m_bIsHuntsman then
+		if self.m_settings.hitparts.head and head_pos then
 			primary_pos = head_pos
 		else
 			primary_pos = center_pos
 		end
-	elseif self.bIsExplosive then
+	elseif self.m_bIsExplosive then
 		-- For explosive weapons (rockets/pipes), prioritize feet only when on ground
 		if is_on_ground then
 			primary_pos = feet_pos
@@ -155,7 +178,7 @@ function multipoint:GetBestHitPoint()
 
 	-- Iterate through fallback points (multipoint) and return first achievable one.
 	for _, point in ipairs(fallback_points) do
-		local test_pos = self.vecPredictedPos + point.pos
+		local test_pos = self.m_vecPredictedPos + point.pos
 		if canShootToPoint(test_pos) then
 			return test_pos
 		end
@@ -163,50 +186,6 @@ function multipoint:GetBestHitPoint()
 
 	-- Ultimate fallback: return center.
 	return center_pos
-end
-
----@param pLocal Entity
----@param pWeapon Entity
----@param pTarget Entity
----@param bIsHuntsman boolean
----@param bAimTeamMate boolean
----@param vecHeadPos Vector3
----@param vecPredictedPos Vector3
----@param weapon_info WeaponInfo
----@param math_utils MathLib
----@param iMaxDistance integer
----@param bIsExplosive boolean
----@param ent_utils table
----@param settings table
-function multipoint:Set(
-	pLocal,
-	pWeapon,
-	pTarget,
-	bIsHuntsman,
-	bAimTeamMate,
-	vecHeadPos,
-	vecPredictedPos,
-	weapon_info,
-	math_utils,
-	iMaxDistance,
-	bIsExplosive,
-	ent_utils,
-	settings
-)
-	self.pLocal = pLocal
-	self.pWeapon = pWeapon
-	self.pTarget = pTarget
-	self.bIsHuntsman = bIsHuntsman
-	self.bAimTeamMate = bAimTeamMate
-	self.vecHeadPos = vecHeadPos
-	self.vecShootPos = vecHeadPos -- Use view position as base
-	self.weapon_info = weapon_info
-	self.math_utils = math_utils
-	self.iMaxDistance = iMaxDistance
-	self.vecPredictedPos = vecPredictedPos
-	self.bIsExplosive = bIsExplosive
-	self.ent_utils = ent_utils
-	self.settings = settings
 end
 
 return multipoint

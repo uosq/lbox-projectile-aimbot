@@ -57,14 +57,6 @@ local up_vector = Vector3(0, 0, 1)
 local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
 local tmp4 = Vector3() -- for wishdir (GC‑free)
 
---- it clears the impact planes
---- call this every end of sim!
-local function ClearImpactPlanes()
-	for i = #impact_planes, 1, -1 do
-		impact_planes[i] = nil
-	end
-end
-
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
@@ -94,18 +86,18 @@ local function ClipVelocity(velocity, normal, overbounce)
 end
 
 -- === GC‑FREE IN‑PLACE ACCELERATION =========================
-local function AccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
+local function AccelerateInPlace(velocity, wishdir, wishspeed, accel, dt, surf)
 	--local currentspeed = v:Dot(wishdir)
-	local currentspeed = v:Length()
+	local currentspeed = velocity:Length()
 	local addspeed     = wishspeed - currentspeed
 	if addspeed <= 0 then return end
 
 	local accelspeed = accel * dt * wishspeed * surf
 	if accelspeed > addspeed then accelspeed = addspeed end
 
-	v.x = v.x + accelspeed * wishdir.x
-	v.y = v.y + accelspeed * wishdir.y
-	v.z = v.z + accelspeed * wishdir.z
+	velocity.x = velocity.x + accelspeed * wishdir.x
+	velocity.y = velocity.y + accelspeed * wishdir.y
+	velocity.z = velocity.z + accelspeed * wishdir.z
 end
 
 local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
@@ -371,7 +363,7 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 	local allFraction = 0
 	local current_origin = Vector3(origin.x, origin.y, origin.z)
 
-	ClearImpactPlanes()
+	impact_planes = {}
 
 	for bumpcount = 0, numbumps - 1 do
 		if velocity:Length() == 0.0 then

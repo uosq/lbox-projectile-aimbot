@@ -462,21 +462,19 @@ local function CreateMove(uCmd)
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
 			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
-		multipoint:Set(
-			pLocal,
-			pWeapon,
-			pTarget,
-			bIsHuntsman,
-			bAimAtTeamMates,
-			vecHeadPos,
-			vecPredictedPos,
-			weaponInfo,
-			math_utils,
-			settings.max_distance,
-			bSplashWeapon,
-			ent_utils,
-			settings
-		)
+		multipoint.m_pLocal = pLocal
+		multipoint.m_pWeapon = pWeapon
+		multipoint.m_pTarget = pTarget
+		multipoint.m_bIsHuntsman = bIsHuntsman
+		multipoint.m_bAimAtTeamMates = bAimAtTeamMates
+		multipoint.m_vecHeadPos = vecHeadPos
+		multipoint.m_vecPredictedPos = vecPredictedPos
+		multipoint.m_weaponInfo = weaponInfo
+		multipoint.m_mathUtils = math_utils
+		multipoint.m_settings.max_distance = settings.max_distance
+		multipoint.m_bSplashWeapon = bSplashWeapon
+		multipoint.m_entUtils = ent_utils
+		multipoint.m_settings = settings
 
 		local best_multipoint = multipoint:GetBestHitPoint()
 		if not best_multipoint then
@@ -499,7 +497,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	local proj_path, full_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo, charge_time)
+	local proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo, charge_time)
 	if not proj_path or #proj_path == 0 then
 		return
 	end
