@@ -57,10 +57,70 @@ local up_vector = Vector3(0, 0, 1)
 local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
 local tmp4 = Vector3() -- for wishdir (GC‑free)
 
+local RuneTypes_t = {
+	RUNE_NONE = -1,
+	RUNE_STRENGTH = 0,
+	RUNE_HASTE = 1,
+	RUNE_REGEN = 2,
+	RUNE_RESIST = 3,
+	RUNE_VAMPIRE = 4,
+	RUNE_REFLECT = 5,
+	RUNE_PRECISION = 6,
+	RUNE_AGILITY = 7,
+	RUNE_KNOCKOUT = 8,
+	RUNE_KING = 9,
+	RUNE_PLAGUE = 10,
+	RUNE_SUPERNOVA = 11,
+	RUNE_TYPES_MAX = 12,
+};
+
+
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
 	return len == 0 and vec or vec / len --branchless
+end
+
+---@param pTarget Entity
+---@return number
+local function GetAirSpeedCap(pTarget)
+	local m_hGrapplingHookTarget = pTarget:GetPropEntity("m_hGrapplingHookTarget")
+	if m_hGrapplingHookTarget then
+		if pTarget:GetCarryingRuneType() == RuneTypes_t.RUNE_AGILITY then
+			local m_iClass = pTarget:GetPropInt("m_iClass")
+			if m_iClass == E_Character.TF2_Soldier or E_Character.TF2_Heavy then
+				return 850
+			else
+				return 950
+			end
+		end
+
+		local _, tf_grapplinghook_move_speed = client.GetConVar("tf_grapplinghook_move_speed")
+		return tf_grapplinghook_move_speed
+	elseif pTarget:InCond(E_TFCOND.TFCond_Charging) then
+		local _, tf_max_charge_speed = client.GetConVar("tf_max_charge_speed")
+		return tf_max_charge_speed
+	else
+		--- BaseClass::GetAirSpeedCap() returns 30
+		local flCap = 30.0
+
+		if pTarget:InCond(E_TFCOND.TFCond_ParachuteDeployed) then
+			local _, tf_parachute_aircontrol = client.GetConVar("tf_parachute_aircontrol")
+			flCap = flCap * tf_parachute_aircontrol
+		end
+
+		if pTarget:InCond(E_TFCOND.TFCond_HalloweenKart) then
+			if pTarget:InCond(E_TFCOND.TFCond_HalloweenKartDash) then
+				local _, tf_halloween_kart_dash_speed = client.GetConVar("tf_halloween_kart_dash_speed")
+				return tf_halloween_kart_dash_speed
+			end
+			local _, tf_hallowen_kart_aircontrol = client.GetConVar("tf_hallowen_kart_aircontrol")
+			flCap = flCap * tf_hallowen_kart_aircontrol
+		end
+
+		local flIncreasedAirControl = pTarget:AttributeHookFloat("mod_air_control")
+		return flCap * flIncreasedAirControl
+	end
 end
 
 ---@param velocity Vector3
@@ -100,8 +160,15 @@ local function AccelerateInPlace(velocity, wishdir, wishspeed, accel, dt, surf)
 	velocity.z = velocity.z + accelspeed * wishdir.z
 end
 
-local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
-	if wishspeed > AIR_SPEED_CAP then wishspeed = AIR_SPEED_CAP end
+---@param v Vector3
+---@param wishdir Vector3
+---@param wishspeed number
+---@param accel number
+---@param dt number
+---@param surf number
+---@param pTarget Entity
+local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf, pTarget)
+	if wishspeed > GetAirSpeedCap(pTarget) then wishspeed = GetAirSpeedCap(pTarget) end
 
 	--local currentspeed = v:Dot(wishdir)
 	local currentspeed = v:Length()
@@ -116,6 +183,18 @@ local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf)
 	v.z = v.z + accelspeed * wishdir.z
 end
 -- ===========================================================
+
+---@param vec Vector3
+local function NormalizeVectorNoAllocate(vec)
+    local length = vec:Length()
+	if length == 0 then
+		return
+	end
+
+	vec.x = vec.x / length
+	vec.y = vec.y / length
+	vec.z = vec.z / length
+end
 
 ---@param velocity Vector3
 ---@param original_velocity Vector3
@@ -152,7 +231,7 @@ local function RedirectGroundVelocity(velocity, original_velocity)
 	-- If we reach here, velocity is invalid — maybe crease movement
 	if #impact_planes == 2 then
 		local crease = impact_planes[1]:Cross(impact_planes[2])
-		crease:Normalize()
+		NormalizeVectorNoAllocate(crease)
 		local scalar = crease:Dot(velocity)
 		return crease * scalar, scalar > 0
 	end
@@ -633,7 +712,7 @@ local function WalkMove(pos, vel, tick_interval, mins, maxs, friction, maxspeed,
 	if is_grounded and is_steep then
 		--- compute downhill direction from slope normal
 		slope_downhill = slope_normal:Cross(up_vector):Cross(slope_normal)
-		slope_downhill = NormalizeVector(slope_downhill)
+		NormalizeVectorNoAllocate(slope_downhill)
 
 		--- project velocity onto downhill vector
 		local slide_speed = vel:Dot(slope_downhill)
@@ -752,7 +831,7 @@ function sim.Run(settings, pTarget, initial_pos, time)
 				-- apply air acceleration when not on ground and falling
 				if smoothed_velocity.z < 0 then
 					AirAccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
-						AIR_ACCELERATE, tick_interval, surface_friction)
+						AIR_ACCELERATE, tick_interval, surface_friction, pTarget)
 				end
 			end
 		end
@@ -769,18 +848,16 @@ function sim.Run(settings, pTarget, initial_pos, time)
 		end
 
 		-- ---  E. physics move (StepMove still allocates internally)
-		local new_pos, new_velocity = WalkMove(
+		local new_pos, new_velocity = StepMove(
 			last_pos,
 			smoothed_velocity,
 			tick_interval,
 			mins,
 			maxs,
-			surface_friction,
-			target_max_speed,
-			GROUND_ACCELERATE,
-			step_size,
 			shouldHitEntity,
-			pTarget
+			pTarget,
+			surface_friction,
+			step_size
 		)
 
 		-- try to keep player on ground after move
