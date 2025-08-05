@@ -685,6 +685,41 @@ local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
 	end
 end
 
+---@param velocity Vector3
+---@param pTarget Entity
+local function ApplyFriction(velocity, pTarget, is_on_ground)
+    -- Skip if water jump time is active (not implemented, so skip check)
+    local speed = velocity:Length()
+    if speed < 0.1 then
+        return
+    end
+
+    local drop = 0
+
+    if is_on_ground then
+        local _, sv_friction = client.GetConVar("sv_friction")
+        local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or 1.0
+        local friction = sv_friction * surfaceFriction
+
+        local _, sv_stopspeed = client.GetConVar("sv_stopspeed")
+        local control = (speed < sv_stopspeed) and sv_stopspeed or speed
+
+        drop = drop + control * friction * globals.TickInterval()
+    end
+
+    local newspeed = speed - drop
+    if newspeed < 0 then
+        newspeed = 0
+    end
+
+    if newspeed ~= speed and speed > 0 then
+        local scale = newspeed / speed
+        velocity.x = velocity.x * scale
+		velocity.y = velocity.y * scale
+		velocity.z = velocity.z * scale
+    end
+end
+
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
@@ -753,6 +788,8 @@ function sim.Run(pTarget, initial_pos, time)
 			smoothed_velocity.z
 		horizontal_vel.z = 0
 		local horizontal_speed = horizontal_vel:Length()
+
+		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
 
 		if horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed

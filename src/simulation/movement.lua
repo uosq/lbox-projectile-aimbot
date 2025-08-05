@@ -304,8 +304,12 @@ local function CheckGround(vPos, vMins, vMaxs, step_height)
     return trace and trace.fraction < 1;
 end
 
-function GameMovement:WalkMove2(vWishPos, vWishDir, flWishSpeed)
+function CalcWishVelocityAndPosition(vWishPos, vWishDir, flWishSpeed)
     
+end
+
+function GameMovement:WalkMove2()
+
 end
 
 function GameMovement:AirMove()
