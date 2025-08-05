@@ -633,7 +633,7 @@ local function WalkMove(pos, vel, tick_interval, mins, maxs, friction, maxspeed,
 	if is_grounded and is_steep then
 		--- compute downhill direction from slope normal
 		slope_downhill = slope_normal:Cross(up_vector):Cross(slope_normal)
-		slope_downhill:Normalize()
+		slope_downhill = NormalizeVector(slope_downhill)
 
 		--- project velocity onto downhill vector
 		local slide_speed = vel:Dot(slope_downhill)
@@ -769,16 +769,18 @@ function sim.Run(settings, pTarget, initial_pos, time)
 		end
 
 		-- ---  E. physics move (StepMove still allocates internally)
-		local new_pos, new_velocity = StepMove(
+		local new_pos, new_velocity = WalkMove(
 			last_pos,
 			smoothed_velocity,
 			tick_interval,
 			mins,
 			maxs,
-			shouldHitEntity,
-			pTarget,
 			surface_friction,
-			step_size
+			target_max_speed,
+			GROUND_ACCELERATE,
+			step_size,
+			shouldHitEntity,
+			pTarget
 		)
 
 		-- try to keep player on ground after move
