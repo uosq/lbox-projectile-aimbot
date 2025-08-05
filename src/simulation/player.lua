@@ -74,7 +74,6 @@ local RuneTypes_t = {
 	RUNE_TYPES_MAX = 12,
 };
 
-
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
@@ -684,65 +683,6 @@ local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
 			vecPos.z = trace.endpos.z
 		end
 	end
-end
-
----@param pos Vector3
----@param vel Vector3
----@param tick_interval number
----@param mins Vector3
----@param maxs Vector3
----@param friction number
----@param maxspeed number
----@param accel number
----@param step_size number
----@param shouldHitEntity function
----@param pTarget Entity
----@return Vector3, Vector3
-local function WalkMove(pos, vel, tick_interval, mins, maxs, friction, maxspeed, accel, step_size, shouldHitEntity, pTarget)
-	local trace_start = Vector3(pos.x, pos.y, pos.z)
-	local trace_end = Vector3(pos.x, pos.y, pos.z - step_size - DIST_EPSILON)
-	local trace = DoTraceHull(trace_start, trace_end, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
-
-	local is_steep = trace.plane:Dot(up_vector) < math_cos(math_rad(WALKABLE_ANGLE))
-	local is_grounded = trace.fraction < 1 and not trace.startsolid and not trace.allsolid
-
-	local slope_normal = trace.plane
-	local slope_downhill = Vector3()
-
-	if is_grounded and is_steep then
-		--- compute downhill direction from slope normal
-		slope_downhill = slope_normal:Cross(up_vector):Cross(slope_normal)
-		NormalizeVectorNoAllocate(slope_downhill)
-
-		--- project velocity onto downhill vector
-		local slide_speed = vel:Dot(slope_downhill)
-		vel = slope_downhill * slide_speed
-	else
-		--- standard walk acceleration
-		local wishvel = Vector3(vel.x, vel.y, 0)
-		local wishspeed = wishvel:Length()
-		if wishspeed > 0.1 then
-			local wishdir = wishvel / wishspeed
-			wishspeed = math_min(wishspeed, maxspeed)
-			AccelerateInPlace(vel, wishdir, wishspeed, accel, tick_interval, friction)
-		end
-	end
-
-	--- clamp to max speed
-	local speed = vel:Length()
-	if speed > maxspeed then
-		local scale = maxspeed / speed
-		vel.x = vel.x * scale
-		vel.y = vel.y * scale
-	end
-
-	--- step movement
-	local new_pos, new_vel = StepMove(
-		pos, vel, tick_interval, mins, maxs,
-		shouldHitEntity, pTarget, friction, step_size
-	)
-
-	return new_pos, new_vel
 end
 
 ---@param pTarget Entity
