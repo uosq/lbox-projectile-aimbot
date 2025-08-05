@@ -71,12 +71,6 @@ local settings = {
 		vaccinator = false,
 		ghost = true,
 	},
-
-	sim = {
-		stay_on_ground = true,
-		acceleration = true,
-		rotation = true,
-	},
 }
 
 local wep_utils = require("src.utils.weapon_utils")
@@ -414,7 +408,7 @@ local function CreateMove(uCmd)
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
-	local player_path = player_sim.Run(settings, pTarget, vecTargetOrigin, time_ticks)
+	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
 	if player_path == nil or #player_path == 0 then
 		return
 	end

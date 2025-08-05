@@ -688,9 +688,8 @@ end
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
----@param settings table
 ---@return Vector3[]
-function sim.Run(settings, pTarget, initial_pos, time)
+function sim.Run(pTarget, initial_pos, time)
 	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
@@ -710,7 +709,7 @@ function sim.Run(settings, pTarget, initial_pos, time)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
-	if angular_velocity ~= 0 and settings.sim.rotation then
+	if angular_velocity ~= 0 then
 		local yaw = math_rad(angular_velocity)
 		cos_yaw, sin_yaw = math_cos(yaw), math_sin(yaw)
 	end
@@ -725,7 +724,7 @@ function sim.Run(settings, pTarget, initial_pos, time)
 	-- ********* MAIN TICK LOOP *********
 	for i = 1, time do
 		-- ---  A. rotate velocity (no allocs)
-		if angular_velocity ~= 0 and settings.sim.rotation then
+		if angular_velocity ~= 0 then
 			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
@@ -755,7 +754,7 @@ function sim.Run(settings, pTarget, initial_pos, time)
 		horizontal_vel.z = 0
 		local horizontal_speed = horizontal_vel:Length()
 
-		if horizontal_speed > 0.1 and settings.sim.acceleration then
+		if horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed
 			tmp4.x = horizontal_vel.x * inv_len
 			tmp4.y = horizontal_vel.y * inv_len
@@ -801,9 +800,7 @@ function sim.Run(settings, pTarget, initial_pos, time)
 		)
 
 		-- try to keep player on ground after move
-		if settings.sim.stay_on_ground then
-			StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
-		end
+		StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity

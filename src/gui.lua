@@ -417,29 +417,6 @@ function gui.init(settings, version)
 		end
 	end
 
-	menu:make_tab("sim")
-
-	btn_starty = 10
-
-	for name, enabled in pairs(settings.sim) do
-		local btn = menu:make_checkbox()
-		assert(btn, string.format("Button %s is nil!", name))
-
-		local label = string.gsub(name, "_", " ")
-
-		btn.enabled = enabled
-		btn.width = component_width
-		btn.height = component_height
-		btn.x = 10
-		btn.y = get_btn_y()
-		btn.label = label
-
-		btn.func = function()
-			settings.sim[name] = not settings.sim[name]
-			btn.enabled = settings.sim[name]
-		end
-	end
-
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end
