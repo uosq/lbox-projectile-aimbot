@@ -196,7 +196,7 @@ end
 ---@param weaponInfo WeaponInfo
 ---@param player_path PredictionResult
 local function CanShootFromDistance(weaponInfo, player_path, proj_path)
-	if weaponInfo:HasGravity() then
+	if weaponInfo:HasGravity() and weaponInfo.m_flDamageRadius > 0 then
 		local distance = (proj_path[#proj_path].pos - player_path[#player_path]):Length()
 		return distance < weaponInfo.m_flDamageRadius
 	end
