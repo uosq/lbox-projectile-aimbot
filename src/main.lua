@@ -208,10 +208,9 @@ end
 ---@param pLocal Entity
 ---@param angle EulerAngles
 ---@param player_path table<integer, Vector3>
----@param weaponInfo WeaponInfo
 ---@param charge number
 ---@param canshoot boolean
-local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, weaponInfo, charge, canshoot)
+local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge, canshoot)
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		if settings.autoshoot and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
@@ -501,7 +500,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, weaponInfo, charge_time, canshoot)
+	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge_time, canshoot)
 end
 
 --- Terminator (titaniummachine1) made this
