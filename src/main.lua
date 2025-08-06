@@ -389,7 +389,7 @@ local function CreateMove(uCmd)
 	end
 
 	--- p100 fix for something
-	local vecTargetOrigin = pTarget:GetAbsOrigin() + Vector3(0, 0, 1)
+	local vecTargetOrigin = pTarget:GetPropVector("tfnonlocaldata", "m_vecOrigin") + Vector3(0, 0, 1)
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge

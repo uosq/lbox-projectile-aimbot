@@ -322,7 +322,7 @@ local function AddPositionSample(pEntity)
 	end
 
 	local current_time = globals.CurTime()
-	local current_pos = pEntity:GetAbsOrigin()
+	local current_pos = pEntity:GetPropVector("tfnonlocaldata", "m_vecOrigin")
 
 	local sample = { pos = current_pos, time = current_time }
 	local samples = position_samples[index]
