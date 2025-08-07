@@ -24,7 +24,6 @@ local MIN_SPEED = 25        -- HU/s
 local MAX_ANGULAR_VEL = 360 -- deg/s
 local WALKABLE_ANGLE = 45   -- degrees
 local MIN_VELOCITY_Z = 0.1
-local AIR_SPEED_CAP = 30.0
 local AIR_ACCELERATE = 10.0    -- Default air acceleration value
 local GROUND_ACCELERATE = 10.0 -- Default ground acceleration value
 local SURFACE_FRICTION = 1.0   -- Default surface friction
@@ -52,10 +51,9 @@ local position_samples = {}
 
 local zero_vector = Vector3(0, 0, 0)
 local up_vector = Vector3(0, 0, 1)
+local down_vector = Vector3()
 
--- Reusable temp vectors for zero-GC operations
-local tmp1, tmp2, tmp3 = Vector3(), Vector3(), Vector3()
-local tmp4 = Vector3() -- for wishdir (GC‑free)
+---this "zero-GC" shit is killing me
 
 local RuneTypes_t = {
 	RUNE_NONE = -1,
@@ -77,7 +75,7 @@ local RuneTypes_t = {
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
-	return len == 0 and vec or vec / len --branchless
+	return len == 0 and vec or vec / len
 end
 
 ---@param pTarget Entity
@@ -125,7 +123,6 @@ end
 ---@param velocity Vector3
 ---@param normal Vector3
 ---@param overbounce number
----@return Vector3
 local function ClipVelocity(velocity, normal, overbounce)
 	local backoff = velocity:Dot(normal)
 
@@ -135,16 +132,11 @@ local function ClipVelocity(velocity, normal, overbounce)
 		backoff = backoff / overbounce
 	end
 
-	-- Use tmp1 for the change vector to avoid allocation
-	tmp1.x = normal.x * backoff
-	tmp1.y = normal.y * backoff
-	tmp1.z = normal.z * backoff
-
-	-- Return new vector with subtraction
-	return Vector3(velocity.x - tmp1.x, velocity.y - tmp1.y, velocity.z - tmp1.z)
+	velocity.x = velocity.x - normal.x * backoff
+	velocity.y = velocity.y - normal.y * backoff
+	velocity.z = velocity.z - normal.z * backoff
 end
 
--- === GC‑FREE IN‑PLACE ACCELERATION =========================
 local function AccelerateInPlace(velocity, wishdir, wishspeed, accel, dt, surf)
 	--local currentspeed = v:Dot(wishdir)
 	local currentspeed = velocity:Length()
@@ -181,7 +173,6 @@ local function AirAccelerateInPlace(v, wishdir, wishspeed, accel, dt, surf, pTar
 	v.y = v.y + accelspeed * wishdir.y
 	v.z = v.z + accelspeed * wishdir.z
 end
--- ===========================================================
 
 ---@param vec Vector3
 local function NormalizeVectorNoAllocate(vec)
@@ -211,7 +202,7 @@ local function RedirectGroundVelocity(velocity, original_velocity)
 			normal = NormalizeVector(Vector3(normal.x, normal.y, 0))
 		end
 
-		redirected = ClipVelocity(redirected, normal, 1.0)
+		ClipVelocity(redirected, normal, 1.0)
 
 		-- Check if redirected velocity is valid against all planes
 		local valid = true
@@ -254,19 +245,10 @@ local function RedirectAirVelocity(velocity, surface_friction)
 		end
 
 		local overbounce = (normal.z > 0.7) and 1.0 or (1.0 + (1.0 - surface_friction))
-		redirected = ClipVelocity(redirected, normal, overbounce)
+		ClipVelocity(redirected, normal, overbounce)
 	end
 
 	return redirected
-end
-
----@param vecPredictedPos Vector3
----@param vecMins Vector3
----@param vecMaxs Vector3
-local function InWater(vecPredictedPos, vecMins, vecMaxs)
-    local pos = vecPredictedPos + (vecMins + vecMaxs) * 0.5
-    local contents = engine.GetPointContents(pos)
-    return (contents & MASK_WATER) ~= 0
 end
 
 ---@param position Vector3
@@ -286,7 +268,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 	local bbox_bottom = position + Vector3(0, 0, mins.z)
 	local trace_end = bbox_bottom + Vector3(0, 0, -step_height)
 
-	local trace = DoTraceHull(bbox_bottom, trace_end, zero_vector, zero_vector, MASK_SHOT_HULL, shouldHit)
+	local trace = DoTraceHull(bbox_bottom, trace_end, zero_vector, zero_vector, MASK_PLAYERSOLID, shouldHit)
 
 	if trace and trace.fraction < 1 then
 		-- Check walkability
@@ -296,7 +278,7 @@ local function IsOnGround(position, mins, maxs, pTarget, step_height)
 			-- Verify we can fit above the surface
 			local hit_point = bbox_bottom + (trace_end - bbox_bottom) * trace.fraction
 			local step_test_start = hit_point + Vector3(0, 0, step_height)
-			local step_trace = DoTraceHull(step_test_start, position, mins, maxs, MASK_SHOT_HULL, shouldHit)
+			local step_trace = DoTraceHull(step_test_start, position, mins, maxs, MASK_PLAYERSOLID, shouldHit)
 
 			return not step_trace or step_trace.fraction >= 1
 		end
@@ -433,10 +415,8 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 	local numbumps = 4
 	local blocked = 0
 	local numplanes = 0
-	local planes = {}
 	local primal_velocity = Vector3(velocity.x, velocity.y, velocity.z)
 	local original_velocity = Vector3(velocity.x, velocity.y, velocity.z)
-	local new_velocity = Vector3(0, 0, 0)
 	local time_left = frametime
 	local allFraction = 0
 	local current_origin = Vector3(origin.x, origin.y, origin.z)
@@ -487,23 +467,21 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 		end
 
 		local normal = Vector3(trace.plane.x, trace.plane.y, trace.plane.z)
-		planes[numplanes + 1] = normal
 		numplanes = numplanes + 1
 		impact_planes[#impact_planes + 1] = normal
 
 		if numplanes == 1 and trace.plane.z <= 0.7 then
 			local bounce_factor = 1.0 + (1.0 - surface_friction) * 0.5
-			new_velocity = ClipVelocity(original_velocity, planes[1], bounce_factor)
-			velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
-			original_velocity = Vector3(new_velocity.x, new_velocity.y, new_velocity.z)
+			ClipVelocity(original_velocity, impact_planes[1], bounce_factor)
+			velocity = Vector3(original_velocity.x, original_velocity.y, original_velocity.z)
 		else
 			local i = 0
 			while i < numplanes do
-				velocity = ClipVelocity(original_velocity, planes[i + 1], 1.0)
+				ClipVelocity(velocity, impact_planes[i + 1], 1.0)
 
 				local j = 0
 				while j < numplanes do
-					if j ~= i and velocity:Dot(planes[j + 1]) < 0 then
+					if j ~= i and velocity:Dot(impact_planes[j + 1]) < 0 then
 						break
 					end
 					j = j + 1
@@ -522,7 +500,7 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 					return current_origin, Vector3(0, 0, 0), blocked
 				end
 
-				local dir = NormalizeVector(planes[1]:Cross(planes[2]))
+				local dir = NormalizeVector(impact_planes[1]:Cross(impact_planes[2]))
 				local d = dir:Dot(velocity)
 				velocity = dir * d
 			end
@@ -624,14 +602,18 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
 	local vec_up_pos = Vector3(up_origin.x, up_origin.y, up_origin.z)
 
 	-- Decide which one went farther (compare horizontal distance)
-	local down_dist_sq = (vec_down_pos.x - vec_pos.x) * (vec_down_pos.x - vec_pos.x)
+	--[[local down_dist_sq = (vec_down_pos.x - vec_pos.x) * (vec_down_pos.x - vec_pos.x)
 		+ (vec_down_pos.y - vec_pos.y) * (vec_down_pos.y - vec_pos.y)
 	local up_dist_sq = (vec_up_pos.x - vec_pos.x) * (vec_up_pos.x - vec_pos.x)
-		+ (vec_up_pos.y - vec_pos.y) * (vec_up_pos.y - vec_pos.y)
+		+ (vec_up_pos.y - vec_pos.y) * (vec_up_pos.y - vec_pos.y)]]
+
+	--- i never understand why they square shit when we can just use it as normal
+	local down_dist = (vec_down_pos.x - vec_pos.x) + (vec_down_pos.y - vec_pos.y)
+	local up_dist = (vec_up_pos.x - vec_pos.x) + (vec_up_pos.y - vec_pos.y)
 
 	local final_origin, final_velocity, final_blocked
 
-	if down_dist_sq > up_dist_sq then
+	if down_dist > up_dist then
 		-- Down movement went farther
 		final_origin = vec_down_pos
 		final_velocity = vec_down_vel
@@ -725,22 +707,21 @@ end
 ---@param time integer
 ---@return Vector3[]
 function sim.Run(pTarget, initial_pos, time)
-	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]")
+	local smoothed_velocity = pTarget:GetPropVector("m_vecVelocity[0]") or pTarget:EstimateAbsVelocity()
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
 	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
 	local gravity_step = client.GetConVar("sv_gravity") * tick_interval
-	local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450
+	local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450 --- is it really 450?
 	local local_player_index = client.GetLocalPlayerIndex()
 	local target_team = pTarget:GetTeamNumber()
 	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
 	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
+	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
 
 	local positions = {}
 
-	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
-	local down_vector = tmp1
-	down_vector.x, down_vector.y, down_vector.z = 0, 0, -step_size -- re-use tmp1
+	down_vector.z = -step_size
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
@@ -756,47 +737,27 @@ function sim.Run(pTarget, initial_pos, time)
 
 	local was_onground = false
 
-	-- ********* MAIN TICK LOOP *********
 	for i = 1, time do
-		-- ---  A. rotate velocity (no allocs)
 		if angular_velocity ~= 0 then
 			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
 		end
 
-		-- ---  B. ground check
-		local next_pos = tmp2 -- reuse tmp2
-		-- Set next_pos to last_pos and add velocity * tick_interval
-		next_pos.x, next_pos.y, next_pos.z = last_pos.x, last_pos.y, last_pos.z
-		next_pos.x = next_pos.x + smoothed_velocity.x * tick_interval
-		next_pos.y = next_pos.y + smoothed_velocity.y * tick_interval
-		next_pos.z = next_pos.z + smoothed_velocity.z * tick_interval
-
-		-- Set tmp3 to next_pos + down_vector for ground trace
-		tmp3.x, tmp3.y, tmp3.z = next_pos.x, next_pos.y, next_pos.z
-		tmp3.x = tmp3.x + down_vector.x
-		tmp3.y = tmp3.y + down_vector.y
-		tmp3.z = tmp3.z + down_vector.z
-
-		local ground_trace = TraceLine(next_pos, tmp3, MASK_PLAYERSOLID, shouldHitEntity)
+		local next_pos = last_pos + smoothed_velocity * tick_interval
+		local ground_trace = TraceLine(next_pos, next_pos + down_vector, MASK_PLAYERSOLID, shouldHitEntity)
 		local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and smoothed_velocity.z <= MIN_VELOCITY_Z
 
-		-- ---  C. horizontal accel
-		local horizontal_vel = tmp3 -- re-use tmp3
-		horizontal_vel.x, horizontal_vel.y, horizontal_vel.z = smoothed_velocity.x, smoothed_velocity.y,
-			smoothed_velocity.z
-		horizontal_vel.z = 0
-		local horizontal_speed = horizontal_vel:Length()
+		--- wtf is this?
+		local horizontal_vel = smoothed_velocity
+		local horizontal_speed = horizontal_vel:Length2D()
 
 		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
 
 		if horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed
-			tmp4.x = horizontal_vel.x * inv_len
-			tmp4.y = horizontal_vel.y * inv_len
-			tmp4.z = 0
-			local wishdir = tmp4 -- alias for clarity; no alloc
+			local wishdir = horizontal_vel * inv_len
+			wishdir.z = 0
 			local wishspeed = math_min(horizontal_speed, target_max_speed)
 
 			if is_on_ground then
@@ -812,7 +773,6 @@ function sim.Run(pTarget, initial_pos, time)
 			end
 		end
 
-		-- ---  D. clamp ground speed (no alloc)
 		if is_on_ground then
 			local vel_length = smoothed_velocity:Length()
 			if vel_length > target_max_speed then
@@ -823,7 +783,6 @@ function sim.Run(pTarget, initial_pos, time)
 			end
 		end
 
-		-- ---  E. physics move (StepMove still allocates internally)
 		local new_pos, new_velocity = StepMove(
 			last_pos,
 			smoothed_velocity,

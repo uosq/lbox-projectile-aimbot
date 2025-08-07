@@ -356,6 +356,10 @@ local function CreateMove(uCmd)
 		return
 	end
 
+	if not wep_utils.CanShoot() and pWeapon:GetPropInt("m_iItemDefinitionIndex") ~= BEGGARS_BAZOOKA_INDEX then
+		return
+	end
+
 	if pWeapon:IsMeleeWeapon() and pWeapon:GetWeaponID() ~= E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		return false
 	end
@@ -389,7 +393,8 @@ local function CreateMove(uCmd)
 	end
 
 	--- p100 fix for something
-	local vecTargetOrigin = pTarget:GetPropVector("tfnonlocaldata", "m_vecOrigin") + Vector3(0, 0, 1)
+	local vecTargetOrigin = pTarget:GetAbsOrigin()
+	vecTargetOrigin.z = vecTargetOrigin.z + 1
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
