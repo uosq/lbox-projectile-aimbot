@@ -26,23 +26,23 @@ local IMPACT_NORMAL_FLOOR = 0.7;
 local IMPACT_NORMAL_WALL = 0.0;
 
 local EMovement = {
-	MOVEMENT_BLOCKED_NONE  = 0x0,
-	MOVEMENT_BLOCKED_WALL  = 0x1,
-	MOVEMENT_BLOCKED_FLOOR = 0x2,
-	MOVEMENT_BLOCKED_ALL   = 0x4
+    MOVEMENT_BLOCKED_NONE  = 0x0,
+    MOVEMENT_BLOCKED_WALL  = 0x1,
+    MOVEMENT_BLOCKED_FLOOR = 0x2,
+    MOVEMENT_BLOCKED_ALL   = 0x4
 };
 
 local EWaterLevel = {
-	WL_NotInWater = 0,
-	WL_Feet = 1,
-	WL_Waist = 2,
-	WL_Eyes = 3
+    WL_NotInWater = 0,
+    WL_Feet = 1,
+    WL_Waist = 2,
+    WL_Eyes = 3
 };
 
 local ESpeedCrop = {
-	SPEED_CROPPED_RESET = 0,
-	SPEED_CROPPED_DUCK = 1,
-	SPEED_CROPPED_WEAPON = 2,
+    SPEED_CROPPED_RESET = 0,
+    SPEED_CROPPED_DUCK = 1,
+    SPEED_CROPPED_WEAPON = 2,
 };
 
 local SPEED_CROP_FRACTION_DUCKING = 0.3;
@@ -143,7 +143,7 @@ end
 ---@param min number
 ---@param max number
 local function clamp(val, min, max)
-	return math.max(min, math.min(val, max))
+    return math.max(min, math.min(val, max))
 end
 
 function GameMovement:SpeedCrop()
@@ -169,12 +169,12 @@ end
 
 function GameMovement:SetupSpeed()
     if self.m_hTarget:GetMoveType() == E_MoveType.MOVETYPE_ISOMETRIC
-    or self.m_hTarget:GetMoveType() == E_MoveType.MOVETYPE_NOCLIP then
+        or self.m_hTarget:GetMoveType() == E_MoveType.MOVETYPE_NOCLIP then
         return;
     end
 
     if (self.m_hTarget:GetPropInt("m_fFlags") & FL_FROZEN) ~= 0
-    or (self.m_hTarget:GetPropInt("m_fFlags") & FL_ONTRAIN) ~= 0 then
+        or (self.m_hTarget:GetPropInt("m_fFlags") & FL_ONTRAIN) ~= 0 then
         self.m_vecVelocity.x = 0;
         self.m_vecVelocity.y = 0;
         self.m_vecVelocity.z = 0;
@@ -293,7 +293,7 @@ end
 
 local function CheckGround(vPos, vMins, vMaxs, step_height)
     local trace;
-    trace = engine.TraceHull(vPos, vPos - step_height, vMins, vMaxs, MASK_PLAYERSOLID, function (ent, contentsMask)
+    trace = engine.TraceHull(vPos, vPos - step_height, vMins, vMaxs, MASK_PLAYERSOLID, function(ent, contentsMask)
         if ent:IsPlayer() then
             return false;
         end
@@ -305,7 +305,7 @@ local function CheckGround(vPos, vMins, vMaxs, step_height)
 end
 
 function CalcWishVelocityAndPosition(vWishPos, vWishDir, flWishSpeed)
-    
+
 end
 
 function GameMovement:WalkMove2()

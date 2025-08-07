@@ -80,6 +80,42 @@ function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	return EulerAngles(math.deg(pitch), math.deg(yaw), 0)
 end
 
+-- Returns both low and high arc EulerAngles when gravity > 0
+---@param p0 Vector3
+---@param p1 Vector3
+---@param speed number
+---@param gravity number
+---@return EulerAngles|nil lowArc, EulerAngles|nil highArc
+function Math.SolveBallisticArcBoth(p0, p1, speed, gravity)
+	local diff = p1 - p0
+	local dx = math.sqrt(diff.x * diff.x + diff.y * diff.y)
+	local dy = diff.z
+	local speed2 = speed * speed
+	local g = gravity
+
+	if dx == 0 then
+		return nil, nil
+	end
+
+	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
+	if root < 0 then
+		return nil, nil
+	end
+
+	local sqrt_root = math.sqrt(root)
+	local theta_low = math.atan((speed2 - sqrt_root) / (g * dx))
+	local theta_high = math.atan((speed2 + sqrt_root) / (g * dx))
+
+	local yaw = math.atan(diff.y, diff.x)
+
+	local pitch_low = -theta_low
+	local pitch_high = -theta_high
+
+	local low = EulerAngles(math.deg(pitch_low), math.deg(yaw), 0)
+	local high = EulerAngles(math.deg(pitch_high), math.deg(yaw), 0)
+	return low, high
+end
+
 ---@param shootPos Vector3
 ---@param targetPos Vector3
 ---@param speed number
