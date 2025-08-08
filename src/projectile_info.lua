@@ -476,6 +476,7 @@ aProjectileInfo[19] = DefinePseudoProjectileDefinition({
 	vecVelocity = Vector3(2000, 0, 0),
 	vecMaxs = Vector3(0, 0, 0),
 	flGravity = 0.3,
+	flDrag = 0.5,
 	iAlignDistance = 2000,
 	flCollideWithTeammatesDelay = 0.25,
 

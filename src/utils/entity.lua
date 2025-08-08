@@ -18,25 +18,20 @@ function ent_utils.GetBones(entity)
 	--boneMatrices is an array of 3x4 float matrices
 	local boneMatrices = entity:SetupBones()
 
-    local bones = {}
+	local bones = {}
 
 	for i = 1, #hitboxes do
 		local hitbox = hitboxes[i]
 		local bone = hitbox:GetBone()
 
 		local boneMatrix = boneMatrices[bone]
-
-		if boneMatrix == nil then
-			goto continue
+		if boneMatrix ~= nil then
+			local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
+			bones[i] = bonePos
 		end
-
-		local bonePos = Vector3(boneMatrix[1][4], boneMatrix[2][4], boneMatrix[3][4])
-
-        bones[i] = bonePos
-		::continue::
 	end
 
-    return bones
+	return bones
 end
 
 ---@param player Entity

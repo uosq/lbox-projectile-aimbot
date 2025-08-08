@@ -93,8 +93,21 @@ function multipoint:GetBestHitPoint()
 			+ self.m_mathUtils.RotateOffsetAlongDirection(muzzle_offset, aim_dir)
 			+ self.m_weaponInfo.m_vecAbsoluteOffset
 
-		-- Check if we can hit using TraceHull (same as main code)
-		local trace = engine.TraceHull(vecWeaponFirePos, target_pos, vecMins, vecMaxs, MASK_SHOT_HULL, shouldHit)
+		-- Use TraceLine when projectile has zero collision hull (e.g., rockets), else TraceHull
+		local trace_mask = self.m_weaponInfo.m_iTraceMask or MASK_SHOT_HULL
+		-- Use line trace only for rocket-type projectiles
+		local proj_type = self.m_pWeapon:GetWeaponProjectileType() or 0
+		local use_line_trace = (
+			proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
+			proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET or
+			proj_type == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET
+		)
+		local trace
+		if use_line_trace then
+			trace = engine.TraceLine(vecWeaponFirePos, target_pos, trace_mask, shouldHit)
+		else
+			trace = engine.TraceHull(vecWeaponFirePos, target_pos, vecMins, vecMaxs, trace_mask, shouldHit)
+		end
 		return trace and trace.fraction >= 1
 	end
 
@@ -145,8 +158,9 @@ function multipoint:GetBestHitPoint()
 	}
 
 	-- Set primary point based on weapon type:
-	-- For huntsman: aim at head, for explosive weapons (rockets/pipes): aim at feet,
-	-- otherwise default to center of hitbox.
+	-- - Bow/Huntsman: prefer head
+	-- - Explosives (rocket/pipe of any form): aim feet (splash optimization)
+	-- - Default: center of AABB
 	local primary_pos
 	if self.m_bIsHuntsman then
 		if self.m_settings.hitparts.head and head_pos then
@@ -154,14 +168,9 @@ function multipoint:GetBestHitPoint()
 		else
 			primary_pos = center_pos
 		end
-	elseif self.m_bIsExplosive then
-		-- For explosive weapons (rockets/pipes), prioritize feet only when on ground
-		if is_on_ground then
-			primary_pos = feet_pos
-		else
-			-- If target is not on ground, default to center of mass
-			primary_pos = center_pos
-		end
+	elseif self.m_bSplashWeapon then
+		-- Explosives: always prefer feet
+		primary_pos = feet_pos
 	else
 		primary_pos = center_pos
 	end

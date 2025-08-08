@@ -70,6 +70,22 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
 
+	-- Decide trace mode: use line trace only for rocket-type projectiles
+	local proj_type = pWeapon:GetWeaponProjectileType() or 0
+	local use_line_trace = (
+		proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
+		proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET or
+		proj_type == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET
+	)
+	local trace_mask = weapon_info.m_iTraceMask or MASK_SHOT_HULL
+	local filter = function(ent)
+		if ent:GetTeamNumber() ~= pLocal:GetTeamNumber() then
+			return false
+		end
+
+		return ent:GetIndex() ~= pLocal:GetIndex()
+	end
+
 	-- Get the velocity vector from weapon info (includes upward velocity)
 	local velocity_vector = weapon_info:GetVelocity(charge_time)
 	local forward_speed = velocity_vector.x
@@ -98,13 +114,13 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 		local currentPos = projectile:GetPosition()
 
-		local trace = engine.TraceHull(shootPos, currentPos, mins, maxs, MASK_SHOT_HULL, function(ent)
-			if ent:GetTeamNumber() ~= pLocal:GetTeamNumber() then
-				return false
-			end
-
-			return ent:GetIndex() ~= pLocal:GetIndex()
-		end)
+		-- Perform a single collision trace per tick using the pre-decided mode
+		local trace
+		if use_line_trace then
+			trace = engine.TraceLine(shootPos, currentPos, trace_mask, filter)
+		else
+			trace = engine.TraceHull(shootPos, currentPos, mins, maxs, trace_mask, filter)
+		end
 
 		if trace and trace.fraction >= 1 then
 			local record = {

@@ -1,61 +1,61 @@
 ---@diagnostic disable: duplicate-doc-field, missing-fields
 
-local sim = {}
+local sim                   = {}
 
-local MASK_SHOT_HULL = MASK_SHOT_HULL
-local MASK_PLAYERSOLID = MASK_PLAYERSOLID
-local DoTraceHull = engine.TraceHull
-local TraceLine = engine.TraceLine
-local Vector3 = Vector3
-local math_deg = math.deg
-local math_rad = math.rad
-local math_atan = math.atan
-local math_cos = math.cos
-local math_sin = math.sin
-local math_abs = math.abs
-local math_acos = math.acos
-local math_min = math.min
-local math_max = math.max
-local math_floor = math.floor
-local math_pi = math.pi
+local MASK_SHOT_HULL        = MASK_SHOT_HULL
+local MASK_PLAYERSOLID      = MASK_PLAYERSOLID
+local DoTraceHull           = engine.TraceHull
+local TraceLine             = engine.TraceLine
+local Vector3               = Vector3
+local math_deg              = math.deg
+local math_rad              = math.rad
+local math_atan             = math.atan
+local math_cos              = math.cos
+local math_sin              = math.sin
+local math_abs              = math.abs
+local math_acos             = math.acos
+local math_min              = math.min
+local math_max              = math.max
+local math_floor            = math.floor
+local math_pi               = math.pi
 
 -- constants
-local MIN_SPEED = 25        -- HU/s
-local MAX_ANGULAR_VEL = 360 -- deg/s
-local WALKABLE_ANGLE = 45   -- degrees
-local MIN_VELOCITY_Z = 0.1
-local AIR_ACCELERATE = 10.0    -- Default air acceleration value
-local GROUND_ACCELERATE = 10.0 -- Default ground acceleration value
-local SURFACE_FRICTION = 1.0   -- Default surface friction
+local MIN_SPEED             = 25 -- HU/s
+local MAX_ANGULAR_VEL       = 360 -- deg/s
+local WALKABLE_ANGLE        = 45 -- degrees
+local MIN_VELOCITY_Z        = 0.1
+local AIR_ACCELERATE        = 10.0 -- Default air acceleration value
+local GROUND_ACCELERATE     = 10.0 -- Default ground acceleration value
+local SURFACE_FRICTION      = 1.0 -- Default surface friction
 
-local MAX_CLIP_PLANES = 5
-local DIST_EPSILON = 0.03125 -- Small epsilon for step calculations
+local MAX_CLIP_PLANES       = 5
+local DIST_EPSILON          = 0.03125 -- Small epsilon for step calculations
 
-local MAX_SAMPLES      = 16       -- tuned window size
-local SMOOTH_ALPHA_G   = 0.392   -- tuned ground α
-local SMOOTH_ALPHA_A   = 0.127   -- tuned air α
+local MAX_SAMPLES           = 16 -- tuned window size
+local SMOOTH_ALPHA_G        = 0.392 -- tuned ground α
+local SMOOTH_ALPHA_A        = 0.127 -- tuned air α
 
-local COORD_FRACTIONAL_BITS =	5
-local COORD_DENOMINATOR =		(1<<(COORD_FRACTIONAL_BITS))
-local COORD_RESOLUTION =		(1.0/(COORD_DENOMINATOR))
+local COORD_FRACTIONAL_BITS = 5
+local COORD_DENOMINATOR     = (1 << (COORD_FRACTIONAL_BITS))
+local COORD_RESOLUTION      = (1.0 / (COORD_DENOMINATOR))
 
-local impact_planes = {}
-local MAX_IMPACT_PLANES = 5
+local impact_planes         = {}
+local MAX_IMPACT_PLANES     = 5
 
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
 
 ---@type table<number, Sample[]>
-local position_samples = {}
+local position_samples      = {}
 
-local zero_vector = Vector3(0, 0, 0)
-local up_vector = Vector3(0, 0, 1)
-local down_vector = Vector3()
+local zero_vector           = Vector3(0, 0, 0)
+local up_vector             = Vector3(0, 0, 1)
+local down_vector           = Vector3()
 
 ---this "zero-GC" shit is killing me
 
-local RuneTypes_t = {
+local RuneTypes_t           = {
 	RUNE_NONE = -1,
 	RUNE_STRENGTH = 0,
 	RUNE_HASTE = 1,
@@ -176,7 +176,7 @@ end
 
 ---@param vec Vector3
 local function NormalizeVectorNoAllocate(vec)
-    local length = vec:Length()
+	local length = vec:Length()
 	if length == 0 then
 		return
 	end
@@ -656,7 +656,7 @@ local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
 		and trace.fraction > 0.0 --- he must go somewhere
 		and trace.fraction < 1.0 --- hit something
 		and not trace.startsolid --- cant be embedded in a solid
-		and normal >= 0.7 --- cant hit on a steep slope that we cant stand on anyway
+		and normal >= 0.7  --- cant hit on a steep slope that we cant stand on anyway
 	then
 		local z_delta = math_abs(vecPos.z - trace.endpos.z)
 		if z_delta > 0.5 * COORD_RESOLUTION then
@@ -670,36 +670,36 @@ end
 ---@param velocity Vector3
 ---@param pTarget Entity
 local function ApplyFriction(velocity, pTarget, is_on_ground)
-    -- Skip if water jump time is active (not implemented, so skip check)
-    local speed = velocity:Length()
-    if speed < 0.1 then
-        return
-    end
+	-- Skip if water jump time is active (not implemented, so skip check)
+	local speed = velocity:Length()
+	if speed < 0.1 then
+		return
+	end
 
-    local drop = 0
+	local drop = 0
 
-    if is_on_ground then
-        local _, sv_friction = client.GetConVar("sv_friction")
-        local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or 1.0
-        local friction = sv_friction * surfaceFriction
+	if is_on_ground then
+		local _, sv_friction = client.GetConVar("sv_friction")
+		local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or 1.0
+		local friction = sv_friction * surfaceFriction
 
-        local _, sv_stopspeed = client.GetConVar("sv_stopspeed")
-        local control = (speed < sv_stopspeed) and sv_stopspeed or speed
+		local _, sv_stopspeed = client.GetConVar("sv_stopspeed")
+		local control = (speed < sv_stopspeed) and sv_stopspeed or speed
 
-        drop = drop + control * friction * globals.TickInterval()
-    end
+		drop = drop + control * friction * globals.TickInterval()
+	end
 
-    local newspeed = speed - drop
-    if newspeed < 0 then
-        newspeed = 0
-    end
+	local newspeed = speed - drop
+	if newspeed < 0 then
+		newspeed = 0
+	end
 
-    if newspeed ~= speed and speed > 0 then
-        local scale = newspeed / speed
-        velocity.x = velocity.x * scale
+	if newspeed ~= speed and speed > 0 then
+		local scale = newspeed / speed
+		velocity.x = velocity.x * scale
 		velocity.y = velocity.y * scale
 		velocity.z = velocity.z * scale
-    end
+	end
 end
 
 ---@param pTarget Entity
