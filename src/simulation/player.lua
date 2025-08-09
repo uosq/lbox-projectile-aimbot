@@ -20,20 +20,20 @@ local math_floor            = math.floor
 local math_pi               = math.pi
 
 -- constants
-local MIN_SPEED             = 25 -- HU/s
-local MAX_ANGULAR_VEL       = 360 -- deg/s
-local WALKABLE_ANGLE        = 45 -- degrees
+local MIN_SPEED             = 25   -- HU/s
+local MAX_ANGULAR_VEL       = 360  -- deg/s
+local WALKABLE_ANGLE        = 45   -- degrees
 local MIN_VELOCITY_Z        = 0.1
 local AIR_ACCELERATE        = 10.0 -- Default air acceleration value
 local GROUND_ACCELERATE     = 10.0 -- Default ground acceleration value
-local SURFACE_FRICTION      = 1.0 -- Default surface friction
+local SURFACE_FRICTION      = 1.0  -- Default surface friction
 
 local MAX_CLIP_PLANES       = 5
 local DIST_EPSILON          = 0.03125 -- Small epsilon for step calculations
 
-local MAX_SAMPLES           = 16 -- tuned window size
-local SMOOTH_ALPHA_G        = 0.392 -- tuned ground α
-local SMOOTH_ALPHA_A        = 0.127 -- tuned air α
+local MAX_SAMPLES           = 16      -- tuned window size
+local SMOOTH_ALPHA_G        = 0.392   -- tuned ground α
+local SMOOTH_ALPHA_A        = 0.127   -- tuned air α
 
 local COORD_FRACTIONAL_BITS = 5
 local COORD_DENOMINATOR     = (1 << (COORD_FRACTIONAL_BITS))
@@ -813,6 +813,123 @@ function sim.Run(pTarget, initial_pos, time)
 	end
 
 	return positions
+end
+
+---@param pTarget Entity
+---@param initial_pos Vector3
+---@param maxTicks integer
+---@param onTick fun(tickIndex: integer, pos: Vector3): (boolean, any)|nil
+---@return Vector3[], any
+function sim.RunUntil(pTarget, initial_pos, maxTicks, onTick)
+	-- Initialize state (mirrors Run, but allows early exit via callback)
+	local smoothed_velocity = pTarget:EstimateAbsVelocity()
+	local last_pos = initial_pos
+	local tick_interval = globals.TickInterval()
+	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
+	local gravity_step = client.GetConVar("sv_gravity") * tick_interval
+	local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450
+	local local_player_index = client.GetLocalPlayerIndex()
+	local target_team = pTarget:GetTeamNumber()
+	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
+	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
+	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
+
+	local positions = {}
+	down_vector.z = -step_size
+
+	-- pre-calc rotation if any
+	local cos_yaw, sin_yaw
+	if angular_velocity ~= 0 then
+		local yaw = math_rad(angular_velocity)
+		cos_yaw, sin_yaw = math_cos(yaw), math_sin(yaw)
+	end
+
+	local function shouldHitEntity(ent)
+		local ent_index = ent:GetIndex()
+		return ent_index ~= local_player_index and ent:GetTeamNumber() ~= target_team
+	end
+
+	local was_onground = false
+	local payload = nil
+
+	for i = 1, maxTicks do
+		if angular_velocity ~= 0 then
+			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
+			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
+			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
+		end
+
+		local next_pos = last_pos + smoothed_velocity * tick_interval
+		local ground_trace = TraceLine(next_pos, next_pos + down_vector, MASK_PLAYERSOLID, shouldHitEntity)
+		local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and smoothed_velocity.z <= MIN_VELOCITY_Z
+
+		local horizontal_vel = smoothed_velocity
+		local horizontal_speed = horizontal_vel:Length2D()
+
+		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
+
+		if horizontal_speed > 0.1 then
+			local inv_len = 1.0 / horizontal_speed
+			local wishdir = horizontal_vel * inv_len
+			wishdir.z = 0
+			local wishspeed = math_min(horizontal_speed, target_max_speed)
+
+			if is_on_ground then
+				AccelerateInPlace(smoothed_velocity, wishdir, wishspeed, GROUND_ACCELERATE, tick_interval,
+					surface_friction)
+			else
+				if smoothed_velocity.z < 0 then
+					AirAccelerateInPlace(smoothed_velocity, wishdir, wishspeed, AIR_ACCELERATE, tick_interval,
+						surface_friction, pTarget)
+				end
+			end
+		end
+
+		if is_on_ground then
+			local vel_length = smoothed_velocity:Length()
+			if vel_length > target_max_speed then
+				local scale = target_max_speed / vel_length
+				smoothed_velocity.x = smoothed_velocity.x * scale
+				smoothed_velocity.y = smoothed_velocity.y * scale
+				smoothed_velocity.z = smoothed_velocity.z * scale
+			end
+		end
+
+		local new_pos, new_velocity = StepMove(
+			last_pos,
+			smoothed_velocity,
+			tick_interval,
+			mins,
+			maxs,
+			shouldHitEntity,
+			pTarget,
+			surface_friction,
+			step_size
+		)
+
+		StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+
+		last_pos = new_pos
+		smoothed_velocity = new_velocity
+		positions[#positions + 1] = last_pos
+
+		was_onground = is_on_ground
+		if not was_onground then
+			smoothed_velocity.z = smoothed_velocity.z - gravity_step
+		elseif smoothed_velocity.z < 0 then
+			smoothed_velocity.z = 0
+		end
+
+		if onTick then
+			local stop, pl = onTick(i, last_pos)
+			if stop then
+				payload = pl
+				break
+			end
+		end
+	end
+
+	return positions, payload
 end
 
 return sim

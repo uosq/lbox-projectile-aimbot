@@ -412,249 +412,72 @@ local function CreateMove(uCmd)
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
-	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
-	if player_path == nil or #player_path == 0 then
-		return
-	end
+	-- Incremental T search and early-exit simulation: simulate one tick at a time
+	-- and stop as soon as the projectile time-of-flight matches the simulated time.
+	local tickInterval = globals.TickInterval()
+	local proj_type_scan = pWeapon:GetWeaponProjectileType() or 0
+	local is_rocket_weapon = (
+		proj_type_scan == E_ProjectileType.TF_PROJECTILE_ROCKET or
+		proj_type_scan == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET or
+		proj_type_scan == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET
+	)
+	local time_tolerance = 0.02 -- seconds (~1-2 ticks)
+	local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0)
+		and (weaponInfo.m_flDamageRadius * 0.8) or 48
 
-	if settings.draw_only then
-		local vecPredictedPos = player_path[#player_path]
-		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-		local angle_low, angle_high = math_utils.SolveBallisticArcBoth(vecHeadPos, vecPredictedPos, forward_speed,
-			gravity)
-		if not angle_low and not angle_high then
-			return
-		end
+	local function onPlayerTick(i, target_pos_i)
+		local t_i = (i - 1) * tickInterval
 
-		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
-		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
-			charge_time)
-		displayed_time = globals.CurTime() + settings.draw_time
-		return
-	end
-
-	-- Incremental T search: for each predicted player position at time t_i,
-	-- first use rocket math (straight flight time) as a cheap gate.
-	-- If current weapon is a rocket-type and a matching t is found, verify with a short sim and either fire or abort early if blocked.
-	-- If current weapon is ballistic and rocket gate passes, solve ballistic for that t and verify; continue until a valid t is found.
-	do
-		local tickInterval = globals.TickInterval()
-		local proj_type_scan = pWeapon:GetWeaponProjectileType() or 0
-		local is_rocket_weapon = (
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_ROCKET or
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET or
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET
-		)
-		local time_tolerance = 0.02 -- seconds (~1-2 ticks)
-		local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0)
-			and (weaponInfo.m_flDamageRadius * 0.8) or 48
-
-		for i = 1, #player_path do
-			local target_pos_i = player_path[i]
-			local t_i = (i - 1) * tickInterval
-
-			-- Rocket gate: time-of-flight equals predicted time?
-			local rocket_angle = math_utils.PositionAngles(vecHeadPos, target_pos_i)
-			local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, rocket_angle, pWeapon:IsViewModelFlipped())
-			if fire_pos then
-				fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
-				local t_flight = (target_pos_i - fire_pos):Length() / forward_speed
-				if math.abs(t_flight - t_i) <= time_tolerance then
-					if is_rocket_weapon then
-						-- Verify rocket path with a short sim; fire if clear, else abort early
-						local path_i, full_i = proj_sim.Run(pLocal, pWeapon, fire_pos, rocket_angle:Forward(), t_flight,
-							weaponInfo, charge_time)
-						if not path_i or #path_i == 0 then
-							return
-						end
-						local min_dist = math.huge
-						for j = 1, #path_i do
-							local d = (path_i[j].pos - target_pos_i):Length()
-							if d < min_dist then min_dist = d end
-						end
-						if full_i and min_dist <= max_miss then
-							local canshoot_r = CanShootFromDistance(weaponInfo, player_path, path_i)
-							if not settings.wait_for_charge and not canshoot_r then
-								return
-							end
-							HandleWeaponFiring(uCmd, pLocal, pWeapon, rocket_angle, player_path, path_i, charge_time,
-								canshoot_r)
-							return
-						else
-							-- Blocked: do not simulate further T
-							return
-						end
-					else
-						-- Ballistic weapon: first gate by ballistic time (no angle), then solve angle only if viable
-						local gravity_i = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-						local start_gate = vecHeadPos + weaponInfo.m_vecAbsoluteOffset
-						local t_ballistic_gate = math_utils.GetBallisticFlightTime(start_gate, target_pos_i,
-							forward_speed, gravity_i)
-						if t_ballistic_gate and math.abs(t_ballistic_gate - t_i) <= time_tolerance then
-							local bal_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos_i, forward_speed,
-								gravity_i)
-							if bal_angle then
-								local fire_pos_b = weaponInfo:GetFirePosition(pLocal, vecHeadPos, bal_angle,
-									pWeapon:IsViewModelFlipped())
-								if fire_pos_b then
-									fire_pos_b = fire_pos_b + weaponInfo.m_vecAbsoluteOffset
-									local t_ballistic_check = math_utils.GetBallisticFlightTime(fire_pos_b, target_pos_i,
-										forward_speed, gravity_i)
-									if t_ballistic_check and math.abs(t_ballistic_check - t_i) <= time_tolerance then
-										local path_b, full_b = proj_sim.Run(pLocal, pWeapon, fire_pos_b,
-											bal_angle:Forward(), t_ballistic_check, weaponInfo, charge_time)
-										if path_b and #path_b > 0 then
-											local min_b = math.huge
-											for k = 1, #path_b do
-												local d = (path_b[k].pos - target_pos_i):Length()
-												if d < min_b then min_b = d end
-											end
-											if full_b and min_b <= max_miss then
-												local canshoot_b = CanShootFromDistance(weaponInfo, player_path, path_b)
-												if not settings.wait_for_charge and not canshoot_b then
-													return
-												end
-												HandleWeaponFiring(uCmd, pLocal, pWeapon, bal_angle, player_path, path_b,
-													charge_time, canshoot_b)
-												return
-											end
-										end
-									end
-								end
-							end
+		-- Rocket-like projectiles: fast gate using straight-line flight time
+		local rocket_angle = math_utils.PositionAngles(vecHeadPos, target_pos_i)
+		local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, rocket_angle, pWeapon:IsViewModelFlipped())
+		if fire_pos then
+			fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
+			local t_flight = (target_pos_i - fire_pos):Length() / forward_speed
+			if math.abs(t_flight - t_i) <= time_tolerance then
+				if is_rocket_weapon then
+					-- Gate passed: return angle and flight time; run projectile sim once after loop
+					return true, { angle = rocket_angle, T = t_flight }
+				else
+					-- Ballistic weapons: gate by ballistic time, then solve for angle and verify
+					local gravity_i = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
+					local start_gate = vecHeadPos + weaponInfo.m_vecAbsoluteOffset
+					local t_ballistic_gate = math_utils.GetBallisticFlightTime(start_gate, target_pos_i, forward_speed,
+						gravity_i)
+					if t_ballistic_gate and math.abs(t_ballistic_gate - t_i) <= time_tolerance then
+						local bal_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos_i, forward_speed, gravity_i)
+						if bal_angle then
+							return true, { angle = bal_angle, T = t_ballistic_gate }
 						end
 					end
 				end
 			end
 		end
+
+		return false
 	end
 
-	-- Make traces ignore *us* and also the target's **current** position,
-	-- because we're aiming at where he *will* be, not where he is now.
-	local function shouldHit(ent)
-		if not ent then -- world / sky / nil
-			return true -- trace should go on
-		end
-		if ent == pLocal or ent == pTarget then
-			return false -- pretend they don't exist
-		end
-		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
-	end
-
-	local vecPredictedPos = player_path[#player_path]
-	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace_mask = weaponInfo.m_iTraceMask or MASK_SHOT_HULL
-	-- Choose default aim point by projectile type
-	local proj_type = pWeapon:GetWeaponProjectileType() or 0
-	local target_height = (target_max_hull.z - target_min_hull.z)
-	local center_pos = vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = vecPredictedPos + Vector3(0, 0, 5)
-	local is_explosive = (
-		proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE or
-		proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-	)
-	local aimPos = is_explosive and feet_pos or center_pos
-	-- Use line trace only for rocket-type projectiles (zero hull)
-	local use_line_trace = (proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET)
-	local trace
-	if use_line_trace then
-		trace = engine.TraceLine(vecHeadPos, aimPos, trace_mask, shouldHit)
-	else
-		trace = engine.TraceHull(vecHeadPos, aimPos, vecMins, vecMaxs, trace_mask, shouldHit)
-	end
-	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
-
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-
-	if (not is_visible or bIsHuntsman) and settings.multipointing then
-		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
-
-		multipoint.m_pLocal = pLocal
-		multipoint.m_pWeapon = pWeapon
-		multipoint.m_pTarget = pTarget
-		multipoint.m_bIsHuntsman = bIsHuntsman
-		multipoint.m_bAimAtTeamMates = bAimAtTeamMates
-		multipoint.m_vecHeadPos = vecHeadPos
-		multipoint.m_vecPredictedPos = vecPredictedPos
-		multipoint.m_weaponInfo = weaponInfo
-		multipoint.m_mathUtils = math_utils
-		multipoint.m_settings.max_distance = settings.max_distance
-		multipoint.m_bSplashWeapon = bSplashWeapon
-		multipoint.m_entUtils = ent_utils
-		multipoint.m_settings = settings
-
-		local best_multipoint = multipoint:GetBestHitPoint()
-		if not best_multipoint then
+	local player_path, payload = player_sim.RunUntil(pTarget, vecTargetOrigin, time_ticks, onPlayerTick)
+	if payload then
+		if payload.angle and payload.T then
+			local angle = payload.angle
+			local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
+			if not fire_pos then return end
+			fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
+			local proj_path, _ = proj_sim.Run(pLocal, pWeapon, fire_pos, angle:Forward(), payload.T, weaponInfo,
+				charge_time)
+			if not proj_path or #proj_path == 0 then return end
+			local canshoot = CanShootFromDistance(weaponInfo, player_path, proj_path)
+			if not settings.wait_for_charge and not canshoot then return end
+			HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge_time, canshoot)
 			return
 		end
-
-		aimPos = best_multipoint
-		vecPredictedPos = best_multipoint
-		multipoint_target_pos = best_multipoint
-	end
-
-	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-	-- TODO(nav): Re-enable dual-arc aiming (low/high) when arc prediction UX is finalized.
-	local angle = math_utils.SolveBallisticArc(vecHeadPos, aimPos, forward_speed, gravity)
-	if angle == nil then
+		-- Aborted early due to blockage or invalid shot window
 		return
 	end
 
-	local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped()) +
-		weaponInfo.m_vecAbsoluteOffset
-	local pretrace
-	if use_line_trace then
-		pretrace = engine.TraceLine(vecWeaponFirePos, aimPos, trace_mask, shouldHit)
-	else
-		pretrace = engine.TraceHull(vecWeaponFirePos, aimPos, vecMins, vecMaxs, trace_mask, shouldHit)
-	end
-	if not pretrace or (pretrace.fraction < 0.9 and pretrace.entity ~= pTarget) then
-		return
-	end
-
-	local proj_path, full_sim = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
-		charge_time)
-	if not proj_path or #proj_path == 0 then
-		return
-	end
-
-	-- For rockets: abort if blocked early or path misses predicted point too far
-	local proj_type = pWeapon:GetWeaponProjectileType() or 0
-	if proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
-		or proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
-		or proj_type == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET then
-		if not full_sim then
-			return
-		end
-		local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0) and
-			(weaponInfo.m_flDamageRadius * 0.8) or 48
-		local min_dist = math.huge
-		for i = 1, #proj_path do
-			local d = (proj_path[i].pos - aimPos):Length()
-			if d < min_dist then min_dist = d end
-		end
-		if min_dist > max_miss then
-			return
-		end
-	end
-
-	local canshoot = CanShootFromDistance(weaponInfo, player_path, proj_path)
-	if not settings.wait_for_charge and not canshoot then
-		return
-	end
-
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge_time, canshoot)
+	-- If we reach here, no viable T was found within the limit; do nothing (hard cap)
+	return
 end
 
 --- Terminator (titaniummachine1) made this
