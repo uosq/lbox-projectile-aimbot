@@ -424,30 +424,59 @@ local function CreateMove(uCmd)
 	local time_tolerance = 0.02 -- seconds (~1-2 ticks)
 	local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0)
 		and (weaponInfo.m_flDamageRadius * 0.8) or 48
+	-- Cache ballistic constants once per CreateMove
+	local gravity_i = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
+	local start_gate = vecHeadPos + weaponInfo.m_vecAbsoluteOffset
 
 	local function onPlayerTick(i, target_pos_i)
 		local t_i = (i - 1) * tickInterval
 
-		-- Rocket-like projectiles: fast gate using straight-line flight time
+		-- Gate 1: Rockets by straight-line time-of-flight
 		local rocket_angle = math_utils.PositionAngles(vecHeadPos, target_pos_i)
 		local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, rocket_angle, pWeapon:IsViewModelFlipped())
 		if fire_pos then
 			fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
 			local t_flight = (target_pos_i - fire_pos):Length() / forward_speed
-			if math.abs(t_flight - t_i) <= time_tolerance then
-				if is_rocket_weapon then
-					-- Gate passed: return angle and flight time; run projectile sim once after loop
-					return true, { angle = rocket_angle, T = t_flight }
-				else
-					-- Ballistic weapons: gate by ballistic time, then solve for angle and verify
-					local gravity_i = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-					local start_gate = vecHeadPos + weaponInfo.m_vecAbsoluteOffset
-					local t_ballistic_gate = math_utils.GetBallisticFlightTime(start_gate, target_pos_i, forward_speed,
-						gravity_i)
-					if t_ballistic_gate and math.abs(t_ballistic_gate - t_i) <= time_tolerance then
-						local bal_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos_i, forward_speed, gravity_i)
-						if bal_angle then
-							return true, { angle = bal_angle, T = t_ballistic_gate }
+			if is_rocket_weapon and math.abs(t_flight - t_i) <= time_tolerance then
+				-- Verify rocket with env sim at exactly T
+				local path_r, full_r = proj_sim.Run(pLocal, pWeapon, fire_pos, rocket_angle:Forward(), t_flight,
+					weaponInfo, charge_time)
+				if not path_r or #path_r == 0 then return true, { abort = true } end
+				local min_r = math.huge
+				for j = 1, #path_r do
+					local d = (path_r[j].pos - target_pos_i):Length()
+					if d < min_r then min_r = d end
+				end
+				if not full_r or min_r > max_miss then return true, { abort = true } end
+				local canshoot_r = CanShootFromDistance(weaponInfo, { target_pos_i }, path_r)
+				if not settings.wait_for_charge and not canshoot_r then return true, { abort = true } end
+				return true, { angle = rocket_angle, proj_path = path_r, canshoot = canshoot_r }
+			end
+			-- Gate 2: Ballistic by analytic flight time, then solve & verify (cached constants)
+			local t_ballistic_gate = math_utils.GetBallisticFlightTime(start_gate, target_pos_i, forward_speed, gravity_i)
+			if (not is_rocket_weapon) and t_ballistic_gate and math.abs(t_ballistic_gate - t_i) <= time_tolerance then
+				local bal_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos_i, forward_speed, gravity_i)
+				if bal_angle then
+					local fire_pos_b = weaponInfo:GetFirePosition(pLocal, vecHeadPos, bal_angle,
+						pWeapon:IsViewModelFlipped())
+					if fire_pos_b then
+						fire_pos_b = fire_pos_b + weaponInfo.m_vecAbsoluteOffset
+						-- Recompute at true fire position
+						local t_check = math_utils.GetBallisticFlightTime(fire_pos_b, target_pos_i, forward_speed,
+							gravity_i)
+						if t_check and math.abs(t_check - t_i) <= time_tolerance then
+							local path_b, full_b = proj_sim.Run(pLocal, pWeapon, fire_pos_b, bal_angle:Forward(), t_check,
+								weaponInfo, charge_time)
+							if not path_b or #path_b == 0 then return true, { abort = true } end
+							local min_b = math.huge
+							for k = 1, #path_b do
+								local d = (path_b[k].pos - target_pos_i):Length()
+								if d < min_b then min_b = d end
+							end
+							if not full_b or min_b > max_miss then return true, { abort = true } end
+							local canshoot_b = CanShootFromDistance(weaponInfo, { target_pos_i }, path_b)
+							if not settings.wait_for_charge and not canshoot_b then return true, { abort = true } end
+							return true, { angle = bal_angle, proj_path = path_b, canshoot = canshoot_b }
 						end
 					end
 				end
@@ -459,17 +488,16 @@ local function CreateMove(uCmd)
 
 	local player_path, payload = player_sim.RunUntil(pTarget, vecTargetOrigin, time_ticks, onPlayerTick)
 	if payload then
-		if payload.angle and payload.T then
-			local angle = payload.angle
-			local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
-			if not fire_pos then return end
-			fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
-			local proj_path, _ = proj_sim.Run(pLocal, pWeapon, fire_pos, angle:Forward(), payload.T, weaponInfo,
-				charge_time)
-			if not proj_path or #proj_path == 0 then return end
-			local canshoot = CanShootFromDistance(weaponInfo, player_path, proj_path)
-			if not settings.wait_for_charge and not canshoot then return end
-			HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge_time, canshoot)
+		if payload.angle and payload.proj_path then
+			if settings.draw_only then
+				-- Draw-only: keep full logic, just don't shoot
+				displayed_time = globals.CurTime() + settings.draw_time
+				paths.player_path = player_path
+				paths.proj_path = payload.proj_path
+				return
+			end
+			HandleWeaponFiring(uCmd, pLocal, pWeapon, payload.angle, player_path, payload.proj_path, charge_time,
+				payload.canshoot)
 			return
 		end
 		-- Aborted early due to blockage or invalid shot window

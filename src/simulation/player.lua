@@ -402,6 +402,137 @@ function sim.RunBackground(players)
 	end
 end
 
+-- Step-by-step player simulation API
+
+---@class PlayerSimCtx
+---@field pTarget Entity
+---@field position Vector3
+---@field velocity Vector3
+---@field tick integer
+---@field tickInterval number
+---@field gravityStep number
+---@field targetMaxSpeed number
+---@field localIndex integer
+---@field targetTeam integer
+---@field surfaceFriction number
+---@field stepSize number
+---@field mins Vector3
+---@field maxs Vector3
+---@field downVec Vector3
+---@field cosYaw number
+---@field sinYaw number
+---@field hasAngular boolean
+---@field shouldHitEntity fun(ent: Entity): boolean
+
+---@param pTarget Entity
+---@param initial_pos Vector3
+---@return PlayerSimCtx
+function sim.Begin(pTarget, initial_pos)
+	local tickInterval = globals.TickInterval()
+	local angularVel = GetSmoothedAngularVelocity(pTarget) * tickInterval
+	local gravityStep = client.GetConVar("sv_gravity") * tickInterval
+	local targetMaxSpeed = pTarget:GetPropFloat("m_flMaxspeed") or 450
+	local localIndex = client.GetLocalPlayerIndex()
+	local targetTeam = pTarget:GetTeamNumber()
+	local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
+	local stepSize = pTarget:GetPropFloat("m_flStepSize") or 18.0
+	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
+
+	local cosYaw, sinYaw, hasAngular = 0, 0, false
+	if angularVel ~= 0 then
+		local yaw = math_rad(angularVel)
+		cosYaw, sinYaw = math_cos(yaw), math_sin(yaw)
+		hasAngular = true
+	end
+
+	local function shouldHitEntity(ent)
+		local ent_index = ent:GetIndex()
+		return ent_index ~= localIndex and ent:GetTeamNumber() ~= targetTeam
+	end
+
+	return {
+		pTarget = pTarget,
+		position = initial_pos,
+		velocity = pTarget:EstimateAbsVelocity(),
+		tick = 0,
+		tickInterval = tickInterval,
+		gravityStep = gravityStep,
+		targetMaxSpeed = targetMaxSpeed,
+		localIndex = localIndex,
+		targetTeam = targetTeam,
+		surfaceFriction = surfaceFriction,
+		stepSize = stepSize,
+		mins = mins,
+		maxs = maxs,
+		downVec = Vector3(0, 0, -stepSize),
+		cosYaw = cosYaw,
+		sinYaw = sinYaw,
+		hasAngular = hasAngular,
+		shouldHitEntity = shouldHitEntity,
+	}
+end
+
+---@param ctx PlayerSimCtx
+---@return Vector3
+function sim.Step(ctx)
+	local pTarget = ctx.pTarget
+	local ti = ctx.tickInterval
+	local pos = ctx.position
+	local vel = ctx.velocity
+
+	if ctx.hasAngular then
+		local vx, vy = vel.x, vel.y
+		vel.x = vx * ctx.cosYaw - vy * ctx.sinYaw
+		vel.y = vx * ctx.sinYaw + vy * ctx.cosYaw
+	end
+
+	local next_pos = pos + vel * ti
+	local ground_trace = TraceLine(next_pos, next_pos + ctx.downVec, MASK_PLAYERSOLID, ctx.shouldHitEntity)
+	local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and vel.z <= MIN_VELOCITY_Z
+
+	local horizontal_speed = vel:Length2D()
+	ApplyFriction(vel, pTarget, is_on_ground)
+
+	if horizontal_speed > 0.1 then
+		local inv_len = 1.0 / horizontal_speed
+		local wishdir = Vector3(vel.x * inv_len, vel.y * inv_len, 0)
+		local wishspeed = math_min(horizontal_speed, ctx.targetMaxSpeed)
+
+		if is_on_ground then
+			AccelerateInPlace(vel, wishdir, wishspeed, GROUND_ACCELERATE, ti, ctx.surfaceFriction)
+		else
+			if vel.z < 0 then
+				AirAccelerateInPlace(vel, wishdir, wishspeed, AIR_ACCELERATE, ti, ctx.surfaceFriction, pTarget)
+			end
+		end
+	end
+
+	if is_on_ground then
+		local vel_len = vel:Length()
+		if vel_len > ctx.targetMaxSpeed then
+			local scale = ctx.targetMaxSpeed / vel_len
+			vel.x = vel.x * scale
+			vel.y = vel.y * scale
+			vel.z = vel.z * scale
+		end
+	end
+
+	local new_pos, new_vel = StepMove(pos, vel, ti, ctx.mins, ctx.maxs, ctx.shouldHitEntity, pTarget,
+		ctx.surfaceFriction, ctx.stepSize)
+	StayOnGround(new_pos, ctx.mins, ctx.maxs, ctx.stepSize, ctx.shouldHitEntity)
+
+	if not is_on_ground then
+		new_vel.z = new_vel.z - ctx.gravityStep
+	elseif new_vel.z < 0 then
+		new_vel.z = 0
+	end
+
+	ctx.position = new_pos
+	ctx.velocity = new_vel
+	ctx.tick = ctx.tick + 1
+	return new_pos
+end
+
 ---@param origin Vector3
 ---@param velocity Vector3
 ---@param frametime number
