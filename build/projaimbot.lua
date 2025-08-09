@@ -173,6 +173,9 @@ local multipoint_target_pos            = nil
 
 local original_gui_value               = gui.GetValue("projectile aimbot")
 
+-- Cache repeated aborts to avoid repeating expensive env sims when geometry blocks
+local abortCache                       = { key = nil, untilTime = 0 }
+
 -- Target selection is now handled by the target_selector module
 ---@param players table<integer, Entity>
 ---@param pLocal Entity
@@ -484,13 +487,23 @@ local function CreateMove(uCmd)
 				-- Verify rocket with env sim at exactly T
 				local path_r, full_r = proj_sim.Run(pLocal, pWeapon, fire_pos, rocket_angle:Forward(), t_flight,
 					weaponInfo, charge_time)
-				if not path_r or #path_r == 0 then return true, { abort = true } end
+				if not path_r or #path_r == 0 then
+					abortCache.key = string.format("%d|%d|%d|%d", pTarget:GetIndex(), rocket_angle.pitch // 1,
+						rocket_angle.yaw // 1, i)
+					abortCache.untilTime = globals.CurTime() + 0.1
+					return true, { abort = true, dbg_path = path_r }
+				end
 				local min_r = math.huge
 				for j = 1, #path_r do
 					local d = (path_r[j].pos - target_pos_i):Length()
 					if d < min_r then min_r = d end
 				end
-				if not full_r or min_r > max_miss then return true, { abort = true } end
+				if not full_r or min_r > max_miss then
+					abortCache.key = string.format("%d|%d|%d|%d", pTarget:GetIndex(), rocket_angle.pitch // 1,
+						rocket_angle.yaw // 1, i)
+					abortCache.untilTime = globals.CurTime() + 0.1
+					return true, { abort = true, dbg_path = path_r }
+				end
 				local canshoot_r = CanShootFromDistance(weaponInfo, { target_pos_i }, path_r)
 				if not settings.wait_for_charge and not canshoot_r then return true, { abort = true } end
 				return true, { angle = rocket_angle, proj_path = path_r, canshoot = canshoot_r }
@@ -510,13 +523,23 @@ local function CreateMove(uCmd)
 						if t_check and math.abs(t_check - t_i) <= time_tolerance then
 							local path_b, full_b = proj_sim.Run(pLocal, pWeapon, fire_pos_b, bal_angle:Forward(), t_check,
 								weaponInfo, charge_time)
-							if not path_b or #path_b == 0 then return true, { abort = true } end
+							if not path_b or #path_b == 0 then
+								abortCache.key = string.format("%d|%d|%d|%d", pTarget:GetIndex(), bal_angle.pitch // 1,
+									bal_angle.yaw // 1, i)
+								abortCache.untilTime = globals.CurTime() + 0.1
+								return true, { abort = true, dbg_path = path_b }
+							end
 							local min_b = math.huge
 							for k = 1, #path_b do
 								local d = (path_b[k].pos - target_pos_i):Length()
 								if d < min_b then min_b = d end
 							end
-							if not full_b or min_b > max_miss then return true, { abort = true } end
+							if not full_b or min_b > max_miss then
+								abortCache.key = string.format("%d|%d|%d|%d", pTarget:GetIndex(), bal_angle.pitch // 1,
+									bal_angle.yaw // 1, i)
+								abortCache.untilTime = globals.CurTime() + 0.1
+								return true, { abort = true, dbg_path = path_b }
+							end
 							local canshoot_b = CanShootFromDistance(weaponInfo, { target_pos_i }, path_b)
 							if not settings.wait_for_charge and not canshoot_b then return true, { abort = true } end
 							return true, { angle = bal_angle, proj_path = path_b, canshoot = canshoot_b }
@@ -3695,6 +3718,12 @@ local COORD_RESOLUTION      = (1.0 / (COORD_DENOMINATOR))
 local impact_planes         = {}
 local MAX_IMPACT_PLANES     = 5
 
+-- Entities we never want to collide with during prediction (loose items, etc.)
+local IGNORE_ENTITY_CLASSES = {
+	CTFAmmoPack = true,
+	CTFDroppedWeapon = true,
+}
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
@@ -4098,9 +4127,21 @@ function sim.Begin(pTarget, initial_pos)
 		hasAngular = true
 	end
 
-	local function shouldHitEntity(ent)
-		local ent_index = ent:GetIndex()
-		return ent_index ~= localIndex and ent:GetTeamNumber() ~= targetTeam
+	-- Collision filter for prediction traces. Signature must be (entity) only.
+	local function shouldHitEntity(entity)
+		-- World geometry always collides
+		if not entity then return true end
+		-- Do not collide with the simulated player or local player
+		if entity == pTarget or entity:GetIndex() == localIndex then return false end
+		-- Ignore harmless pickups
+		local class = entity.GetClass and entity:GetClass() or ""
+		if IGNORE_ENTITY_CLASSES[class] then return false end
+		-- Ignore entities embedded in non-empty contents (e.g., brush volumes)
+		local pos = entity:GetAbsOrigin() + Vector3(0, 0, 1)
+		local contents = engine.GetPointContents(pos)
+		if contents ~= CONTENTS_EMPTY then return false end
+		-- Collide with everything else (both teams, buildings, props)
+		return true
 	end
 
 	return {
@@ -4140,7 +4181,9 @@ function sim.Step(ctx)
 	end
 
 	local next_pos = pos + vel * ti
-	local ground_trace = TraceLine(next_pos, next_pos + ctx.downVec, MASK_PLAYERSOLID, ctx.shouldHitEntity)
+	-- Use hull trace for ground check to respect player hull and avoid ignoring map entities
+	local ground_trace = DoTraceHull(next_pos, next_pos + ctx.downVec, ctx.mins, ctx.maxs, MASK_PLAYERSOLID,
+		ctx.shouldHitEntity)
 	local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and vel.z <= MIN_VELOCITY_Z
 
 	local horizontal_speed = vel:Length2D()

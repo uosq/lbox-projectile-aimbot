@@ -42,6 +42,12 @@ local COORD_RESOLUTION      = (1.0 / (COORD_DENOMINATOR))
 local impact_planes         = {}
 local MAX_IMPACT_PLANES     = 5
 
+-- Entities we never want to collide with during prediction (loose items, etc.)
+local IGNORE_ENTITY_CLASSES = {
+	CTFAmmoPack = true,
+	CTFDroppedWeapon = true,
+}
+
 ---@class Sample
 ---@field pos Vector3
 ---@field time number
@@ -445,9 +451,21 @@ function sim.Begin(pTarget, initial_pos)
 		hasAngular = true
 	end
 
-	local function shouldHitEntity(ent)
-		local ent_index = ent:GetIndex()
-		return ent_index ~= localIndex and ent:GetTeamNumber() ~= targetTeam
+	-- Collision filter for prediction traces. Signature must be (entity) only.
+	local function shouldHitEntity(entity)
+		-- World geometry always collides
+		if not entity then return true end
+		-- Do not collide with the simulated player or local player
+		if entity == pTarget or entity:GetIndex() == localIndex then return false end
+		-- Ignore harmless pickups
+		local class = entity.GetClass and entity:GetClass() or ""
+		if IGNORE_ENTITY_CLASSES[class] then return false end
+		-- Ignore entities embedded in non-empty contents (e.g., brush volumes)
+		local pos = entity:GetAbsOrigin() + Vector3(0, 0, 1)
+		local contents = engine.GetPointContents(pos)
+		if contents ~= CONTENTS_EMPTY then return false end
+		-- Collide with everything else (both teams, buildings, props)
+		return true
 	end
 
 	return {
@@ -487,7 +505,9 @@ function sim.Step(ctx)
 	end
 
 	local next_pos = pos + vel * ti
-	local ground_trace = TraceLine(next_pos, next_pos + ctx.downVec, MASK_PLAYERSOLID, ctx.shouldHitEntity)
+	-- Use hull trace for ground check to respect player hull and avoid ignoring map entities
+	local ground_trace = DoTraceHull(next_pos, next_pos + ctx.downVec, ctx.mins, ctx.maxs, MASK_PLAYERSOLID,
+		ctx.shouldHitEntity)
 	local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and vel.z <= MIN_VELOCITY_Z
 
 	local horizontal_speed = vel:Length2D()
