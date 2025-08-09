@@ -27,9 +27,13 @@ local COLLISION_HEAL_BUILDINGS = 2
 local COLLISION_HEAL_HURT = 3
 local COLLISION_NONE = 4
 
-local function AppendItemDefinitions(iType, ...)
-	for _, i in pairs({ ... }) do
-		aItemDefinitions[i] = iType
+-- Load pure data for item definition index groups
+local WeaponData = require("src.data.weapon_data")
+do
+	for groupId, indices in pairs(WeaponData.item_groups) do
+		for _, defIndex in ipairs(indices) do
+			aItemDefinitions[defIndex] = groupId
+		end
 	end
 end
 
@@ -182,34 +186,7 @@ local function DefineDerivedProjectileDefinition(def, tbl)
 	return stReturned
 end
 
-AppendItemDefinitions(
-	1,
-	18, -- Rocket Launcher
-	205, -- Rocket Launcher (Renamed/Strange)
-	228, -- The Black Box
-	658, -- Festive Rocket Launcher
-	800, -- Silver Botkiller Rocket Launcher Mk.I
-	809, -- Gold Botkiller Rocket Launcher Mk.I
-	889, -- Rust Botkiller Rocket Launcher Mk.I
-	898, -- Blood Botkiller Rocket Launcher Mk.I
-	907, -- Carbonado Botkiller Rocket Launcher Mk.I
-	916, -- Diamond Botkiller Rocket Launcher Mk.I
-	965, -- Silver Botkiller Rocket Launcher Mk.II
-	974, -- Gold Botkiller Rocket Launcher Mk.II
-	1085, -- Festive Black Box
-	15006, -- Woodland Warrior
-	15014, -- Sand Cannon
-	15028, -- American Pastoral
-	15043, -- Smalltown Bringdown
-	15052, -- Shell Shocker
-	15057, -- Aqua Marine
-	15081, -- Autumn
-	15104, -- Blue Mew
-	15105, -- Brain Candy
-	15129, -- Coffin Nail
-	15130, -- High Roller's
-	15150 -- Warhawk
-)
+-- Item definition indices are populated from `src/data/weapon_data.lua`
 aProjectileInfo[1] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(1100, 0, 0),
 	vecMaxs = Vector3(0, 0, 0),
@@ -222,55 +199,31 @@ aProjectileInfo[1] = DefineBasicProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	2,
-	237 -- Rocket Jumper
-)
 aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	iCollisionType = COLLISION_NONE,
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	3,
-	730 -- The Beggar's Bazooka
-)
 aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	flDamageRadius = 116.8,
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	4,
-	1104 -- The Air Strike
-)
 aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	flDamageRadius = 131.4,
 })
 
-AppendItemDefinitions(
-	5,
-	127 -- The Direct Hit
-)
 aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(2000, 0, 0),
 	flDamageRadius = 44,
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	6,
-	414 -- The Liberty Launcher
-)
 aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	vecVelocity = Vector3(1550, 0, 0),
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	7,
-	513 -- The Original
-)
 aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	bGravity = false,
 	GetOffset = function(self, bDucking)
@@ -279,10 +232,6 @@ aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 })
 
 -- https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/tf/tf_weapon_dragons_fury.cpp
-AppendItemDefinitions(
-	8,
-	1178 -- Dragon's Fury
-)
 aProjectileInfo[8] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(600, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
@@ -293,10 +242,6 @@ aProjectileInfo[8] = DefineBasicProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	9,
-	442 -- The Righteous Bison
-)
 aProjectileInfo[9] = DefineBasicProjectileDefinition({
 	vecVelocity = Vector3(1200, 0, 0),
 	vecMaxs = Vector3(1, 1, 1),
@@ -308,33 +253,6 @@ aProjectileInfo[9] = DefineBasicProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	10,
-	20, -- Stickybomb Launcher
-	207, -- Stickybomb Launcher (Renamed/Strange)
-	661, -- Festive Stickybomb Launcher
-	797, -- Silver Botkiller Stickybomb Launcher Mk.I
-	806, -- Gold Botkiller Stickybomb Launcher Mk.I
-	886, -- Rust Botkiller Stickybomb Launcher Mk.I
-	895, -- Blood Botkiller Stickybomb Launcher Mk.I
-	904, -- Carbonado Botkiller Stickybomb Launcher Mk.I
-	913, -- Diamond Botkiller Stickybomb Launcher Mk.I
-	962, -- Silver Botkiller Stickybomb Launcher Mk.II
-	971, -- Gold Botkiller Stickybomb Launcher Mk.II
-	15009, -- Sudden Flurry
-	15012, -- Carpet Bomber
-	15024, -- Blasted Bombardier
-	15038, -- Rooftop Wrangler
-	15045, -- Liquid Asset
-	15048, -- Pink Elephant
-	15082, -- Autumn
-	15083, -- Pumpkin Patch
-	15084, -- Macabre Web
-	15113, -- Sweet Dreams
-	15137, -- Coffin Nail
-	15138, -- Dressed to Kill
-	15155 -- Blitzkrieg
-)
 aProjectileInfo[10] = DefineSimulProjectileDefinition({
 	vecOffset = Vector3(16, 8, -6),
 	vecAngularVelocity = Vector3(600, 0, 0),
@@ -349,10 +267,6 @@ aProjectileInfo[10] = DefineSimulProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	11,
-	1150 -- The Quickiebomb Launcher
-)
 aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 	sModelName = "models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl",
 	flGravity = 0.25,
@@ -361,38 +275,16 @@ aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 	end,
 })
 
-AppendItemDefinitions(
-	12,
-	130 -- The Scottish Resistance
-)
 aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 	sModelName = "models/weapons/w_models/w_stickybomb_d.mdl",
 	flGravity = 0.25,
 })
 
-AppendItemDefinitions(
-	13,
-	265 -- Sticky Jumper
-)
 aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[12], {
 	iCollisionType = COLLISION_NONE,
 	flGravity = 0.25,
 })
 
-AppendItemDefinitions(
-	14,
-	19, -- Grenade Launcher
-	206, -- Grenade Launcher (Renamed/Strange)
-	1007, -- Festive Grenade Launcher
-	15077, -- Autumn
-	15079, -- Macabre Web
-	15091, -- Rainbow
-	15092, -- Sweet Dreams
-	15116, -- Coffin Nail
-	15117, -- Top Shelf
-	15142, -- Warhawk
-	15158 -- Butcher Bird
-)
 aProjectileInfo[14] = DefineSimulProjectileDefinition({
 	vecOffset = Vector3(16, 8, -6),
 	vecVelocity = Vector3(1200, 0, 200),
@@ -405,20 +297,12 @@ aProjectileInfo[14] = DefineSimulProjectileDefinition({
 	sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl",
 })
 
-AppendItemDefinitions(
-	15,
-	1151 -- The Iron Bomber
-)
 aProjectileInfo[15] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	flElasticity = 0.09,
 	flLifetime = 1.6,
 	flDamageRadius = 124,
 })
 
-AppendItemDefinitions(
-	16,
-	308 -- The Loch-n-Load
-)
 aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	iType = PROJECTILE_TYPE_PSEUDO,
 	vecVelocity = Vector3(1500, 0, 200),
@@ -428,10 +312,6 @@ aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	flDamageRadius = 0,
 })
 
-AppendItemDefinitions(
-	17,
-	996 -- The Loose Cannon
-)
 aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	vecVelocity = Vector3(1440, 0, 200),
 	vecMaxs = Vector3(6, 6, 6),
@@ -444,12 +324,6 @@ aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 	end,
 })
 
-AppendItemDefinitions(
-	18,
-	56, -- The Huntsman
-	1005, -- Festive Huntsman
-	1092 -- The Fortified Compound
-)
 aProjectileInfo[18] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(23.5, -8, -3),
 	vecMaxs = Vector3(0, 0, 0),
@@ -465,13 +339,6 @@ aProjectileInfo[18] = DefinePseudoProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	19,
-	39, -- The Flare Gun
-	351, -- The Detonator
-	595, -- The Manmelter
-	1081 -- Festive Flare Gun
-)
 aProjectileInfo[19] = DefinePseudoProjectileDefinition({
 	vecVelocity = Vector3(2000, 0, 0),
 	vecMaxs = Vector3(0, 0, 0),
@@ -485,19 +352,10 @@ aProjectileInfo[19] = DefinePseudoProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	20,
-	740 -- The Scorch Shot
-)
 aProjectileInfo[20] = DefineDerivedProjectileDefinition(aProjectileInfo[19], {
 	flDamageRadius = 110,
 })
 
-AppendItemDefinitions(
-	21,
-	305, -- Crusader's Crossbow
-	1079 -- Festive Crusader's Crossbow
-)
 aProjectileInfo[21] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(23.5, -8, -3),
 	vecVelocity = Vector3(2400, 0, 0),
@@ -507,22 +365,11 @@ aProjectileInfo[21] = DefinePseudoProjectileDefinition({
 	iCollisionType = COLLISION_HEAL_TEAMMATES,
 })
 
-AppendItemDefinitions(
-	22,
-	997 -- The Rescue Ranger
-)
 aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
 	vecMaxs = Vector3(1, 1, 1),
 	iCollisionType = COLLISION_HEAL_BUILDINGS,
 })
 
-AppendItemDefinitions(
-	23,
-	17, -- Syringe Gun
-	36, -- The Blutsauger
-	204, -- Syringe Gun (Renamed/Strange)
-	412 -- The Overdose
-)
 aProjectileInfo[23] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(16, 6, -8),
 	vecVelocity = Vector3(1000, 0, 0),
@@ -531,14 +378,6 @@ aProjectileInfo[23] = DefinePseudoProjectileDefinition({
 	flCollideWithTeammatesDelay = 0,
 })
 
-AppendItemDefinitions(
-	24,
-	58, -- Jarate
-	222, -- Mad Milk
-	1083, -- Festive Jarate
-	1105, -- The Self-Aware Beauty Mark
-	1121 -- Mutated Milk
-)
 aProjectileInfo[24] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(16, 8, -6),
 	vecVelocity = Vector3(1000, 0, 200),
@@ -547,11 +386,6 @@ aProjectileInfo[24] = DefinePseudoProjectileDefinition({
 	flDamageRadius = 200,
 })
 
-AppendItemDefinitions(
-	25,
-	812, -- The Flying Guillotine
-	833 -- The Flying Guillotine (Genuine)
-)
 aProjectileInfo[25] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(23.5, 8, -3),
 	vecVelocity = Vector3(3000, 0, 300),
@@ -560,10 +394,6 @@ aProjectileInfo[25] = DefinePseudoProjectileDefinition({
 	flDrag = 1.3,
 })
 
-AppendItemDefinitions(
-	26,
-	44 -- The Sandman
-)
 aProjectileInfo[26] = DefineSimulProjectileDefinition({
 	vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359),
 	vecAngularVelocity = Vector3(0, 50, 0),
@@ -582,10 +412,6 @@ aProjectileInfo[26] = DefineSimulProjectileDefinition({
 	end,
 })
 
-AppendItemDefinitions(
-	27,
-	648 -- The Wrap Assassin
-)
 aProjectileInfo[27] = DefineDerivedProjectileDefinition(aProjectileInfo[26], {
 	vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809),
 	vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904),
@@ -594,10 +420,6 @@ aProjectileInfo[27] = DefineDerivedProjectileDefinition(aProjectileInfo[26], {
 	sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl",
 })
 
-AppendItemDefinitions(
-	28,
-	441 -- The Cow Mangler 5000
-)
 aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 	bGravity = false,
 	GetOffset = function(self, bDucking, bIsFlipped)
@@ -606,20 +428,12 @@ aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 })
 
 --https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_raygun.cpp#L249
-AppendItemDefinitions(
-	29,
-	588 -- The Pomson 6000
-)
 aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
 	vecAbsoluteOffset = Vector3(0, 0, -13),
 	flCollideWithTeammatesDelay = 0,
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	30,
-	1180 -- Gas Passer
-)
 aProjectileInfo[30] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(16, 8, -6),
 	vecVelocity = Vector3(2000, 0, 200),
@@ -629,10 +443,6 @@ aProjectileInfo[30] = DefinePseudoProjectileDefinition({
 	flDamageRadius = 200,
 })
 
-AppendItemDefinitions(
-	31,
-	528 -- The Short Circuit
-)
 aProjectileInfo[31] = DefineBasicProjectileDefinition({
 	vecOffset = Vector3(40, 15, -10),
 	vecVelocity = Vector3(700, 0, 0),
@@ -642,16 +452,6 @@ aProjectileInfo[31] = DefineBasicProjectileDefinition({
 	bGravity = false,
 })
 
-AppendItemDefinitions(
-	32,
-	42, -- Sandvich
-	159, -- The Dalokohs Bar
-	311, -- The Buffalo Steak Sandvich
-	433, -- Fishcake
-	863, -- Robo-Sandvich
-	1002, -- Festive Sandvich
-	1190 -- Second Banana
-)
 aProjectileInfo[32] = DefinePseudoProjectileDefinition({
 	vecOffset = Vector3(0, 0, -8),
 	vecAngleOffset = Vector3(-10, 0, 0),
