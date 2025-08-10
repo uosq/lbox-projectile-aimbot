@@ -58,7 +58,7 @@ end
 ---@return EulerAngles|nil -- Euler angles (pitch, yaw, 0)
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
-	local dx = math.sqrt(diff.x * diff.x + diff.y * diff.y)
+	local dx = diff:Length2D()
 	local dy = diff.z
 	local speed2 = speed * speed
 	local g = gravity
@@ -89,13 +89,13 @@ end
 function Math.SolveBallisticArcBoth(p0, p1, speed, gravity)
 	local diff = p1 - p0
 	local dx = math.sqrt(diff.x * diff.x + diff.y * diff.y)
-	local dy = diff.z
-	local speed2 = speed * speed
-	local g = gravity
-
 	if dx == 0 then
 		return nil, nil
 	end
+
+	local dy = diff.z
+	local g = gravity
+	local speed2 = speed * speed
 
 	local root = speed2 * speed2 - g * (g * dx * dx + 2 * dy * speed2)
 	if root < 0 then

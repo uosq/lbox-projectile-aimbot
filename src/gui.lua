@@ -4,8 +4,6 @@ local menu = require("src.dependencies.nmenu")
 
 local font = draw.CreateFont("TF2 BUILD", 16, 500)
 
-local color_pos = {"r", "g", "b", "a"}
-
 ---@param settings table
 ---@param version string
 function gui.init(settings, version)
@@ -419,39 +417,31 @@ function gui.init(settings, version)
 		end
 	end
 
-	--[[menu:make_tab("colors")
+	local colors_tab = menu:make_tab("colors")
+	assert(colors_tab, "colors tab is nil!")
 
-	btn_starty = 10
+	btn_starty = 25
 
 	for name, visual in pairs (settings.colors) do
-		for i, color_val in ipairs(visual) do
-			local btn = menu:make_button()
-			assert(btn, string.format("Button %s is nil!", name))
+		local slider = menu:make_slider()
+		assert(slider, string.format("Slider %s is nil!", name))
 
-			btn.width = component_width
-			btn.height = component_height
-			btn.x = 10
-			btn.y = get_btn_y()
-			btn.label = name
-
-			local color_label = color_pos[i]
-			local slider = menu:make_slider()
-			assert(slider, string.format("Slider %s is nil!", name))
-
-			slider.width = component_width
-			slider.height = component_height
-			slider.x = 10
-			slider.y = get_slider_y()
-			slider.max = 255
-			slider.min = 0
-			slider.value = color_val
-			slider.label = color_label
-
-			slider.func = function()
-				settings.colors[name][i] = slider.value//1
-			end
+		slider.width = component_width * 2
+		slider.height = component_height
+		slider.x = 10
+		slider.y = get_slider_y()
+		slider.max = 360
+		slider.min = 0
+		slider.value = visual
+		slider.label = name
+		slider.func = function()
+			settings.colors[name] = slider.value//1
 		end
-	end]]
+	end
+
+	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
+		local x = current_window.x + content_offset
+	end)
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")

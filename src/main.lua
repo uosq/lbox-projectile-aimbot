@@ -71,6 +71,12 @@ local settings = {
 		vaccinator = false,
 		ghost = true,
 	},
+
+	colors = {
+		bounding_box = 193, --{136, 192, 208, 255},
+		player_path = 193, --{136, 192, 208, 255},
+		projectile_path = 40, --{235, 203, 139, 255}
+	},
 }
 
 local wep_utils = require("src.utils.weapon_utils")
@@ -175,8 +181,8 @@ local function GetCharge(pWeapon)
 		local charge_begin_time = pWeapon:GetChargeBeginTime()
 
 		if charge_begin_time and charge_begin_time > 0 then
-			charge_time = globals.CurTime() - charge_begin_time
-			if charge_time > 4.0 then
+			charge_time = (globals.CurTime() - charge_begin_time) / pWeapon:GetChargeMaxTime()
+			if charge_time > 1.0 then
 				charge_time = 0.0
 			end
 		end
@@ -198,51 +204,157 @@ end
 local function CanShootFromDistance(weaponInfo, player_path, proj_path)
 	if weaponInfo:HasGravity() and weaponInfo.m_flDamageRadius > 0 then
 		local distance = (proj_path[#proj_path].pos - player_path[#player_path]):Length()
-		return distance < weaponInfo.m_flDamageRadius
+		return distance <= weaponInfo.m_flDamageRadius
 	end
 	return #proj_path > 0
 end
 
+---@param weaponInfo WeaponInfo
+---@param from Vector3
+---@param to Vector3
+local function CanShootFromPos(weaponInfo, from, to)
+	if weaponInfo:HasGravity() and weaponInfo.m_flDamageRadius > 0 then
+		local dist = (to - from):Length()
+		return dist <= weaponInfo.m_flDamageRadius
+	end
+	return true
+end
+
+---@param pLocal Entity
+---@param pWeapon Entity
+---@param uCmd UserCmd
+local function CancelShot(pLocal, pWeapon, uCmd)
+	local current_slot = pWeapon:GetLoadoutSlot()
+	local next_slot = current_slot + 1
+	if next_slot > E_LoadoutSlot.LOADOUT_POSITION_MELEE then
+		next_slot = E_LoadoutSlot.LOADOUT_POSITION_PRIMARY
+	end
+	local pSlotWeapon = pLocal:GetEntityForLoadoutSlot(next_slot)
+	if pSlotWeapon then
+		uCmd.weaponselect = pSlotWeapon:GetIndex()
+	end
+	return
+end
+
+---@param pLocal Entity
+---@param pWeapon Entity
+---@param pTarget Entity
+---@param vHeadPos Vector3
+---@param weaponInfo WeaponInfo
+---@param time_ticks integer
+---@param charge number
+---@param uCmd UserCmd
+---@param orig_buttons integer
+---@param orig_viewangle Vector3
+local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+	local proj_path, player_path, gravity
+
+	gravity = client.GetConVar("sv_gravity") * 0.5
+
+	local function ResetUserCmd()
+		uCmd.viewangles = orig_viewangle
+		uCmd.buttons = orig_buttons
+		uCmd.sendpacket = true
+	end
+
+	player_path = player_sim.Run(pTarget, pTarget:GetAbsOrigin() + Vector3(0, 0, 1), time_ticks)
+	local vPredictedPos = Vector3(player_path[#player_path]:Unpack())
+	vPredictedPos.z = vPredictedPos.z + 10
+
+	multipoint.m_vecPredictedPos = vPredictedPos
+	vPredictedPos = multipoint:GetBestHitPoint()
+	if vPredictedPos == nil then
+		return ResetUserCmd()
+	end
+
+	local angle = math_utils.SolveBallisticArc(vHeadPos, vPredictedPos, weaponInfo:GetVelocity(charge):Length2D(), weaponInfo:GetGravity(charge)*gravity)
+	if angle == nil then
+		return ResetUserCmd()
+	end
+
+	local vWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vHeadPos, angle, pWeapon:IsViewModelFlipped())
+	if vWeaponFirePos == nil then
+		return ResetUserCmd()
+	end
+
+	proj_path = proj_sim.Run(pLocal, pWeapon, vWeaponFirePos, angle:Forward(), time_ticks, weaponInfo, charge)
+
+	local function shouldHit(ent)
+		if not ent then -- world / sky / nil
+			return true -- trace should go on
+		end
+		if ent == pLocal or ent == pTarget then
+			return false -- pretend they don't exist
+		end
+		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
+	end
+
+	--- check if middle part is shootable
+	local trace = engine.TraceHull(vWeaponFirePos, proj_path[(#proj_path * 0.5)//1].pos, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask or MASK_SHOT_HULL, shouldHit)
+	if (not trace or trace.fraction < 0.9) and settings.multipointing then
+		local pos = multipoint:GetBestHitPoint()
+		if pos == nil then
+			ResetUserCmd()
+			return
+		end
+
+		trace = engine.TraceHull(vWeaponFirePos, pos, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask or MASK_SHOT_HULL, shouldHit)
+		if not trace or trace.fraction < 0.9 then
+			ResetUserCmd()
+			return
+		end
+
+		angle = math_utils.SolveBallisticArc(vHeadPos, pos, weaponInfo:GetVelocity(charge):Length(), weaponInfo:GetGravity(charge) * gravity)
+		if angle == nil then
+			ResetUserCmd()
+			return
+		end
+
+		multipoint_target_pos = pos
+	end
+
+	local last_pos = proj_path[#proj_path].pos
+	trace = engine.TraceLine(last_pos, vPredictedPos, weaponInfo.m_iTraceMask, shouldHit)
+	if not trace or trace.fraction < 0.9 then
+		return ResetUserCmd()
+	end
+
+	uCmd.viewangles = Vector3(angle:Unpack())
+	displayed_time = globals.CurTime() + settings.draw_time
+	paths.player_path = player_path
+	paths.proj_path = proj_path
+end
+
 ---@param uCmd UserCmd
 ---@param pWeapon Entity
+---@param pTarget Entity
 ---@param pLocal Entity
----@param angle EulerAngles
----@param player_path table<integer, Vector3>
----@param charge number
----@param canshoot boolean
-local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge, canshoot)
+---@param weaponInfo WeaponInfo
+---@param vHeadPos Vector3
+local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weaponInfo, time_ticks, vHeadPos)
+	local orig_buttons = uCmd:GetButtons()
+	local orig_viewangle = Vector3(uCmd:GetViewAngles())
+
 	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
 		if settings.autoshoot and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
 		if settings.cancel_shot and charge > (settings.max_percent / 100) or charge >= 1 then
-			local current_slot = pWeapon:GetLoadoutSlot()
-			local next_slot = current_slot + 1
-			if next_slot > E_LoadoutSlot.LOADOUT_POSITION_MELEE then
-				next_slot = E_LoadoutSlot.LOADOUT_POSITION_PRIMARY
-			end
-			local pSlotWeapon = pLocal:GetEntityForLoadoutSlot(next_slot)
-			if pSlotWeapon then
-				uCmd.weaponselect = pSlotWeapon:GetIndex()
-			end
-			return
+			CancelShot(pLocal, pWeapon, uCmd)
 		end
 
 		if charge > 0 then
 			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				if settings.wait_for_charge and not canshoot then
+				--[[if settings.wait_for_charge then
 					return
-				end
+				end]]
 
 				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 				if settings.psilent then
 					uCmd.sendpacket = false
 				end
-				uCmd.viewangles = Vector3(angle:Unpack())
-				displayed_time = globals.CurTime() + settings.draw_time
-				paths.player_path = player_path
-				paths.proj_path = proj_path
+				ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 			end
 		end
 	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
@@ -254,57 +366,35 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, pro
 			if settings.psilent then
 				uCmd.sendpacket = false
 			end
-			uCmd.viewangles = Vector3(angle:Unpack())
-			displayed_time = globals.CurTime() + settings.draw_time
-			paths.player_path = player_path
-			paths.proj_path = proj_path
+			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		if settings.autoshoot and wep_utils.CanShoot() then
+		if (settings.wait_for_charge or settings.autoshoot) and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
-		local percentage = charge / pWeapon:GetChargeMaxTime()
 		--- if its 100%, then we have a very high chance that it didnt find any angle to shoot
-		if settings.cancel_shot and percentage > (settings.max_percent / 100) or percentage >= 1 then
-			local current_slot = pWeapon:GetLoadoutSlot()
-			local next_slot = current_slot + 1
-			if next_slot > E_LoadoutSlot.LOADOUT_POSITION_MELEE then
-				next_slot = E_LoadoutSlot.LOADOUT_POSITION_PRIMARY
-			end
-			local pSlotWeapon = pLocal:GetEntityForLoadoutSlot(next_slot)
-			if pSlotWeapon then
-				uCmd.weaponselect = pSlotWeapon:GetIndex()
-			end
-			return
+		if settings.cancel_shot and charge > (settings.max_percent / 100) or charge >= 1 then
+			CancelShot(pLocal, pWeapon, uCmd)
 		end
 
-		if percentage > 0 and wep_utils.CanShoot() then
-			if settings.wait_for_charge and not canshoot then
+		if charge > 0 and wep_utils.CanShoot() then
+			--[[if settings.wait_for_charge and not CanShootFromDistance(weaponInfo, pLocal, pTarget, charge) then
 				return
-			end
+			end]]
 
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			if settings.psilent then
 				uCmd.sendpacket = false
 			end
-			uCmd.viewangles = Vector3(angle:Unpack())
-			displayed_time = globals.CurTime() + settings.draw_time
-			paths.player_path = player_path
-			paths.proj_path = proj_path
+			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
-		uCmd.viewangles = Vector3(angle:Unpack())
-		displayed_time = globals.CurTime() + settings.draw_time
-		paths.player_path = player_path
-		paths.proj_path = proj_path
+		ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
-		uCmd.viewangles = Vector3(angle:Unpack())
-		displayed_time = globals.CurTime() + settings.draw_time
-		paths.player_path = player_path
-		paths.proj_path = proj_path
+		ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -315,10 +405,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, pro
 				if settings.psilent then
 					uCmd.sendpacket = false
 				end
-				uCmd.viewangles = Vector3(angle:Unpack())
-				displayed_time = globals.CurTime() + settings.draw_time
-				paths.player_path = player_path
-				paths.proj_path = proj_path
+
+				ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 			end
 		end
 	end
@@ -326,12 +414,12 @@ end
 
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
-	if settings.enabled == false then
+	if (settings.enabled == false) then
 		return
 	end
 
 	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
-		return false
+		return
 	end
 
 	if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
@@ -356,13 +444,14 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	if not wep_utils.CanShoot() and pWeapon:GetPropInt("m_iItemDefinitionIndex") ~= BEGGARS_BAZOOKA_INDEX then
+	local item_def_index = pWeapon:GetPropInt("m_iItemDefinitionIndex")
+	local weaponInfo = GetProjectileInformation(item_def_index)
+	if weaponInfo == nil then
 		return
 	end
 
-	if pWeapon:IsMeleeWeapon() and pWeapon:GetWeaponID() ~= E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
-		return false
-	end
+	local vHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	local players = entities.FindByClass("CTFPlayer")
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -375,34 +464,25 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local players = entities.FindByClass("CTFPlayer")
-	local vecHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local pTargetInfo = GetBestTarget(pLocal, vecHeadPos, players, bAimAtTeamMates)
-	if pTargetInfo == nil then
+	local iTargetIndex = GetBestTarget(pLocal, vHeadPos, players, bAimAtTeamMates)
+	if iTargetIndex == nil or iTargetIndex.index == nil then
 		return
 	end
 
-	local pTarget = entities.GetByIndex(pTargetInfo.index)
+	local pTarget = entities.GetByIndex(iTargetIndex.index)
 	if pTarget == nil then
 		return
 	end
 
-	local weaponInfo = GetProjectileInformation(pWeapon:GetPropInt("m_iItemDefinitionIndex"))
-	if weaponInfo == nil then
-		return
-	end
-
-	--- p100 fix for something
 	local vecTargetOrigin = pTarget:GetAbsOrigin()
-	vecTargetOrigin.z = vecTargetOrigin.z + 1
 	local charge_time = GetCharge(pWeapon)
 
-	local velocity_vector = weaponInfo:GetVelocity(charge_time) -- use real charge
-	local forward_speed = math.sqrt(velocity_vector.x ^ 2 + velocity_vector.y ^ 2)
+	local velocity_vector = weaponInfo:GetVelocity(charge_time)
+	local forward_speed = velocity_vector:Length2D()
 
 	local det_mult = pWeapon:AttributeHookFloat("sticky_arm_time")
 	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
-	local travel_time_est = (vecTargetOrigin - vecHeadPos):Length() / forward_speed
+	local travel_time_est = (vecTargetOrigin - vHeadPos):Length() / forward_speed
 	local total_time = travel_time_est + detonate_time
 
 	if total_time > settings.max_sim_time then
@@ -412,249 +492,56 @@ local function CreateMove(uCmd)
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
 
-	local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
-	if player_path == nil or #player_path == 0 then
-		return
-	end
-
 	if settings.draw_only then
+		vecTargetOrigin.z = vecTargetOrigin.z + 1
+		local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
 		local vecPredictedPos = player_path[#player_path]
 		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-		local angle_low, angle_high = math_utils.SolveBallisticArcBoth(vecHeadPos, vecPredictedPos, forward_speed,
-			gravity)
-		if not angle_low and not angle_high then
+		local angle_low, angle_high = math_utils.SolveBallisticArcBoth(vHeadPos, vecPredictedPos, forward_speed, gravity)
+		if not angle_low or not angle_high then
 			return
 		end
 
-		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped())
+		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vHeadPos, angle_low, pWeapon:IsViewModelFlipped())
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
-			charge_time)
+		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle_low:Forward(), total_time, weaponInfo, charge_time)
 		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end
 
-	-- Incremental T search: for each predicted player position at time t_i,
-	-- first use rocket math (straight flight time) as a cheap gate.
-	-- If current weapon is a rocket-type and a matching t is found, verify with a short sim and either fire or abort early if blocked.
-	-- If current weapon is ballistic and rocket gate passes, solve ballistic for that t and verify; continue until a valid t is found.
-	do
-		local tickInterval = globals.TickInterval()
-		local proj_type_scan = pWeapon:GetWeaponProjectileType() or 0
-		local is_rocket_weapon = (
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_ROCKET or
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET or
-			proj_type_scan == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET
-		)
-		local time_tolerance = 0.02 -- seconds (~1-2 ticks)
-		local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0)
-			and (weaponInfo.m_flDamageRadius * 0.8) or 48
-
-		for i = 1, #player_path do
-			local target_pos_i = player_path[i]
-			local t_i = (i - 1) * tickInterval
-
-			-- Rocket gate: time-of-flight equals predicted time?
-			local rocket_angle = math_utils.PositionAngles(vecHeadPos, target_pos_i)
-			local fire_pos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, rocket_angle, pWeapon:IsViewModelFlipped())
-			if fire_pos then
-				fire_pos = fire_pos + weaponInfo.m_vecAbsoluteOffset
-				local t_flight = (target_pos_i - fire_pos):Length() / forward_speed
-				if math.abs(t_flight - t_i) <= time_tolerance then
-					if is_rocket_weapon then
-						-- Verify rocket path with a short sim; fire if clear, else abort early
-						local path_i, full_i = proj_sim.Run(pLocal, pWeapon, fire_pos, rocket_angle:Forward(), t_flight,
-							weaponInfo, charge_time)
-						if not path_i or #path_i == 0 then
-							return
-						end
-						local min_dist = math.huge
-						for j = 1, #path_i do
-							local d = (path_i[j].pos - target_pos_i):Length()
-							if d < min_dist then min_dist = d end
-						end
-						if full_i and min_dist <= max_miss then
-							local canshoot_r = CanShootFromDistance(weaponInfo, player_path, path_i)
-							if not settings.wait_for_charge and not canshoot_r then
-								return
-							end
-							HandleWeaponFiring(uCmd, pLocal, pWeapon, rocket_angle, player_path, path_i, charge_time,
-								canshoot_r)
-							return
-						else
-							-- Blocked: do not simulate further T
-							return
-						end
-					else
-						-- Ballistic weapon: first gate by ballistic time (no angle), then solve angle only if viable
-						local gravity_i = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-						local start_gate = vecHeadPos + weaponInfo.m_vecAbsoluteOffset
-						local t_ballistic_gate = math_utils.GetBallisticFlightTime(start_gate, target_pos_i,
-							forward_speed, gravity_i)
-						if t_ballistic_gate and math.abs(t_ballistic_gate - t_i) <= time_tolerance then
-							local bal_angle = math_utils.SolveBallisticArc(vecHeadPos, target_pos_i, forward_speed,
-								gravity_i)
-							if bal_angle then
-								local fire_pos_b = weaponInfo:GetFirePosition(pLocal, vecHeadPos, bal_angle,
-									pWeapon:IsViewModelFlipped())
-								if fire_pos_b then
-									fire_pos_b = fire_pos_b + weaponInfo.m_vecAbsoluteOffset
-									local t_ballistic_check = math_utils.GetBallisticFlightTime(fire_pos_b, target_pos_i,
-										forward_speed, gravity_i)
-									if t_ballistic_check and math.abs(t_ballistic_check - t_i) <= time_tolerance then
-										local path_b, full_b = proj_sim.Run(pLocal, pWeapon, fire_pos_b,
-											bal_angle:Forward(), t_ballistic_check, weaponInfo, charge_time)
-										if path_b and #path_b > 0 then
-											local min_b = math.huge
-											for k = 1, #path_b do
-												local d = (path_b[k].pos - target_pos_i):Length()
-												if d < min_b then min_b = d end
-											end
-											if full_b and min_b <= max_miss then
-												local canshoot_b = CanShootFromDistance(weaponInfo, player_path, path_b)
-												if not settings.wait_for_charge and not canshoot_b then
-													return
-												end
-												HandleWeaponFiring(uCmd, pLocal, pWeapon, bal_angle, player_path, path_b,
-													charge_time, canshoot_b)
-												return
-											end
-										end
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	-- Make traces ignore *us* and also the target's **current** position,
-	-- because we're aiming at where he *will* be, not where he is now.
-	local function shouldHit(ent)
-		if not ent then -- world / sky / nil
-			return true -- trace should go on
-		end
-		if ent == pLocal or ent == pTarget then
-			return false -- pretend they don't exist
-		end
-		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
-	end
-
-	local vecPredictedPos = player_path[#player_path]
-	local vecMins, vecMaxs = weaponInfo.m_vecMins, weaponInfo.m_vecMaxs
-	local trace_mask = weaponInfo.m_iTraceMask or MASK_SHOT_HULL
-	-- Choose default aim point by projectile type
-	local proj_type = pWeapon:GetWeaponProjectileType() or 0
-	local target_height = (target_max_hull.z - target_min_hull.z)
-	local center_pos = vecPredictedPos + Vector3(0, 0, target_height / 2)
-	local feet_pos = vecPredictedPos + Vector3(0, 0, 5)
-	local is_explosive = (
+	local proj_type = pWeapon:GetWeaponProjectileType()
+	local bExplosive = weaponInfo.m_flDamageRadius > 0 and
 		proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
 		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB or
 		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE or
 		proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL or
 		proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL or
 		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-	)
-	local aimPos = is_explosive and feet_pos or center_pos
-	-- Use line trace only for rocket-type projectiles (zero hull)
-	local use_line_trace = (proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET)
-	local trace
-	if use_line_trace then
-		trace = engine.TraceLine(vecHeadPos, aimPos, trace_mask, shouldHit)
-	else
-		trace = engine.TraceHull(vecHeadPos, aimPos, vecMins, vecMaxs, trace_mask, shouldHit)
-	end
-	local is_visible = trace and (trace.fraction >= 0.9 or trace.entity == pTarget)
 
-	local bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	local bSplashWeapon = proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
+			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+			or proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+			or proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+			or proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
-	if (not is_visible or bIsHuntsman) and settings.multipointing then
-		local bSplashWeapon = pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_ROCKET
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
-			or pWeapon:GetWeaponProjectileType() == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
+	multipoint.m_bAimTeamMate = bAimAtTeamMates
+	multipoint.m_bIsExplosive = bExplosive
+	multipoint.m_bSplashWeapon = bSplashWeapon
+	multipoint.m_bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
+	multipoint.m_entUtils = ent_utils
+	multipoint.m_iMaxDistance = settings.max_distance
+	multipoint.m_mathUtils = math_utils
+	multipoint.m_pLocal = pLocal
+	multipoint.m_pTarget = pTarget
+	multipoint.m_pWeapon = pWeapon
+	multipoint.m_settings = settings
+	multipoint.m_vecHeadPos = vHeadPos
+	multipoint.m_vecShootPos = vHeadPos --- fuck it
+	multipoint.m_weaponInfo = weaponInfo
 
-		multipoint.m_pLocal = pLocal
-		multipoint.m_pWeapon = pWeapon
-		multipoint.m_pTarget = pTarget
-		multipoint.m_bIsHuntsman = bIsHuntsman
-		multipoint.m_bAimAtTeamMates = bAimAtTeamMates
-		multipoint.m_vecHeadPos = vecHeadPos
-		multipoint.m_vecPredictedPos = vecPredictedPos
-		multipoint.m_weaponInfo = weaponInfo
-		multipoint.m_mathUtils = math_utils
-		multipoint.m_settings.max_distance = settings.max_distance
-		multipoint.m_bSplashWeapon = bSplashWeapon
-		multipoint.m_entUtils = ent_utils
-		multipoint.m_settings = settings
-
-		local best_multipoint = multipoint:GetBestHitPoint()
-		if not best_multipoint then
-			return
-		end
-
-		aimPos = best_multipoint
-		vecPredictedPos = best_multipoint
-		multipoint_target_pos = best_multipoint
-	end
-
-	local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
-	-- TODO(nav): Re-enable dual-arc aiming (low/high) when arc prediction UX is finalized.
-	local angle = math_utils.SolveBallisticArc(vecHeadPos, aimPos, forward_speed, gravity)
-	if angle == nil then
-		return
-	end
-
-	local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vecHeadPos, angle, pWeapon:IsViewModelFlipped()) +
-		weaponInfo.m_vecAbsoluteOffset
-	local pretrace
-	if use_line_trace then
-		pretrace = engine.TraceLine(vecWeaponFirePos, aimPos, trace_mask, shouldHit)
-	else
-		pretrace = engine.TraceHull(vecWeaponFirePos, aimPos, vecMins, vecMaxs, trace_mask, shouldHit)
-	end
-	if not pretrace or (pretrace.fraction < 0.9 and pretrace.entity ~= pTarget) then
-		return
-	end
-
-	local proj_path, full_sim = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle:Forward(), total_time, weaponInfo,
-		charge_time)
-	if not proj_path or #proj_path == 0 then
-		return
-	end
-
-	-- For rockets: abort if blocked early or path misses predicted point too far
-	local proj_type = pWeapon:GetWeaponProjectileType() or 0
-	if proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
-		or proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
-		or proj_type == E_ProjectileType.TF_PROJECTILE_SENTRY_ROCKET then
-		if not full_sim then
-			return
-		end
-		local max_miss = (weaponInfo.m_flDamageRadius and weaponInfo.m_flDamageRadius > 0) and
-			(weaponInfo.m_flDamageRadius * 0.8) or 48
-		local min_dist = math.huge
-		for i = 1, #proj_path do
-			local d = (proj_path[i].pos - aimPos):Length()
-			if d < min_dist then min_dist = d end
-		end
-		if min_dist > max_miss then
-			return
-		end
-	end
-
-	local canshoot = CanShootFromDistance(weaponInfo, player_path, proj_path)
-	if not settings.wait_for_charge and not canshoot then
-		return
-	end
-
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, angle, player_path, proj_path, charge_time, canshoot)
+	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos)
 end
 
 --- Terminator (titaniummachine1) made this
@@ -773,6 +660,39 @@ local function DrawMultipointTarget()
 		screen_pos[1] + half_size, screen_pos[2] + half_size)
 end
 
+--- source: https://gist.github.com/GigsD4X/8513963
+function HSVToRGB( hue, saturation, value )
+	-- Returns the RGB equivalent of the given HSV-defined color
+	-- (adapted from some code found around the web)
+
+	-- If it's achromatic, just return the value
+	if saturation == 0 then
+		return value, value, value;
+	end;
+
+	-- Get the hue sector
+	local hue_sector = math.floor( hue / 60 );
+	local hue_sector_offset = ( hue / 60 ) - hue_sector;
+
+	local p = value * ( 1 - saturation );
+	local q = value * ( 1 - saturation * hue_sector_offset );
+	local t = value * ( 1 - saturation * ( 1 - hue_sector_offset ) );
+
+	if hue_sector == 0 then
+		return value, t, p;
+	elseif hue_sector == 1 then
+		return q, value, p;
+	elseif hue_sector == 2 then
+		return p, value, t;
+	elseif hue_sector == 3 then
+		return p, q, value;
+	elseif hue_sector == 4 then
+		return t, p, value;
+	elseif hue_sector == 5 then
+		return value, p, q;
+	end;
+end;
+
 local function Draw()
 	if not settings.enabled then
 		return
@@ -786,20 +706,38 @@ local function Draw()
 	end
 
 	if settings.draw_player_path and paths.player_path and #paths.player_path > 0 then
-		draw.Color(136, 192, 208, 255)
+		--draw.Color(136, 192, 208, 255)
+		if settings.colors.player_path >= 360 then
+			draw.Color(255, 255, 255, 255)
+		else
+			local r, g, b = HSVToRGB(settings.colors.player_path, 1, 1)
+			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+		end
 		DrawPlayerPath()
 	end
 
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
-			draw.Color(136, 192, 208, 255)
+			--draw.Color(136, 192, 208, 255)
+			if settings.colors.bounding_box >= 360 then
+			draw.Color(255, 255, 255, 255)
+			else
+				local r, g, b = HSVToRGB(settings.colors.bounding_box, 1, 1)
+				draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+			end
 			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
 		end
 	end
 
 	if settings.draw_proj_path and paths.proj_path and #paths.proj_path > 0 then
-		draw.Color(235, 203, 139, 255)
+		--draw.Color(235, 203, 139, 255)
+		if settings.colors.projectile_path >= 360 then
+			draw.Color(255, 255, 255, 255)
+		else
+			local r, g, b = HSVToRGB(settings.colors.projectile_path, 1, 1)
+			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+		end
 		DrawProjPath()
 	end
 

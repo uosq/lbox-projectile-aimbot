@@ -7,7 +7,6 @@ local FL_DUCKING = 1
 ---@field m_pWeapon Entity?
 ---@field m_bIsHuntsman boolean
 ---@field m_bIsExplosive boolean
----@field m_vecAimDir Vector3
 ---@field m_vecPredictedPos Vector3
 ---@field m_bAimTeamMate boolean
 ---@field m_vecHeadPos Vector3
@@ -15,7 +14,6 @@ local FL_DUCKING = 1
 ---@field m_mathUtils MathLib
 ---@field m_iMaxDistance integer
 ---@field m_bSplashWeapon boolean
----@field m_bAimAtTeamMates boolean
 local multipoint = {
 	m_pLocal = nil,
 	m_pWeapon = nil,
@@ -32,7 +30,6 @@ local multipoint = {
 	m_entUtils = {},
 	m_settings = {},
 	m_bSplashWeapon = false,
-	m_bAimAtTeamMates = false,
 }
 
 ---@return Vector3?
@@ -48,7 +45,6 @@ function multipoint:GetBestHitPoint()
 	local target_width = maxs.x - mins.x
 	local target_depth = maxs.y - mins.y
 
-	local is_on_ground = (self.m_pTarget:GetPropInt("m_fFlags") & FL_ONGROUND) ~= 0
 	local vecMins, vecMaxs = self.m_weaponInfo.m_vecMins, self.m_weaponInfo.m_vecMaxs
 
 	local function shouldHit(ent)

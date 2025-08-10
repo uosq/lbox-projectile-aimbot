@@ -83,7 +83,11 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 			return false
 		end
 
-		return ent:GetIndex() ~= pLocal:GetIndex()
+		if ent:GetIndex() == pLocal:GetIndex() then
+			return false
+		end
+
+		return true
 	end
 
 	-- Get the velocity vector from weapon info (includes upward velocity)
@@ -105,13 +109,9 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 	projectile:SetVelocity(velocity, weapon_info:GetAngularVelocity(charge_time))
 
 	local tickInterval = globals.TickInterval()
-	local running = true
 	local positions = {}
-	local full_sim = true
 
-	while running and env:GetSimulationTime() < nTime do
-		env:Simulate(tickInterval)
-
+	while env:GetSimulationTime() < nTime do
 		local currentPos = projectile:GetPosition()
 
 		-- Perform a single collision trace per tick using the pre-decided mode
@@ -131,14 +131,15 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 			positions[#positions + 1] = record
 			shootPos = currentPos
 		else
-			full_sim = false
 			break
 		end
+
+		env:Simulate(tickInterval)
 	end
 
 	env:ResetSimulationClock()
 	projectile:Sleep()
-	return positions, full_sim
+	return positions
 end
 
 return sim
