@@ -530,6 +530,40 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 	return current_origin, velocity, blocked
 end
 
+---@param vecPos Vector3
+---@param mins Vector3
+---@param maxs Vector3
+---@param step_size number
+---@param shouldHitEntity function
+local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
+	local up_start = Vector3(vecPos.x, vecPos.y, vecPos.z + 2)
+	local down_end = Vector3(vecPos.x, vecPos.y, vecPos.z - step_size)
+	local trace = DoTraceHull(
+		up_start,
+		down_end,
+		mins,
+		maxs,
+		MASK_PLAYERSOLID,
+		shouldHitEntity
+	)
+
+	local normal = math_acos(math.rad(trace.plane:Dot(up_vector)))
+
+	if trace
+		and trace.fraction > 0.0 --- he must go somewhere
+		and trace.fraction < 1.0 --- hit something
+		and not trace.startsolid --- cant be embedded in a solid
+		and normal >= 0.7  --- cant hit on a steep slope that we cant stand on anyway
+	then
+		local z_delta = math_abs(vecPos.z - trace.endpos.z)
+		if z_delta > 0.5 * COORD_RESOLUTION then
+			vecPos.x = trace.endpos.x
+			vecPos.y = trace.endpos.y
+			vecPos.z = trace.endpos.z
+		end
+	end
+end
+
 ---@param origin Vector3
 ---@param velocity Vector3
 ---@param frametime number
@@ -631,40 +665,6 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
 	end
 
 	return final_origin, final_velocity, final_blocked, step_height
-end
-
----@param vecPos Vector3
----@param mins Vector3
----@param maxs Vector3
----@param step_size number
----@param shouldHitEntity function
-local function StayOnGround(vecPos, mins, maxs, step_size, shouldHitEntity)
-	local up_start = Vector3(vecPos.x, vecPos.y, vecPos.z + 2)
-	local down_end = Vector3(vecPos.x, vecPos.y, vecPos.z - step_size)
-	local trace = DoTraceHull(
-		up_start,
-		down_end,
-		mins,
-		maxs,
-		MASK_PLAYERSOLID,
-		shouldHitEntity
-	)
-
-	local normal = math_acos(math.rad(trace.plane:Dot(up_vector)))
-
-	if trace
-		and trace.fraction > 0.0 --- he must go somewhere
-		and trace.fraction < 1.0 --- hit something
-		and not trace.startsolid --- cant be embedded in a solid
-		and normal >= 0.7  --- cant hit on a steep slope that we cant stand on anyway
-	then
-		local z_delta = math_abs(vecPos.z - trace.endpos.z)
-		if z_delta > 0.5 * COORD_RESOLUTION then
-			vecPos.x = trace.endpos.x
-			vecPos.y = trace.endpos.y
-			vecPos.z = trace.endpos.z
-		end
-	end
 end
 
 ---@param velocity Vector3
@@ -796,7 +796,7 @@ function sim.Run(pTarget, initial_pos, time)
 		)
 
 		-- try to keep player on ground after move
-		StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+		--StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity

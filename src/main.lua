@@ -136,26 +136,6 @@ local multipoint_target_pos            = nil
 
 local original_gui_value               = gui.GetValue("projectile aimbot")
 
--- Target selection is now handled by the target_selector module
----@param players table<integer, Entity>
----@param pLocal Entity
----@param shootpos Vector3
----@param bAimTeamMate boolean -- Only aim at teammates if true, otherwise only aim at enemies
----@return PlayerInfo?
-local function GetBestTarget(pLocal, shootpos, players, bAimTeamMate)
-	local best_target = target_selector.GetBestTarget(pLocal, shootpos, players, settings, bAimTeamMate)
-
-	if best_target and best_target.index then
-		local bestEntity = entities.GetByIndex(best_target.index)
-		if bestEntity then
-			target_max_hull = bestEntity:GetMaxs()
-			target_min_hull = bestEntity:GetMins()
-		end
-	end
-
-	return best_target
-end
-
 ---@param pWeapon Entity
 local function GetCharge(pWeapon)
 	local charge_time = 0.0
@@ -247,7 +227,7 @@ end
 ---@param orig_buttons integer
 ---@param orig_viewangle Vector3
 local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
-	local proj_path, player_path, gravity
+	local player_path, gravity
 
 	gravity = client.GetConVar("sv_gravity") * 0.5
 
@@ -258,14 +238,8 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 	end
 
 	player_path = player_sim.Run(pTarget, pTarget:GetAbsOrigin() + Vector3(0, 0, 1), time_ticks)
-	local vPredictedPos = Vector3(player_path[#player_path]:Unpack())
-	vPredictedPos.z = vPredictedPos.z + 10
-
-	multipoint.m_vecPredictedPos = vPredictedPos
-	vPredictedPos = multipoint:GetBestHitPoint()
-	if vPredictedPos == nil then
-		return ResetUserCmd()
-	end
+	local vPredictedPos = Vector3(player_path[#player_path]:Unpack()) --- copy predicted path
+	multipoint.Run(pTarget, pWeapon, weaponInfo, vHeadPos, vPredictedPos)
 
 	local angle = math_utils.SolveBallisticArc(vHeadPos, vPredictedPos, weaponInfo:GetVelocity(charge):Length2D(), weaponInfo:GetGravity(charge)*gravity)
 	if angle == nil then
@@ -277,8 +251,6 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		return ResetUserCmd()
 	end
 
-	proj_path = proj_sim.Run(pLocal, pWeapon, vWeaponFirePos, angle:Forward(), time_ticks, weaponInfo, charge)
-
 	local function shouldHit(ent)
 		if not ent then -- world / sky / nil
 			return true -- trace should go on
@@ -289,40 +261,15 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		return ent:GetTeamNumber() ~= pTarget:GetTeamNumber()
 	end
 
-	--- check if middle part is shootable
-	local trace = engine.TraceHull(vWeaponFirePos, proj_path[(#proj_path * 0.5)//1].pos, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask or MASK_SHOT_HULL, shouldHit)
-	if (not trace or trace.fraction < 0.9) and settings.multipointing then
-		local pos = multipoint:GetBestHitPoint()
-		if pos == nil then
-			ResetUserCmd()
-			return
-		end
-
-		trace = engine.TraceHull(vWeaponFirePos, pos, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask or MASK_SHOT_HULL, shouldHit)
-		if not trace or trace.fraction < 0.9 then
-			ResetUserCmd()
-			return
-		end
-
-		angle = math_utils.SolveBallisticArc(vHeadPos, pos, weaponInfo:GetVelocity(charge):Length(), weaponInfo:GetGravity(charge) * gravity)
-		if angle == nil then
-			ResetUserCmd()
-			return
-		end
-
-		multipoint_target_pos = pos
-	end
-
-	local last_pos = proj_path[#proj_path].pos
-	trace = engine.TraceLine(last_pos, vPredictedPos, weaponInfo.m_iTraceMask, shouldHit)
-	if not trace or trace.fraction < 0.9 then
+	local trace = engine.TraceHull(vWeaponFirePos, vPredictedPos, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask or MASK_SHOT_HULL, shouldHit)
+	if (not trace or trace.fraction < 0.9) then
 		return ResetUserCmd()
 	end
 
 	uCmd.viewangles = Vector3(angle:Unpack())
 	displayed_time = globals.CurTime() + settings.draw_time
 	paths.player_path = player_path
-	paths.proj_path = proj_path
+	paths.proj_path = proj_sim.Run(pLocal, pWeapon, vWeaponFirePos, angle:Forward(), time_ticks, weaponInfo, charge)
 end
 
 ---@param uCmd UserCmd
@@ -451,7 +398,42 @@ local function CreateMove(uCmd)
 	end
 
 	local vHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local players = entities.FindByClass("CTFPlayer")
+	local entitylist = {}
+	if settings.ents["aim players"] then
+		local players = entities.FindByClass("CTFPlayer")
+		for _, player in pairs (players) do
+			if player:IsValid() and not player:IsDormant() then
+				entitylist[#entitylist+1] = player
+			end
+		end
+	end
+
+	if settings.ents["aim sentries"] then
+		local sentries = entities.FindByClass("CObjectSentrygun")
+		for _, sentry in pairs (sentries) do
+			if sentry:IsValid() and sentry:GetHealth() > 0 and not sentry:IsDormant() then
+				entitylist[#entitylist+1] = sentry
+			end
+		end
+	end
+
+	if settings.ents["aim dispensers"] then
+		local dispensers = entities.FindByClass("CObjectDispenser")
+		for _, dispenser in pairs (dispensers) do
+			if dispenser:IsValid() and dispenser:GetHealth() > 0 and not dispenser:IsDormant() then
+				entitylist[#entitylist+1] = dispenser
+			end
+		end
+	end
+
+	if settings.ents["aim teleporters"] then
+		local teleporters = entities.FindByClass("CObjectTeleporter")
+		for _, teleporter in pairs (teleporters) do
+			if teleporter:IsValid() and teleporter:GetHealth() > 0 and not teleporter:IsDormant() then
+				entitylist[#entitylist+1] = teleporter
+			end
+		end
+	end
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -464,17 +446,15 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local iTargetIndex = GetBestTarget(pLocal, vHeadPos, players, bAimAtTeamMates)
-	if iTargetIndex == nil or iTargetIndex.index == nil then
-		return
-	end
-
-	local pTarget = entities.GetByIndex(iTargetIndex.index)
+	local pTarget = target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
 	if pTarget == nil then
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin()
+	local vecTargetOrigin = pTarget:GetAbsOrigin() + Vector3(0, 0, 10)
+	target_max_hull = pTarget:GetMaxs()
+	target_min_hull = pTarget:GetMins()
+
 	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time)
@@ -490,10 +470,9 @@ local function CreateMove(uCmd)
 	end
 
 	local choked_time = clientstate:GetChokedCommands()
-	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time
+	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time + 1 --- one extra tick because our current createmove is 1 tick behind
 
 	if settings.draw_only then
-		vecTargetOrigin.z = vecTargetOrigin.z + 1
 		local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
 		local vecPredictedPos = player_path[#player_path]
 		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
@@ -508,38 +487,6 @@ local function CreateMove(uCmd)
 		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end
-
-	local proj_type = pWeapon:GetWeaponProjectileType()
-	local bExplosive = weaponInfo.m_flDamageRadius > 0 and
-		proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE or
-		proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-
-	local bSplashWeapon = proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
-			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
-			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
-			or proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL
-			or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
-			or proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
-			or proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
-
-	multipoint.m_bAimTeamMate = bAimAtTeamMates
-	multipoint.m_bIsExplosive = bExplosive
-	multipoint.m_bSplashWeapon = bSplashWeapon
-	multipoint.m_bIsHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	multipoint.m_entUtils = ent_utils
-	multipoint.m_iMaxDistance = settings.max_distance
-	multipoint.m_mathUtils = math_utils
-	multipoint.m_pLocal = pLocal
-	multipoint.m_pTarget = pTarget
-	multipoint.m_pWeapon = pWeapon
-	multipoint.m_settings = settings
-	multipoint.m_vecHeadPos = vHeadPos
-	multipoint.m_vecShootPos = vHeadPos --- fuck it
-	multipoint.m_weaponInfo = weaponInfo
 
 	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos)
 end

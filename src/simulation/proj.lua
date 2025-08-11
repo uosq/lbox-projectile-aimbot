@@ -46,7 +46,7 @@ end
 ---@param nTime number Number of seconds we want to simulate
 ---@param weapon_info WeaponInfo
 ---@param charge_time number The charge time (0.0 to 1.0 for bows, 0.0 to 4.0 for stickies)
----@return ProjSimRet, boolean
+---@return ProjSimRet
 function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, charge_time)
 	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
 	if not projectile then
@@ -63,7 +63,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 	if not projectile then
 		printc(255, 0, 0, 255, "[PROJ AIMBOT] Failed to acquire projectile instance!")
-		return {}, false
+		return {}
 	end
 
 	projectile:Wake()
