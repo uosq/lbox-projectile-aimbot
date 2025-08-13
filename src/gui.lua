@@ -402,7 +402,7 @@ function gui.init(settings, version)
 	assert(colors_tab, "colors tab is nil!")
 
 	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
-		window.height = 150
+		window.height = 190
 	end)
 
 	btn_starty = 25

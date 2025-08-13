@@ -66,6 +66,7 @@ local settings = {
 		bounding_box = 193, --{136, 192, 208, 255},
 		player_path = 193, --{136, 192, 208, 255},
 		projectile_path = 40, --{235, 203, 139, 255}
+		multipoint_target = 20,
 	},
 }
 
@@ -575,16 +576,8 @@ local function DrawMultipointTarget()
 
 	-- Draw a small square at the multipoint target position
 	local square_size = 4
-	local thickness = 1
-
-	-- Draw outline
-	draw.Color(236, 239, 244, 255) -- White outline
-	draw.FilledRect(screen_pos[1] - square_size - thickness, screen_pos[2] - square_size - thickness,
-		screen_pos[1] + square_size + thickness, screen_pos[2] + square_size + thickness)
 
 	-- Draw filled square
-	local r, g, b = HSVToRGB(settings.colors.bounding_box, 1, 1)
-	draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
 	draw.FilledRect(screen_pos[1] - square_size, screen_pos[2] - square_size,
 	screen_pos[1] + square_size, screen_pos[2] + square_size)
 end
@@ -637,6 +630,12 @@ local function Draw()
 
 	-- Draw multipoint target indicator
 	if settings.draw_multipoint_target then
+		if settings.colors.multipoint_target >= 360 then
+			draw.Color(255, 255, 255, 255)
+		else
+			local r, g, b = HSVToRGB(settings.colors.multipoint_target, 0.5, 1)
+			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+		end
 		DrawMultipointTarget()
 	end
 end
