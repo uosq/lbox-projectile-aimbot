@@ -15,6 +15,20 @@ end
 ---@param pPlayer Entity
 ---@param settings table
 local function ShouldSkipPlayer(pPlayer, settings)
+    if pPlayer:IsPlayer() then
+        if not pPlayer:IsAlive() then
+            return true
+        end
+    else
+        if pPlayer:GetHealth() == 0 then
+            return true
+        end
+    end
+
+    if pPlayer:IsDormant() then
+        return true
+    end
+
     if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
         return true
     end
@@ -97,7 +111,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
     local close_distance = (settings.close_distance / 100) * settings.max_distance
 
     for _, entity in pairs (entitylist) do
-        if entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
+        if not entity:IsDormant() and entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
             local vDistance = (vHeadPos - entity:GetAbsOrigin()):Length()
             if vDistance <= settings.max_distance then
                 for i = 1, #z_offsets do

@@ -28,7 +28,7 @@ function gui.init(settings, version)
 
 	local function get_slider_y()
 		local y = btn_starty
-		btn_starty = y +  45
+		btn_starty = y + 45
 		return y
 	end
 
@@ -408,7 +408,7 @@ function gui.init(settings, version)
 	btn_starty = 25
 
 	for name, visual in pairs (settings.colors) do
-		local slider = menu:make_slider()
+		local slider = menu:make_colored_slider()
 		assert(slider, string.format("Slider %s is nil!", name))
 
 		slider.width = component_width * 2

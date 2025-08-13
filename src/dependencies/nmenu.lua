@@ -17,6 +17,7 @@ local COMPONENT_TYPES = {
 	SLIDER = 3,
 	DROPDOWN = 4,
 	LISTBOX = 5,
+	COLORED_SLIDER = 6,
 }
 
 -- =============================================================================
@@ -663,6 +664,112 @@ local function draw_listbox()
 	draw.OutlinedRect(x, y, x + component.width, y + (item_height * #component.items))
 end
 
+--- source: https://gist.github.com/GigsD4X/8513963
+local function HSVToRGB( hue, saturation, value )
+	-- Returns the RGB equivalent of the given HSV-defined color
+	-- (adapted from some code found around the web)
+
+	-- If it's achromatic, just return the value
+	if saturation == 0 then
+		return value, value, value;
+	end;
+
+	-- Get the hue sector
+	local hue_sector = math.floor( hue / 60 );
+	local hue_sector_offset = ( hue / 60 ) - hue_sector;
+
+	local p = value * ( 1 - saturation );
+	local q = value * ( 1 - saturation * hue_sector_offset );
+	local t = value * ( 1 - saturation * ( 1 - hue_sector_offset ) );
+
+	if hue_sector == 0 then
+		return value, t, p;
+	elseif hue_sector == 1 then
+		return q, value, p;
+	elseif hue_sector == 2 then
+		return p, value, t;
+	elseif hue_sector == 3 then
+		return p, q, value;
+	elseif hue_sector == 4 then
+		return t, p, value;
+	elseif hue_sector == 5 then
+		return value, p, q;
+	end;
+end;
+
+local function draw_colored_slider()
+	local window = current_window_context
+	if not window then
+		error("Current window context is nil!")
+		return
+	end
+
+	local component = current_component
+	local content_offset = get_content_area_offset()
+
+	local slider_x = component.x + window.x + content_offset
+	local slider_y = component.y + window.y
+	local slider_w = component.width
+	local slider_h = component.height
+
+	-- Handle slider interaction
+	handle_slider_drag()
+
+	-- Calculate dimensions
+	local knob_width = 10
+	local track_height = 4
+	local track_y = slider_y + (slider_h // 2) - (track_height // 2)
+
+	-- Calculate knob position based on value
+	local progress = (component.value - component.min) / (component.max - component.min)
+	local knob_x = (slider_x + (progress * (slider_w - knob_width))) // 1
+
+	-- Draw track background
+	draw.Color(67, 76, 94, 255)
+	draw.FilledRect(slider_x, track_y, slider_x + slider_w, track_y + track_height)
+
+	-- Draw track fill (progress)
+	if progress < 1 then
+		local r, g, b = HSVToRGB(progress*360, 0.5, 1)
+		draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+	else
+		draw.Color(255, 255, 255, 255)
+	end
+	draw.FilledRect(slider_x, track_y, knob_x + (knob_width / 2), track_y + track_height)
+
+	-- Draw knob outline
+	--draw.Color(143, 188, 187, 255)
+	draw.FilledRect(knob_x - 1, slider_y - 1, knob_x + knob_width + 1, slider_y + slider_h + 1)
+
+	-- Draw knob
+	if dragging_slider == component then
+		draw.Color(76, 86, 106, 255) -- Dragging color
+	elseif is_mouse_inside(knob_x, slider_y, knob_x + knob_width, slider_y + slider_h) then
+		draw.Color(67, 76, 94, 255) -- Hover color
+	else
+		draw.Color(59, 66, 82, 255) -- Normal color
+	end
+
+	draw.FilledRect(knob_x, slider_y, knob_x + knob_width, slider_y + slider_h)
+
+	-- Draw label if exists
+	if component.label and component.label ~= "" then
+		draw.SetFont(component.font or font)
+		local tw, th = draw.GetTextSize(component.label)
+
+		draw.Color(236, 239, 244, 255)
+		draw.Text(slider_x, slider_y - th - 2, component.label)
+	end
+
+	-- Draw value text
+	local value_text = string.format("%.1f", component.value)
+	draw.SetFont(component.font or font)
+	local value_tw, value_th = draw.GetTextSize(value_text)
+
+	draw.Color(236, 239, 244, 255)
+	draw.Text(slider_x + slider_w - value_tw, slider_y - value_th - 2, value_text)
+end
+
 local function draw_window()
 	local window = current_window_context
 	if not window then
@@ -731,6 +838,8 @@ local function draw_window()
 				draw_dropdown()
 			elseif component.type == COMPONENT_TYPES.LISTBOX then
 				draw_listbox()
+			elseif component.type == COMPONENT_TYPES.COLORED_SLIDER then
+				draw_colored_slider()
 			else
 				-- Fallback to button rendering for unknown types
 				draw_button()
@@ -1004,6 +1113,18 @@ function menu:make_listbox()
 	end
 	local listbox = create_listbox_component()
 	return make_new_component(listbox)
+end
+
+function menu:make_colored_slider()
+	local window = current_window_context
+	if not window then
+		error("Current window context is nil!")
+		return nil
+	end
+
+	local slider = create_slider_component()
+	slider.type = COMPONENT_TYPES.COLORED_SLIDER
+	return make_new_component(slider)
 end
 
 function menu:register()

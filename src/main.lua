@@ -439,6 +439,39 @@ local function CreateMove(uCmd)
 	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos)
 end
 
+--- source: https://gist.github.com/GigsD4X/8513963
+local function HSVToRGB( hue, saturation, value )
+	-- Returns the RGB equivalent of the given HSV-defined color
+	-- (adapted from some code found around the web)
+
+	-- If it's achromatic, just return the value
+	if saturation == 0 then
+		return value, value, value;
+	end;
+
+	-- Get the hue sector
+	local hue_sector = math.floor( hue / 60 );
+	local hue_sector_offset = ( hue / 60 ) - hue_sector;
+
+	local p = value * ( 1 - saturation );
+	local q = value * ( 1 - saturation * hue_sector_offset );
+	local t = value * ( 1 - saturation * ( 1 - hue_sector_offset ) );
+
+	if hue_sector == 0 then
+		return value, t, p;
+	elseif hue_sector == 1 then
+		return q, value, p;
+	elseif hue_sector == 2 then
+		return p, value, t;
+	elseif hue_sector == 3 then
+		return p, q, value;
+	elseif hue_sector == 4 then
+		return t, p, value;
+	elseif hue_sector == 5 then
+		return value, p, q;
+	end;
+end;
+
 --- Terminator (titaniummachine1) made this
 ---@param playerPos Vector3
 ---@param mins Vector3
@@ -541,52 +574,20 @@ local function DrawMultipointTarget()
 	end
 
 	-- Draw a small square at the multipoint target position
-	local square_size = 8
-	local half_size = square_size / 2
-
-	-- Draw filled square
-	draw.Color(255, 0, 0, 200) -- Red with alpha
-	draw.FilledRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
-		screen_pos[1] + half_size, screen_pos[2] + half_size)
+	local square_size = 4
+	local thickness = 1
 
 	-- Draw outline
-	draw.Color(255, 255, 255, 255) -- White outline
-	draw.OutlinedRect(screen_pos[1] - half_size, screen_pos[2] - half_size,
-		screen_pos[1] + half_size, screen_pos[2] + half_size)
+	draw.Color(236, 239, 244, 255) -- White outline
+	draw.FilledRect(screen_pos[1] - square_size - thickness, screen_pos[2] - square_size - thickness,
+		screen_pos[1] + square_size + thickness, screen_pos[2] + square_size + thickness)
+
+	-- Draw filled square
+	local r, g, b = HSVToRGB(settings.colors.bounding_box, 1, 1)
+	draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
+	draw.FilledRect(screen_pos[1] - square_size, screen_pos[2] - square_size,
+	screen_pos[1] + square_size, screen_pos[2] + square_size)
 end
-
---- source: https://gist.github.com/GigsD4X/8513963
-function HSVToRGB( hue, saturation, value )
-	-- Returns the RGB equivalent of the given HSV-defined color
-	-- (adapted from some code found around the web)
-
-	-- If it's achromatic, just return the value
-	if saturation == 0 then
-		return value, value, value;
-	end;
-
-	-- Get the hue sector
-	local hue_sector = math.floor( hue / 60 );
-	local hue_sector_offset = ( hue / 60 ) - hue_sector;
-
-	local p = value * ( 1 - saturation );
-	local q = value * ( 1 - saturation * hue_sector_offset );
-	local t = value * ( 1 - saturation * ( 1 - hue_sector_offset ) );
-
-	if hue_sector == 0 then
-		return value, t, p;
-	elseif hue_sector == 1 then
-		return q, value, p;
-	elseif hue_sector == 2 then
-		return p, value, t;
-	elseif hue_sector == 3 then
-		return p, q, value;
-	elseif hue_sector == 4 then
-		return t, p, value;
-	elseif hue_sector == 5 then
-		return value, p, q;
-	end;
-end;
 
 local function Draw()
 	if not settings.enabled then
@@ -605,7 +606,7 @@ local function Draw()
 		if settings.colors.player_path >= 360 then
 			draw.Color(255, 255, 255, 255)
 		else
-			local r, g, b = HSVToRGB(settings.colors.player_path, 1, 1)
+			local r, g, b = HSVToRGB(settings.colors.player_path, 0.5, 1)
 			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
 		end
 		DrawPlayerPath()
@@ -614,11 +615,10 @@ local function Draw()
 	if settings.draw_bounding_box then
 		local pos = paths.player_path[#paths.player_path]
 		if pos then
-			--draw.Color(136, 192, 208, 255)
 			if settings.colors.bounding_box >= 360 then
 			draw.Color(255, 255, 255, 255)
 			else
-				local r, g, b = HSVToRGB(settings.colors.bounding_box, 1, 1)
+				local r, g, b = HSVToRGB(settings.colors.bounding_box, 0.5, 1)
 				draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
 			end
 			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
@@ -626,11 +626,10 @@ local function Draw()
 	end
 
 	if settings.draw_proj_path and paths.proj_path and #paths.proj_path > 0 then
-		--draw.Color(235, 203, 139, 255)
 		if settings.colors.projectile_path >= 360 then
 			draw.Color(255, 255, 255, 255)
 		else
-			local r, g, b = HSVToRGB(settings.colors.projectile_path, 1, 1)
+			local r, g, b = HSVToRGB(settings.colors.projectile_path, 0.5, 1)
 			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
 		end
 		DrawProjPath()
