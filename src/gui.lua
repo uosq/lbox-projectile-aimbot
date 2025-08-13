@@ -424,7 +424,12 @@ function gui.init(settings, version)
 		end
 	end
 
-	menu:make_tab("simulation")
+	local sim_tab = menu:make_tab("simulation")
+	assert(sim_tab, "[PROJ AIMBOT] simulation tab is nil! wtf")
+
+	menu:set_tab_draw_function(sim_tab, function (current_window, current_tab, content_offset)
+		window.height = 135
+	end)
 
 	btn_starty = 10
 
