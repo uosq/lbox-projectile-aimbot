@@ -1,7 +1,7 @@
 --[[
 	NAVET'S PROEJECTILE AIMBOT
 	made by navet
-	Update: v8
+	Update: v9
 	Source: https://github.com/uosq/lbox-projectile-aimbot
 	
 	This project would take way longer to start making
@@ -14,7 +14,7 @@
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "8"
+local version = "9"
 
 local settings = {
 	enabled = true,
@@ -37,8 +37,6 @@ local settings = {
 	sim = {
 		use_detonate_time = true,
 		can_rotate = true,
-		apply_friction = true,
-		acceleration = true,
 		stay_on_ground = false,
 	},
 
@@ -252,10 +250,7 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		return ResetUserCmd()
 	end
 
-	local proj_path, bHitTarget = proj_sim.Run(pTarget, pLocal, pWeapon, vWeaponFirePos, angle:Forward(), player_path[#player_path], time_ticks, weaponInfo, charge)
-	if not bHitTarget then
-		return ResetUserCmd()
-	end
+	local proj_path = proj_sim.Run(pTarget, pLocal, pWeapon, vWeaponFirePos, angle:Forward(), player_path[#player_path], time_ticks, weaponInfo, charge)
 
 	multipoint_target_pos = vPredictedPos
 	uCmd.viewangles = Vector3(angle:Unpack())

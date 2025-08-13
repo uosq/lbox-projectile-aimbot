@@ -756,11 +756,9 @@ function sim.Run(pTarget, initial_pos, time, settings)
 		local horizontal_vel = smoothed_velocity
 		local horizontal_speed = horizontal_vel:Length2D()
 
-		if settings.sim.apply_friction then
-			ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
-		end
+		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
 
-		if settings.sim.acceleration and horizontal_speed > 0.1 then
+		if horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed
 			local wishdir = horizontal_vel * inv_len
 			wishdir.z = 0
@@ -802,9 +800,9 @@ function sim.Run(pTarget, initial_pos, time, settings)
 		)
 
 		-- try to keep player on ground after move
-		if settings.sim.stay_on_ground then
+		--[[if settings.sim.stay_on_ground then
 			StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
-		end
+		end]]
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity
