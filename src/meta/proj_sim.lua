@@ -29,14 +29,16 @@ function sim.GetProjectileInfo(weapon) end
 ---@return PhysicsObject
 function sim.CreateProjectile(pWeapon) end
 
----@param pLocal Entity
----@param pWeapon Entity
+---@param pTarget Entity The target
+---@param pLocal Entity The localplayer
+---@param pWeapon Entity The localplayer's weapon
 ---@param shootPos Vector3
----@param vecForward Vector3
----@param nTime number
+---@param vecForward Vector3 The target direction the projectile should aim for
+---@param nTime number Number of seconds we want to simulate
 ---@param weapon_info WeaponInfo
 ---@param charge_time number The charge time (0.0 to 1.0 for bows, 0.0 to 4.0 for stickies)
+---@param vecPredictedPos Vector3
 ---@return ProjSimRet, boolean
-function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, charge_time) end
+function sim.Run(pTarget, pLocal, pWeapon, shootPos, vecForward, vecPredictedPos, nTime, weapon_info, charge_time) end
 
 return sim

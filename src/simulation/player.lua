@@ -72,6 +72,10 @@ local RuneTypes_t           = {
 	RUNE_TYPES_MAX = 12,
 };
 
+local function GetEntityOrigin(pEntity)
+	return pEntity:GetPropVector("tflocaldata", "m_vecOrigin") or pEntity:GetAbsOrigin()
+end
+
 ---@param vec Vector3
 local function NormalizeVector(vec)
 	local len = vec:Length()
@@ -304,7 +308,7 @@ local function AddPositionSample(pEntity)
 	end
 
 	local current_time = globals.CurTime()
-	local current_pos = pEntity:GetPropVector("tfnonlocaldata", "m_vecOrigin")
+	local current_pos = GetEntityOrigin(pEntity)
 
 	local sample = { pos = current_pos, time = current_time }
 	local samples = position_samples[index]
@@ -704,8 +708,9 @@ end
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time integer
+---@param settings table
 ---@return Vector3[]
-function sim.Run(pTarget, initial_pos, time)
+function sim.Run(pTarget, initial_pos, time, settings)
 	local smoothed_velocity = pTarget:EstimateAbsVelocity()
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
@@ -724,7 +729,7 @@ function sim.Run(pTarget, initial_pos, time)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
-	if angular_velocity ~= 0 then
+	if settings.sim.can_rotate and angular_velocity ~= 0 then
 		local yaw = math_rad(angular_velocity)
 		cos_yaw, sin_yaw = math_cos(yaw), math_sin(yaw)
 	end
@@ -737,7 +742,7 @@ function sim.Run(pTarget, initial_pos, time)
 	local was_onground = false
 
 	for i = 1, time do
-		if angular_velocity ~= 0 then
+		if settings.sim.can_rotate and angular_velocity ~= 0 then
 			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
 			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
 			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
@@ -751,9 +756,11 @@ function sim.Run(pTarget, initial_pos, time)
 		local horizontal_vel = smoothed_velocity
 		local horizontal_speed = horizontal_vel:Length2D()
 
-		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
+		if settings.sim.apply_friction then
+			ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
+		end
 
-		if horizontal_speed > 0.1 then
+		if settings.sim.acceleration and horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed
 			local wishdir = horizontal_vel * inv_len
 			wishdir.z = 0
@@ -795,7 +802,9 @@ function sim.Run(pTarget, initial_pos, time)
 		)
 
 		-- try to keep player on ground after move
-		--StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+		if settings.sim.stay_on_ground then
+			StayOnGround(new_pos, mins, maxs, step_size, shouldHitEntity)
+		end
 
 		last_pos = new_pos
 		smoothed_velocity = new_velocity

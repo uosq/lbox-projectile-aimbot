@@ -424,6 +424,42 @@ function gui.init(settings, version)
 		end
 	end
 
+	menu:make_tab("simulation")
+
+	btn_starty = 10
+
+	column = 1
+	left_column_count = 0
+	right_column_count = 0
+
+	for name, enabled in pairs(settings.sim) do
+		local btn = menu:make_checkbox()
+		assert(btn, string.format("Button %s is nil!", name))
+
+		btn.enabled = enabled
+		btn.width = component_width
+		btn.height = component_height
+		btn.label = string.gsub(name, "_", " ")
+
+		-- alternate between left and right columns
+		if column == 1 then
+			btn.x = 10
+			btn.y = 10 + (left_column_count * (component_height + gap))
+			left_column_count = left_column_count + 1
+			column = 2
+		else
+			btn.x = component_width + 20
+			btn.y = 10 + (right_column_count * (component_height + gap))
+			right_column_count = right_column_count + 1
+			column = 1
+		end
+
+		btn.func = function()
+			settings.sim[name] = not settings.sim[name]
+			btn.enabled = settings.sim[name]
+		end
+	end
+
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
 end

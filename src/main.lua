@@ -34,6 +34,14 @@ local settings = {
 	explosive = true,
 	close_distance = 10, --- %
 
+	sim = {
+		use_detonate_time = true,
+		can_rotate = true,
+		apply_friction = true,
+		acceleration = true,
+		stay_on_ground = false,
+	},
+
 	max_percent = 90,
 	wait_for_charge = false,
 	cancel_shot = false,
@@ -185,6 +193,10 @@ local function CancelShot(pLocal, pWeapon, uCmd)
 	end
 end
 
+local function GetEntityOrigin(pTarget)
+	return pTarget:GetPropVector("tflocaldata", "m_vecOrigin") or pTarget:GetAbsOrigin()
+end
+
 ---@param pLocal Entity
 ---@param pWeapon Entity
 ---@param pTarget Entity
@@ -210,7 +222,8 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		uCmd.sendpacket = true
 	end
 
-	player_path = player_sim.Run(pTarget, pTarget:GetAbsOrigin() + Vector3(0, 0, 1), time_ticks)
+	local vecTargetOrigin = GetEntityOrigin(pTarget)
+	player_path = player_sim.Run(pTarget, vecTargetOrigin + Vector3(0, 0, 1), time_ticks, settings)
 	local vPredictedPos = Vector3(player_path[#player_path]:Unpack()) --- copy predicted path
 	multipoint.Run(pTarget, pWeapon, weaponInfo, vHeadPos, vPredictedPos)
 
@@ -239,11 +252,16 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		return ResetUserCmd()
 	end
 
+	local proj_path, bHitTarget = proj_sim.Run(pTarget, pLocal, pWeapon, vWeaponFirePos, angle:Forward(), player_path[#player_path], time_ticks, weaponInfo, charge)
+	if not bHitTarget then
+		return ResetUserCmd()
+	end
+
 	multipoint_target_pos = vPredictedPos
 	uCmd.viewangles = Vector3(angle:Unpack())
 	displayed_time = globals.CurTime() + settings.draw_time
 	paths.player_path = player_path
-	paths.proj_path = proj_sim.Run(pLocal, pWeapon, vWeaponFirePos, angle:Forward(), time_ticks, weaponInfo, charge)
+	paths.proj_path = proj_path
 end
 
 ---@param uCmd UserCmd
@@ -410,7 +428,7 @@ local function CreateMove(uCmd)
 	local forward_speed = velocity_vector:Length2D()
 
 	local det_mult = pWeapon:AttributeHookFloat("sticky_arm_time")
-	local detonate_time = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER and 0.7 * det_mult or 0
+	local detonate_time = (settings.use_detonate_time and pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and 0.7 * det_mult or 0
 	local travel_time_est = (vecTargetOrigin - vHeadPos):Length() / forward_speed
 	local total_time = travel_time_est + detonate_time
 
@@ -422,7 +440,7 @@ local function CreateMove(uCmd)
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time + 1 --- one extra tick because our current createmove is 1 tick behind
 
 	if settings.draw_only then
-		local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks)
+		local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks, settings)
 		local vecPredictedPos = player_path[#player_path]
 		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
 		local angle_low, angle_high = math_utils.SolveBallisticArcBoth(vHeadPos, vecPredictedPos, forward_speed, gravity)
@@ -432,7 +450,7 @@ local function CreateMove(uCmd)
 
 		local vecWeaponFirePos = weaponInfo:GetFirePosition(pLocal, vHeadPos, angle_low, pWeapon:IsViewModelFlipped())
 		paths.player_path = player_path
-		paths.proj_path = proj_sim.Run(pLocal, pWeapon, vecWeaponFirePos, angle_low:Forward(), total_time, weaponInfo, charge_time)
+		paths.proj_path = proj_sim.Run(pTarget, pLocal, pWeapon, vecWeaponFirePos, angle_low:Forward(), player_path[#player_path], total_time, weaponInfo, charge_time)
 		displayed_time = globals.CurTime() + settings.draw_time
 		return
 	end

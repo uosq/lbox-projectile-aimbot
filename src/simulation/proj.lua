@@ -39,6 +39,28 @@ local function CreateProjectile(model, i)
 	return projectile
 end
 
+--- source: https://developer.mozilla.org/en-US/docs/Games/Techniques/3D_collision_detection
+---@param currentPos Vector3
+---@param vecTargetPredictedPos Vector3
+---@param weaponInfo WeaponInfo
+---@param vecTargetMaxs Vector3
+---@param vecTargetMins Vector3
+local function IsIntersectingBB(currentPos, vecTargetPredictedPos, weaponInfo, vecTargetMaxs, vecTargetMins)
+    local vecProjMins = weaponInfo.m_vecMins + currentPos
+    local vecProjMaxs = weaponInfo.m_vecMaxs + currentPos
+
+    local targetMins = vecTargetMins + vecTargetPredictedPos
+    local targetMaxs = vecTargetMaxs + vecTargetPredictedPos
+
+    -- check overlap on X, Y, and Z
+    if vecProjMaxs.x < targetMins.x or vecProjMins.x > targetMaxs.x then return false end
+    if vecProjMaxs.y < targetMins.y or vecProjMins.y > targetMaxs.y then return false end
+    if vecProjMaxs.z < targetMins.z or vecProjMins.z > targetMaxs.z then return false end
+
+    return true -- all axis overlap
+end
+
+---@param pTarget Entity The target
 ---@param pLocal Entity The localplayer
 ---@param pWeapon Entity The localplayer's weapon
 ---@param shootPos Vector3
@@ -46,8 +68,9 @@ end
 ---@param nTime number Number of seconds we want to simulate
 ---@param weapon_info WeaponInfo
 ---@param charge_time number The charge time (0.0 to 1.0 for bows, 0.0 to 4.0 for stickies)
----@return ProjSimRet
-function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, charge_time)
+---@param vecPredictedPos Vector3
+---@return ProjSimRet, boolean
+function sim.Run(pTarget, pLocal, pWeapon, shootPos, vecForward, vecPredictedPos, nTime, weapon_info, charge_time)
 	local projectile = projectiles[pWeapon:GetPropInt("m_iItemDefinitionIndex")]
 	if not projectile then
 		if weapon_info.m_sModelName and weapon_info.m_sModelName ~= "" then
@@ -63,12 +86,13 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 	if not projectile then
 		printc(255, 0, 0, 255, "[PROJ AIMBOT] Failed to acquire projectile instance!")
-		return {}
+		return {}, false
 	end
 
 	projectile:Wake()
 
 	local mins, maxs = weapon_info.m_vecMins, weapon_info.m_vecMaxs
+	local targetmins, targetmaxs = pTarget:GetMaxs(), pTarget:GetMins()
 
 	-- Decide trace mode: use line trace only for rocket-type projectiles
 	local proj_type = pWeapon:GetWeaponProjectileType() or 0
@@ -110,6 +134,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 	local tickInterval = globals.TickInterval()
 	local positions = {}
+	local hittarget = false
 
 	while env:GetSimulationTime() < nTime do
 		local currentPos = projectile:GetPosition()
@@ -130,6 +155,11 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 			positions[#positions + 1] = record
 			shootPos = currentPos
+
+			if IsIntersectingBB(currentPos, vecPredictedPos, weapon_info, targetmins, targetmaxs) then
+				hittarget = true
+				break
+			end
 		else
 			break
 		end
@@ -139,7 +169,7 @@ function sim.Run(pLocal, pWeapon, shootPos, vecForward, nTime, weapon_info, char
 
 	env:ResetSimulationClock()
 	projectile:Sleep()
-	return positions
+	return positions, hittarget
 end
 
 return sim
