@@ -292,7 +292,7 @@ end
 local function IsPlayerOnGround(pEntity)
 	local mins, maxs = pEntity:GetMins(), pEntity:GetMaxs()
 	local origin = pEntity:GetAbsOrigin()
-	return IsOnGround(origin, mins, maxs, pEntity, pEntity:GetPropFloat("m_flStepSize"))
+	return IsOnGround(origin, mins, maxs, pEntity, pEntity:GetPropFloat("m_flStepSize") or 18)
 end
 
 ---@param pEntity Entity
@@ -512,8 +512,7 @@ local function TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitE
 		end
 	end
 
-	-- Optional redirection here
-	local is_grounded = IsOnGround(current_origin, mins, maxs, pTarget, pTarget:GetPropFloat("m_flStepSize"))
+	local is_grounded = IsOnGround(current_origin, mins, maxs, pTarget, pTarget:GetPropFloat("m_flStepSize") or 18)
 	if is_grounded then
 		local redirected, success = RedirectGroundVelocity(velocity, primal_velocity)
 		if success then

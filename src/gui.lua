@@ -9,7 +9,7 @@ local font = draw.CreateFont("TF2 BUILD", 16, 500)
 function gui.init(settings, version)
 	local window = menu:make_window()
 	window.width = 670
-	window.height = 270
+	window.height = 315
 
 	local btn_starty = 10
 	local component_width = 260
@@ -41,7 +41,12 @@ function gui.init(settings, version)
 	window.font = font
 	window.header = string.format("navet's projectile aimbot (v%s)", version)
 
-	menu:make_tab("aimbot")
+	local aim_tab = menu:make_tab("aimbot")
+	assert(aim_tab, "[PROJ AIMBOT] aimbot tab is nil! WTF")
+
+	menu:set_tab_draw_function(aim_tab, function (current_window, current_tab, content_offset)
+		window.height = 255
+	end)
 
 	local enabled_btn = menu:make_checkbox()
 	enabled_btn.height = component_height
@@ -222,7 +227,12 @@ function gui.init(settings, version)
 
 	---
 
-	menu:make_tab("misc")
+	local misc_tab = menu:make_tab("misc")
+	assert(misc_tab, "[PROJ AIMBOT] aimbot tab is nil! WTF")
+
+	menu:set_tab_draw_function(misc_tab, function (current_window, current_tab, content_offset)
+		window.height = 315
+	end)
 
 	btn_starty = 25
 
@@ -328,7 +338,29 @@ function gui.init(settings, version)
 		settings.max_percent = percent_slider.value
 	end
 
-	menu:make_tab("conditions")
+	local close_dst_slider = menu:make_slider()
+	assert(close_dst_slider, "close distance slider is nil somehow!")
+
+	close_dst_slider.font = font
+	close_dst_slider.height = 20
+	close_dst_slider.label = "close distance (%)"
+	close_dst_slider.max = 100
+	close_dst_slider.min = 0
+	close_dst_slider.value = settings.close_distance
+	close_dst_slider.width = component_width * 2
+	close_dst_slider.x = 10
+	close_dst_slider.y = get_slider_y()
+
+	close_dst_slider.func = function()
+		settings.close_distance = close_dst_slider.value
+	end
+
+	local conds_tab = menu:make_tab("conditions")
+	assert(conds_tab, "[PROJ AIMBOT] aimbot tab is nil! WTF")
+
+	menu:set_tab_draw_function(conds_tab, function (current_window, current_tab, content_offset)
+		window.height = 195
+	end)
 
 	btn_starty = 10
 
@@ -364,61 +396,14 @@ function gui.init(settings, version)
 		end
 	end
 
-	--local hitpoints_tab = menu:make_tab("hitpoints")
-	menu:make_tab("hitpoints")
-
-	btn_starty = 10
-
-	local multipoint_btn = menu:make_checkbox()
-	multipoint_btn.height = component_height
-	multipoint_btn.width = component_width
-	multipoint_btn.label = "multipoint"
-	multipoint_btn.enabled = settings.multipointing
-	multipoint_btn.x = 10
-	multipoint_btn.y = get_btn_y()
-
-	multipoint_btn.func = function()
-		settings.multipointing = not settings.multipointing
-		multipoint_btn.enabled = settings.multipointing
-	end
-
-	column = 2
-	left_column_count = 1
-	right_column_count = 0
-
-	for name, enabled in pairs(settings.hitparts) do
-		local btn = menu:make_checkbox()
-		assert(btn, string.format("Button %s is nil!", name))
-
-		btn.enabled = enabled
-		btn.width = component_width
-		btn.height = component_height
-
-		local label = string.gsub(name, "_", " ")
-
-		btn.label = string.format("%s", label)
-
-		-- alternate between left and right columns
-		if column == 1 then
-			btn.x = 10
-			btn.y = 10 + (left_column_count * (component_height + gap))
-			left_column_count = left_column_count + 1
-			column = 2
-		else
-			btn.x = component_width + 20
-			btn.y = 10 + (right_column_count * (component_height + gap))
-			right_column_count = right_column_count + 1
-			column = 1
-		end
-
-		btn.func = function()
-			settings.hitparts[name] = not settings.hitparts[name]
-			btn.enabled = settings.hitparts[name]
-		end
-	end
+	---
 
 	local colors_tab = menu:make_tab("colors")
 	assert(colors_tab, "colors tab is nil!")
+
+	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
+		window.height = 150
+	end)
 
 	btn_starty = 25
 
@@ -438,10 +423,6 @@ function gui.init(settings, version)
 			settings.colors[name] = slider.value//1
 		end
 	end
-
-	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
-		local x = current_window.x + content_offset
-	end)
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")

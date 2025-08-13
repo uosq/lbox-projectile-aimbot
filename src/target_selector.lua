@@ -7,8 +7,6 @@ local mod = {}
 --- relative to Maxs().z
 local z_offsets = {0.2, 0.4, 0.5, 0.7, 0.9}
 
-local CLOSE_DISTANCE = 200
-
 ---@param pLocal Entity
 local function GetEnemyTeam(pLocal)
     return pLocal:GetTeamNumber() == 2 and 3 or 2
@@ -96,6 +94,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 
     local ignore_team = bAimAtTeamMates and GetEnemyTeam(pLocal) or pLocal:GetTeamNumber()
     local ignore_index = pLocal:GetIndex()
+    local close_distance = (settings.close_distance / 100) * settings.max_distance
 
     for _, entity in pairs (entitylist) do
         if entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
@@ -107,7 +106,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
                     local origin = entity:GetAbsOrigin()
                     origin.z = origin.z + zOffset
 
-                    if (vHeadPos - origin):Length() <= CLOSE_DISTANCE then
+                    if (vHeadPos - origin):Length() <= close_distance then
                         local angle = math_utils.PositionAngles(vHeadPos, origin)
                         local fov = math_utils.AngleFov(angle, engine.GetViewAngles())
                         if fov <= bestFov then

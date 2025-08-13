@@ -32,21 +32,11 @@ local settings = {
 	ping_compensation = true,
 	min_priority = 0,
 	explosive = true,
-	multipointing = true,
+	close_distance = 10, --- %
 
 	max_percent = 90,
 	wait_for_charge = false,
 	cancel_shot = false,
-
-	hitparts = {
-		head = true,
-		feet = true, -- Used for bows (fallback) and explosives (primary if on ground)
-		left_arm = true,
-		right_arm = true,
-		left_shoulder = true,
-		right_shoulder = true,
-		legs = true,
-	},
 
 	ents = {
 		["aim players"] = true,
@@ -179,27 +169,6 @@ local function GetCharge(pWeapon)
 	return charge_time
 end
 
----@param weaponInfo WeaponInfo
----@param player_path PredictionResult
-local function CanShootFromDistance(weaponInfo, player_path, proj_path)
-	if weaponInfo:HasGravity() and weaponInfo.m_flDamageRadius > 0 then
-		local distance = (proj_path[#proj_path].pos - player_path[#player_path]):Length()
-		return distance <= weaponInfo.m_flDamageRadius
-	end
-	return #proj_path > 0
-end
-
----@param weaponInfo WeaponInfo
----@param from Vector3
----@param to Vector3
-local function CanShootFromPos(weaponInfo, from, to)
-	if weaponInfo:HasGravity() and weaponInfo.m_flDamageRadius > 0 then
-		local dist = (to - from):Length()
-		return dist <= weaponInfo.m_flDamageRadius
-	end
-	return true
-end
-
 ---@param pLocal Entity
 ---@param pWeapon Entity
 ---@param uCmd UserCmd
@@ -213,7 +182,6 @@ local function CancelShot(pLocal, pWeapon, uCmd)
 	if pSlotWeapon then
 		uCmd.weaponselect = pSlotWeapon:GetIndex()
 	end
-	return
 end
 
 ---@param pLocal Entity
@@ -232,6 +200,10 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 	gravity = client.GetConVar("sv_gravity") * 0.5
 
 	local function ResetUserCmd()
+		if weaponInfo.m_bCharges and charge > 0 then
+			CancelShot(pLocal, pWeapon, uCmd)
+		end
+
 		uCmd.viewangles = orig_viewangle
 		uCmd.buttons = orig_buttons
 		uCmd.sendpacket = true
@@ -266,6 +238,7 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 		return ResetUserCmd()
 	end
 
+	multipoint_target_pos = vPredictedPos
 	uCmd.viewangles = Vector3(angle:Unpack())
 	displayed_time = globals.CurTime() + settings.draw_time
 	paths.player_path = player_path
@@ -282,41 +255,8 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 	local orig_buttons = uCmd:GetButtons()
 	local orig_viewangle = Vector3(uCmd:GetViewAngles())
 
-	if pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW then
+	if weaponInfo.m_bCharges then
 		if settings.autoshoot and wep_utils.CanShoot() then
-			uCmd.buttons = uCmd.buttons | IN_ATTACK
-		end
-
-		if settings.cancel_shot and charge > (settings.max_percent / 100) or charge >= 1 then
-			CancelShot(pLocal, pWeapon, uCmd)
-		end
-
-		if charge > 0 then
-			if (uCmd.buttons & IN_ATTACK) ~= 0 then
-				--[[if settings.wait_for_charge then
-					return
-				end]]
-
-				uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-				if settings.psilent then
-					uCmd.sendpacket = false
-				end
-				ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
-			end
-		end
-	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
-		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
-		if clip < 1 then
-			uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
-		else
-			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-			if settings.psilent then
-				uCmd.sendpacket = false
-			end
-			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
-		end
-	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER then
-		if (settings.wait_for_charge or settings.autoshoot) and wep_utils.CanShoot() then
 			uCmd.buttons = uCmd.buttons | IN_ATTACK
 		end
 
@@ -326,10 +266,18 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 		end
 
 		if charge > 0 and wep_utils.CanShoot() then
-			--[[if settings.wait_for_charge and not CanShootFromDistance(weaponInfo, pLocal, pTarget, charge) then
-				return
-			end]]
+			if settings.psilent then
+				uCmd.sendpacket = false
+			end
 
+			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
+			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+		end
+	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
+		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
+		if clip < 1 then
+			uCmd.buttons = uCmd.buttons | IN_ATTACK -- hold to charge
+		else
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
 			if settings.psilent then
 				uCmd.sendpacket = false
