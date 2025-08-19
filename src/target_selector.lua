@@ -96,7 +96,7 @@ end
 ---@param pLocal Entity
 ---@param vHeadPos Vector3
 ---@param math_utils MathLib
----@param entitylist table<integer, Entity>
+---@param entitylist table<integer, ENTRY>
 ---@param settings table
 ---@param bAimAtTeamMates boolean
 ---@return Entity?, number?
@@ -110,8 +110,9 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
     local ignore_index = pLocal:GetIndex()
     local close_distance = (settings.close_distance / 100) * settings.max_distance
 
-    for _, entity in pairs (entitylist) do
-        if not entity:IsDormant() and entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
+    for index, entityInfo in pairs (entitylist) do
+        local entity = entities.GetByIndex(index)
+        if entity and not entity:IsDormant() and entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
             local vDistance = (vHeadPos - entity:GetAbsOrigin()):Length()
             if vDistance <= settings.max_distance then
                 for i = 1, #z_offsets do

@@ -73,6 +73,7 @@ local settings = {
 		player_path = 193, --{136, 192, 208, 255},
 		projectile_path = 40, --{235, 203, 139, 255}
 		multipoint_target = 20,
+		target_glow = 360,
 	},
 }
 
@@ -132,6 +133,24 @@ local paths                            = {
 local multipoint_target_pos            = nil
 
 local original_gui_value               = gui.GetValue("projectile aimbot")
+
+---@type Entity?
+local pSelectedTarget = nil
+
+---@class ENTRY
+---@field m_vecPos Vector3
+---@field m_vecVelocity Vector3
+---@field m_flFriction number
+---@field m_flAngularVelocity number
+---@field m_flGravityStep number
+---@field m_flMaxspeed number
+---@field m_iTeam integer
+---@field m_flStepSize number
+---@field m_vecMins Vector3
+---@field m_vecMaxs Vector3
+
+---@type table<integer, ENTRY>
+local entitylist = {}
 
 ---@param pWeapon Entity
 local function GetCharge(pWeapon)
@@ -205,13 +224,13 @@ end
 ---@param uCmd UserCmd
 ---@param orig_buttons integer
 ---@param orig_viewangle Vector3
-local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+local function ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	local player_path, gravity
 
 	gravity = client.GetConVar("sv_gravity") * 0.5
 
 	local function ResetUserCmd()
-		if weaponInfo.m_bCharges and charge > 0 then
+		if weaponInfo.m_bCharges and charge > 0 and settings.cancel_shot then
 			CancelShot(pLocal, pWeapon, uCmd)
 		end
 
@@ -221,7 +240,8 @@ local function ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, t
 	end
 
 	local vecTargetOrigin = GetEntityOrigin(pTarget)
-	player_path = player_sim.Run(pTarget, vecTargetOrigin + Vector3(0, 0, 1), time_ticks, settings)
+	player_path = player_sim.Run(pInfo, pTarget, vecTargetOrigin + Vector3(0, 0, 1), time_ticks)
+
 	local vPredictedPos = Vector3(player_path[#player_path]:Unpack()) --- copy predicted path
 	multipoint.Run(pTarget, pWeapon, weaponInfo, vHeadPos, vPredictedPos)
 
@@ -265,7 +285,7 @@ end
 ---@param pLocal Entity
 ---@param weaponInfo WeaponInfo
 ---@param vHeadPos Vector3
-local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weaponInfo, time_ticks, vHeadPos)
+local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weaponInfo, time_ticks, vHeadPos, pInfo)
 	local orig_buttons = uCmd:GetButtons()
 	local orig_viewangle = Vector3(uCmd:GetViewAngles())
 
@@ -285,7 +305,7 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 			end
 
 			uCmd.buttons = uCmd.buttons & ~IN_ATTACK -- release to fire
-			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+			ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 		end
 	elseif pWeapon:GetPropInt("m_iItemDefinitionIndex") == BEGGARS_BAZOOKA_INDEX then
 		local clip = pWeapon:GetPropInt("LocalWeaponData", "m_iClip1")
@@ -296,14 +316,14 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 			if settings.psilent then
 				uCmd.sendpacket = false
 			end
-			ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+			ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 		end
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
-		ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+		ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
-		ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+		ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
@@ -315,14 +335,69 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 					uCmd.sendpacket = false
 				end
 
-				ShootProjectile(pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+				ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 			end
 		end
 	end
 end
 
+---@param classTable table<integer, Entity>
+local function ProcessBuilding(classTable, enemy_team)
+	for _, building in pairs(classTable) do
+		if building:GetTeamNumber() == enemy_team and building:GetHealth() > 0 and not building:IsDormant() then
+			entitylist[building:GetIndex()] = {
+				m_vecPos = building:GetPropVector("m_vecOrigin") or building:GetAbsOrigin(),
+				m_vecVelocity = Vector3(),
+				m_flFriction = 0,
+				m_flAngularVelocity = 0,
+				m_flGravityStep = 0,
+				m_flMaxspeed = 0,
+				m_iTeam = enemy_team,
+				m_flStepSize = 0,
+				m_vecMins = building:GetMins(),
+				m_vecMaxs = building:GetMaxs(),
+			}
+		end
+	end
+end
+
+---@param pLocal Entity
+---@param players table<integer, Entity>
+---@param sentries table<integer, Entity>
+---@param dispensers table<integer, Entity>
+---@param teleporters table<integer, Entity>
+local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge)
+	local enemy_team = pLocal:GetTeamNumber() == 2 and 3 or 2
+
+	entitylist = {}
+	local _, sv_gravity = client.GetConVar("sv_gravity")
+
+	for _, player in pairs(players) do
+		if player:GetTeamNumber() == enemy_team and player:IsAlive() and not player:IsDormant() then
+			entitylist[player:GetIndex()] = {
+				m_vecPos =  player:GetPropVector("localdata", "m_vecOrigin") or player:GetAbsOrigin(),
+				m_vecVelocity = player:EstimateAbsVelocity(),
+				m_flFriction = player:GetPropFloat("m_flFriction"),
+				m_flAngularVelocity = player_sim.GetSmoothedAngularVelocity(player),
+				m_flGravityStep = sv_gravity,
+				m_flMaxspeed = player:GetPropFloat("m_flMaxspeed"),
+				m_iTeam = enemy_team,
+				m_flStepSize = player:GetPropFloat("m_flStepSize"),
+				m_vecMins = player:GetMins(),
+				m_vecMaxs = player:GetMaxs(),
+			}
+		end
+	end
+
+	ProcessBuilding(sentries, enemy_team)
+	ProcessBuilding(dispensers, enemy_team)
+	ProcessBuilding(teleporters, enemy_team)
+end
+
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
+	pSelectedTarget = nil
+
 	if (settings.enabled == false) then
 		return
 	end
@@ -360,42 +435,13 @@ local function CreateMove(uCmd)
 	end
 
 	local vHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local entitylist = {}
-	if settings.ents["aim players"] then
-		local players = entities.FindByClass("CTFPlayer")
-		for _, player in pairs (players) do
-			if player:IsValid() and not player:IsDormant() then
-				entitylist[#entitylist+1] = player
-			end
-		end
-	end
+	local players = entities.FindByClass("CTFPlayer")
+	local sentries = entities.FindByClass("CObjectSentrygun")
+	local dispensers = entities.FindByClass("CObjectDispenser")
+	local teleporters = entities.FindByClass("CObjectTeleporter")
+	local charge_time = GetCharge(pWeapon)
 
-	if settings.ents["aim sentries"] then
-		local sentries = entities.FindByClass("CObjectSentrygun")
-		for _, sentry in pairs (sentries) do
-			if sentry:IsValid() and sentry:GetHealth() > 0 and not sentry:IsDormant() then
-				entitylist[#entitylist+1] = sentry
-			end
-		end
-	end
-
-	if settings.ents["aim dispensers"] then
-		local dispensers = entities.FindByClass("CObjectDispenser")
-		for _, dispenser in pairs (dispensers) do
-			if dispenser:IsValid() and dispenser:GetHealth() > 0 and not dispenser:IsDormant() then
-				entitylist[#entitylist+1] = dispenser
-			end
-		end
-	end
-
-	if settings.ents["aim teleporters"] then
-		local teleporters = entities.FindByClass("CObjectTeleporter")
-		for _, teleporter in pairs (teleporters) do
-			if teleporter:IsValid() and teleporter:GetHealth() > 0 and not teleporter:IsDormant() then
-				entitylist[#entitylist+1] = teleporter
-			end
-		end
-	end
+	UpdateEntityList(pLocal, players, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge_time)
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -409,15 +455,14 @@ local function CreateMove(uCmd)
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
 	local pTarget = target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
+	pSelectedTarget = pTarget
 	if pTarget == nil then
 		return
 	end
 
-	local vecTargetOrigin = pTarget:GetAbsOrigin() + Vector3(0, 0, 10)
+	local vecTargetOrigin = GetEntityOrigin(pTarget) + Vector3(0, 0, 10)
 	target_max_hull = pTarget:GetMaxs()
 	target_min_hull = pTarget:GetMins()
-
-	local charge_time = GetCharge(pWeapon)
 
 	local velocity_vector = weaponInfo:GetVelocity(charge_time)
 	local forward_speed = velocity_vector:Length2D()
@@ -433,9 +478,10 @@ local function CreateMove(uCmd)
 
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time + 1 --- one extra tick because our current createmove is 1 tick behind
+	local pInfo = entitylist[pTarget:GetIndex()]
 
 	if settings.draw_only then
-		local player_path = player_sim.Run(pTarget, vecTargetOrigin, time_ticks, settings)
+		local player_path = player_sim.Run(pInfo, pTarget, vecTargetOrigin, detonate_time)
 		local vecPredictedPos = player_path[#player_path]
 		local gravity = client.GetConVar("sv_gravity") * 0.5 * weaponInfo:GetGravity(charge_time)
 		local angle_low, angle_high = math_utils.SolveBallisticArcBoth(vHeadPos, vecPredictedPos, forward_speed, gravity)
@@ -450,7 +496,7 @@ local function CreateMove(uCmd)
 		return
 	end
 
-	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos)
+	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos, pInfo)
 end
 
 --- source: https://gist.github.com/GigsD4X/8513963
@@ -655,8 +701,30 @@ end
 
 local function FrameStage(stage)
 	if stage == E_ClientFrameStage.FRAME_NET_UPDATE_END then
-		local players = entities.FindByClass("CTFPlayer")
-		player_sim.RunBackground(players)
+		local plocal = entities.GetLocalPlayer()
+		if not plocal then return end
+
+		local pweapon = plocal:GetPropEntity("m_hActiveWeapon")
+		if not pweapon then return end
+
+		player_sim.RunBackground(plocal, entitylist)
+	end
+end
+
+---@param dme DrawModelContext
+local function DrawModel(dme)
+	if not pSelectedTarget then
+		return
+	end
+
+	local ent = dme:GetEntity()
+	if ent and ent:GetIndex() == pSelectedTarget:GetIndex() and dme:IsDrawingGlow() then
+		local r, g, b = HSVToRGB(settings.colors.target_glow, 0.5, 1)
+		if settings.colors.target_glow < 360 then
+			dme:SetColorModulation(r, g, b)
+		else
+			dme:SetColorModulation(1, 1, 1)
+		end
 	end
 end
 
@@ -680,6 +748,7 @@ callbacks.Register("CreateMove", "ProjAimbot CreateMove", CreateMove)
 callbacks.Register("Draw", "ProjAimbot Draw", Draw)
 callbacks.Register("Unload", Unload)
 callbacks.Register("FrameStageNotify", "ProjAimbot FrameStage", FrameStage)
+callbacks.Register("DrawModel", "ProjAimbot DrawModel", DrawModel)
 
 printc(252, 186, 3, 255, string.format("Navet's Projectile Aimbot (v%s) loaded", version))
 printc(166, 237, 255, 255, "Lmaobox's projectile aimbot will be turned off while this script is running")

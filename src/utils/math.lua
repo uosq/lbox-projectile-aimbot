@@ -5,7 +5,7 @@ local function isNaN(x)
 	return x ~= x
 end
 
-local M_RADPI = 180 / math.pi
+local M_RADPI = 180 / math.pi --- rad to deg
 
 -- Calculates the angle between two vectors
 ---@param source Vector3
@@ -39,7 +39,7 @@ function Math.AngleFov(vFrom, vTo)
 	local vSrc = vFrom:Forward()
 	local vDst = vTo:Forward()
 
-	local fov = math.deg(math.acos(vDst:Dot(vSrc) / vDst:LengthSqr()))
+	local fov = M_RADPI * math.acos(vDst:Dot(vSrc) / vDst:LengthSqr())
 	if isNaN(fov) then
 		fov = 0
 	end
@@ -55,7 +55,7 @@ end
 ---@param p1 Vector3 -- target position
 ---@param speed number -- projectile speed
 ---@param gravity number -- gravity constant
----@return EulerAngles|nil -- Euler angles (pitch, yaw, 0)
+---@return EulerAngles?, number? -- Euler angles (pitch, yaw, 0)
 function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local diff = p1 - p0
 	local dx = diff:Length2D()
@@ -72,12 +72,15 @@ function Math.SolveBallisticArc(p0, p1, speed, gravity)
 	local angle = math.atan((speed2 - sqrt_root) / (g * dx)) -- low arc
 
 	-- Get horizontal direction (yaw)
-	local yaw = math.atan(diff.y, diff.x)
+	local yaw = (math.atan(diff.y, diff.x)) * M_RADPI
 
 	-- Convert pitch from angle
-	local pitch = -angle -- negative because upward is negative pitch in most engines
+	local pitch = -angle * M_RADPI -- negative because upward is negative pitch in most engines
 
-	return EulerAngles(math.deg(pitch), math.deg(yaw), 0)
+	--- seconds
+	local time = dx / (math.cos(pitch) * speed)
+
+	return EulerAngles(pitch, yaw, 0), time
 end
 
 -- Returns both low and high arc EulerAngles when gravity > 0
@@ -106,13 +109,13 @@ function Math.SolveBallisticArcBoth(p0, p1, speed, gravity)
 	local theta_low = math.atan((speed2 - sqrt_root) / (g * dx))
 	local theta_high = math.atan((speed2 + sqrt_root) / (g * dx))
 
-	local yaw = math.atan(diff.y, diff.x)
+	local yaw = math.atan(diff.y, diff.x) * M_RADPI
 
-	local pitch_low = -theta_low
-	local pitch_high = -theta_high
+	local pitch_low = -theta_low * M_RADPI
+	local pitch_high = -theta_high * M_RADPI
 
-	local low = EulerAngles(math.deg(pitch_low), math.deg(yaw), 0)
-	local high = EulerAngles(math.deg(pitch_high), math.deg(yaw), 0)
+	local low = EulerAngles(pitch_low, yaw, 0)
+	local high = EulerAngles(pitch_high, yaw, 0)
 	return low, high
 end
 
@@ -155,8 +158,8 @@ function Math.GetBallisticFlightTime(p0, p1, speed, gravity)
 end
 
 function Math.DirectionToAngles(direction)
-	local pitch = math.asin(-direction.z) * (180 / math.pi)
-	local yaw = math.atan(direction.y, direction.x) * (180 / math.pi)
+	local pitch = math.asin(-direction.z) * M_RADPI
+	local yaw = math.atan(direction.y, direction.x) * M_RADPI
 	return Vector3(pitch, yaw, 0)
 end
 

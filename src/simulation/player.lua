@@ -384,23 +384,14 @@ local function GetSmoothedAngularVelocity(pEntity)
 	return smoothed
 end
 
-local function GetEnemyTeam()
-	local pLocal = entities.GetLocalPlayer()
-	if pLocal == nil then
-		return 2
-	end
+---@param pLocal Entity
+---@param entitylist table<integer, ENTRY>
+function sim.RunBackground(pLocal, entitylist)
+	local enemy_team = pLocal:GetTeamNumber() == 2 and 3 or 2
 
-	return pLocal:GetTeamNumber() == 2 and 3 or 2
-end
-
-function sim.RunBackground(players)
-	local enemy_team = GetEnemyTeam()
-	if not enemy_team then
-		return
-	end
-
-	for _, player in pairs(players) do
-		if player:GetTeamNumber() == enemy_team and player:IsAlive() and not player:IsDormant() then
+	for i, playerInfo in pairs(entitylist) do
+		local player = entities.GetByIndex(i)
+		if player and playerInfo.m_iTeam == enemy_team and player:IsAlive() and not player:IsDormant() then
 			AddPositionSample(player)
 		end
 	end
@@ -705,23 +696,25 @@ local function ApplyFriction(velocity, pTarget, is_on_ground)
 	end
 end
 
+---@param pInfo ENTRY
 ---@param pTarget Entity
 ---@param initial_pos Vector3
----@param time integer
----@param settings table
+---@param time number
 ---@return Vector3[]
-function sim.Run(pTarget, initial_pos, time, settings)
-	local smoothed_velocity = pTarget:EstimateAbsVelocity()
+function sim.Run(pInfo, pTarget, initial_pos, time)
 	local last_pos = initial_pos
 	local tick_interval = globals.TickInterval()
-	local angular_velocity = GetSmoothedAngularVelocity(pTarget) * tick_interval
-	local gravity_step = client.GetConVar("sv_gravity") * tick_interval
-	local target_max_speed = pTarget:GetPropFloat("m_flMaxspeed") or 450 --- is it really 450?
 	local local_player_index = client.GetLocalPlayerIndex()
-	local target_team = pTarget:GetTeamNumber()
-	local surface_friction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
-	local step_size = pTarget:GetPropFloat("m_flStepSize") or 18.0
-	local mins, maxs = pTarget:GetMins(), pTarget:GetMaxs()
+
+	local surface_friction = pInfo.m_flFriction
+	local angular_velocity = pInfo.m_flAngularVelocity * tick_interval
+	local maxspeed = pInfo.m_flMaxspeed
+	local step_size = pInfo.m_flStepSize
+	local mins = pInfo.m_vecMins
+	local maxs = pInfo.m_vecMaxs
+	local gravity_step = pInfo.m_flGravityStep * tick_interval
+
+	local velocity = pInfo.m_vecVelocity
 
 	local positions = {}
 
@@ -729,67 +722,65 @@ function sim.Run(pTarget, initial_pos, time, settings)
 
 	-- pre calculate rotation values if angular velocity exists
 	local cos_yaw, sin_yaw
-	if settings.sim.can_rotate and angular_velocity ~= 0 then
+	if angular_velocity ~= 0 then
 		local yaw = math_rad(angular_velocity)
 		cos_yaw, sin_yaw = math_cos(yaw), math_sin(yaw)
 	end
 
 	local function shouldHitEntity(ent)
 		local ent_index = ent:GetIndex()
-		return ent_index ~= local_player_index and ent:GetTeamNumber() ~= target_team
+		return ent_index ~= local_player_index and ent:GetTeamNumber() ~= pInfo.m_iTeam
 	end
 
 	local was_onground = false
 
 	for i = 1, time do
-		if settings.sim.can_rotate and angular_velocity ~= 0 then
-			local vx, vy = smoothed_velocity.x, smoothed_velocity.y
-			smoothed_velocity.x = vx * cos_yaw - vy * sin_yaw
-			smoothed_velocity.y = vx * sin_yaw + vy * cos_yaw
+		if angular_velocity ~= 0 then
+			local vx, vy = velocity.x, velocity.y
+			velocity.x = vx * cos_yaw - vy * sin_yaw
+			velocity.y = vx * sin_yaw + vy * cos_yaw
 		end
 
-		local next_pos = last_pos + smoothed_velocity * tick_interval
+		local next_pos = last_pos + velocity * tick_interval
 		local ground_trace = TraceLine(next_pos, next_pos + down_vector, MASK_PLAYERSOLID, shouldHitEntity)
-		local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and smoothed_velocity.z <= MIN_VELOCITY_Z
+		local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and velocity.z <= MIN_VELOCITY_Z
 
 		--- wtf is this?
-		local horizontal_vel = smoothed_velocity
+		local horizontal_vel = velocity
 		local horizontal_speed = horizontal_vel:Length2D()
 
-		ApplyFriction(smoothed_velocity, pTarget, is_on_ground)
+		ApplyFriction(velocity, pTarget, is_on_ground)
 
 		if horizontal_speed > 0.1 then
 			local inv_len = 1.0 / horizontal_speed
 			local wishdir = horizontal_vel * inv_len
 			wishdir.z = 0
-			local wishspeed = math_min(horizontal_speed, target_max_speed)
+			local wishspeed = math_min(horizontal_speed, maxspeed)
 
 			if is_on_ground then
 				-- apply ground acceleration
-				AccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
-					GROUND_ACCELERATE, tick_interval, surface_friction)
+				AccelerateInPlace(velocity, wishdir, wishspeed, GROUND_ACCELERATE, tick_interval, surface_friction)
 			else
 				-- apply air acceleration when not on ground and falling
-				if smoothed_velocity.z < 0 then
-					AirAccelerateInPlace(smoothed_velocity, wishdir, wishspeed,
-						AIR_ACCELERATE, tick_interval, surface_friction, pTarget)
+				if velocity.z < 0 then
+					AirAccelerateInPlace(velocity, wishdir, wishspeed, AIR_ACCELERATE, tick_interval, surface_friction, pTarget)
 				end
 			end
 		end
 
 		if is_on_ground then
-			local vel_length = smoothed_velocity:Length()
-			if vel_length > target_max_speed then
-				local scale = target_max_speed / vel_length
-				smoothed_velocity.x = smoothed_velocity.x * scale
-				smoothed_velocity.y = smoothed_velocity.y * scale
-				smoothed_velocity.z = smoothed_velocity.z * scale
+			local vel_length = velocity:Length()
+			if vel_length > maxspeed then
+				local scale = maxspeed / vel_length
+				velocity.x = velocity.x * scale
+				velocity.y = velocity.y * scale
+				velocity.z = velocity.z * scale
 			end
 		end
 
 		local new_pos, new_velocity = StepMove(
 			last_pos,
-			smoothed_velocity,
+			velocity,
 			tick_interval,
 			mins,
 			maxs,
@@ -805,20 +796,21 @@ function sim.Run(pTarget, initial_pos, time, settings)
 		end]]
 
 		last_pos = new_pos
-		smoothed_velocity = new_velocity
+		velocity = new_velocity
 		positions[#positions + 1] = last_pos
 
 		-- ---  F. gravity
 		was_onground = is_on_ground
 
 		if not was_onground then
-			smoothed_velocity.z = smoothed_velocity.z - gravity_step
-		elseif smoothed_velocity.z < 0 then
-			smoothed_velocity.z = 0
+			velocity.z = velocity.z - gravity_step
+		elseif velocity.z < 0 then
+			velocity.z = 0
 		end
 	end
 
 	return positions
 end
 
+sim.GetSmoothedAngularVelocity = GetSmoothedAngularVelocity
 return sim

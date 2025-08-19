@@ -402,7 +402,7 @@ function gui.init(settings, version)
 	assert(colors_tab, "colors tab is nil!")
 
 	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
-		window.height = 190
+		window.height = 240
 	end)
 
 	btn_starty = 25
@@ -418,7 +418,7 @@ function gui.init(settings, version)
 		slider.max = 360
 		slider.min = 0
 		slider.value = visual
-		slider.label = name
+		slider.label = string.gsub(name, "_", " ")
 		slider.func = function()
 			settings.colors[name] = slider.value//1
 		end
