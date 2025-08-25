@@ -424,7 +424,7 @@ function gui.init(settings, version)
 		end
 	end
 
-	local sim_tab = menu:make_tab("simulation")
+	--[[local sim_tab = menu:make_tab("simulation")
 	assert(sim_tab, "[PROJ AIMBOT] simulation tab is nil! wtf")
 
 	menu:set_tab_draw_function(sim_tab, function (current_window, current_tab, content_offset)
@@ -463,7 +463,7 @@ function gui.init(settings, version)
 			settings.sim[name] = not settings.sim[name]
 			btn.enabled = settings.sim[name]
 		end
-	end
+	end]]
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")

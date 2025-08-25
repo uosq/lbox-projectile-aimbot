@@ -674,7 +674,7 @@ local function ApplyFriction(velocity, pTarget, is_on_ground)
 
 	if is_on_ground then
 		local _, sv_friction = client.GetConVar("sv_friction")
-		local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or 1.0
+		local surfaceFriction = pTarget:GetPropFloat("m_flFriction") or SURFACE_FRICTION
 		local friction = sv_friction * surfaceFriction
 
 		local _, sv_stopspeed = client.GetConVar("sv_stopspeed")

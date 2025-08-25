@@ -324,6 +324,9 @@ local function HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge, weapon
 	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD then
 		uCmd.buttons = uCmd.buttons | IN_ATTACK2
 		ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
+	elseif pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_FLAME_BALL then
+		uCmd.buttons = uCmd.buttons | IN_ATTACK
+		ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weaponInfo, time_ticks, charge, uCmd, orig_buttons, orig_viewangle)
 	else
 		if wep_utils.CanShoot() then
 			if settings.autoshoot and (uCmd.buttons & IN_ATTACK) == 0 then
