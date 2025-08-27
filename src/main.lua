@@ -33,6 +33,7 @@ local settings = {
 	min_priority = 0,
 	explosive = true,
 	close_distance = 10, --- %
+	draw_quads = true,
 
 	sim = {
 		use_detonate_time = true,
@@ -74,6 +75,7 @@ local settings = {
 		projectile_path = 40, --{235, 203, 139, 255}
 		multipoint_target = 20,
 		target_glow = 360,
+		quads = 193,
 	},
 }
 
@@ -151,6 +153,51 @@ local pSelectedTarget = nil
 
 ---@type table<integer, ENTRY>
 local entitylist = {}
+
+local rgbaData = string.char(255, 255, 255, 255)
+local texture = draw.CreateTextureRGBA(rgbaData, 1, 1) --- 1x1 white pixel
+
+---@param pos Vector3
+---@param mins Vector3
+---@param maxs Vector3
+---@return Vector3[]
+local function GetBoxVertices(pos, mins, maxs)
+    local worldMins = pos + mins
+    local worldMaxs = pos + maxs
+
+    return {
+        Vector3(worldMins.x, worldMins.y, worldMins.z), -- 1 bottom-back-left
+        Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- 2 bottom-front-left
+        Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- 3 bottom-front-right
+        Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- 4 bottom-back-right
+        Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- 5 top-back-left
+        Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- 6 top-front-left
+        Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- 7 top-front-right
+        Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- 8 top-back-right
+    }
+end
+
+-- build a {x,y,u,v} vertex from a screen point {x,y}
+local function XYUV(p, u, v)
+    return { p[1], p[2], u, v }
+end
+
+-- draw a quad as two triangles in both windings (double sided)
+local function DrawQuadFaceDoubleSided(tex, a, b, c, d)
+    if not (a and b and c and d) then return end
+
+    -- front (a,b,c) + (a,c,d)
+    local f1 = { XYUV(a, 0, 0), XYUV(b, 1, 0), XYUV(c, 1, 1) }
+    local f2 = { XYUV(a, 0, 0), XYUV(c, 1, 1), XYUV(d, 0, 1) }
+    draw.TexturedPolygon(tex, f1, true)
+    draw.TexturedPolygon(tex, f2, true)
+
+    -- back (reverse winding): (a,c,b) + (a,d,c)
+    local b1 = { XYUV(a, 0, 0), XYUV(c, 1, 1), XYUV(b, 1, 0) }
+    local b2 = { XYUV(a, 0, 0), XYUV(d, 0, 1), XYUV(c, 1, 1) }
+    draw.TexturedPolygon(tex, b1, true)
+    draw.TexturedPolygon(tex, b2, true)
+end
 
 ---@param pWeapon Entity
 local function GetCharge(pWeapon)
@@ -700,6 +747,32 @@ local function Draw()
 		end
 		DrawMultipointTarget()
 	end
+
+	if settings.draw_quads then
+		local pos = paths.player_path[#paths.player_path]
+		local v3 = GetBoxVertices(pos, target_min_hull, target_max_hull)
+
+        -- project to screen
+        local v2 = {}
+        for i, v in ipairs(v3) do
+            v2[i] = client.WorldToScreen(v) -- {x,y} or nil if behind camera
+        end
+
+		if settings.colors.quads >= 360 then
+			draw.Color(255, 255, 255, 25)
+		else
+			local r, g, b = HSVToRGB(settings.colors.quads, 0.5, 1)
+			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 25)
+		end
+
+        -- faces: bottom, top, front, back, left, right
+        DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[3], v2[4]) -- bottom
+        DrawQuadFaceDoubleSided(texture, v2[5], v2[6], v2[7], v2[8]) -- top
+        DrawQuadFaceDoubleSided(texture, v2[2], v2[3], v2[7], v2[6]) -- front
+        DrawQuadFaceDoubleSided(texture, v2[1], v2[4], v2[8], v2[5]) -- back
+        DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[6], v2[5]) -- left
+        DrawQuadFaceDoubleSided(texture, v2[4], v2[3], v2[7], v2[8]) -- right
+	end
 end
 
 local function FrameStage(stage)
@@ -743,6 +816,7 @@ local function Unload()
 	player_sim = nil
 	proj_sim = nil
 
+	draw.DeleteTexture(texture)
 	gui.SetValue("projectile aimbot", original_gui_value)
 	--client.SetConVar("cl_autoreload", original_auto_reload)
 end
