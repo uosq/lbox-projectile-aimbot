@@ -14,7 +14,7 @@
 
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
-local version = "9"
+local version = "10"
 
 local settings = {
 	enabled = true,
@@ -418,6 +418,7 @@ local function ProcessBuilding(classTable, enemy_team)
 				m_flStepSize = 0,
 				m_vecMins = building:GetMins(),
 				m_vecMaxs = building:GetMaxs(),
+				m_nCond = 0
 			}
 		end
 	end
@@ -448,10 +449,10 @@ local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporte
 				m_vecMins = player:GetMins(),
 				m_vecMaxs = player:GetMaxs(),
 
-				m_nCond   = player:GetPropInt("m_Shared", "m_nPlayerCond") or 0,
+				m_nCond = player:GetPropInt("m_Shared", "m_nPlayerCond") or 0,
 				--m_nCondEx = player:GetPropInt("m_Shared", "m_nPlayerCondEx") or 0,
 				--m_nCondEx2 = player:GetPropInt("m_Shared", "m_nPlayerCondEx2") or 0,
-				priority  = playerlist.GetPriority(player),
+				priority = playerlist.GetPriority(player),
 			}
 		end
 	end
