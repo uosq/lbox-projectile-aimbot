@@ -155,7 +155,7 @@ function gui.init(settings, version)
 	local draw_quads_btn = menu:make_checkbox()
 	draw_quads_btn.height = component_height
 	draw_quads_btn.width = component_width
-	draw_quads_btn.label = "draw quads"
+	draw_quads_btn.label = "draw filled bounding box"
 	draw_quads_btn.enabled = settings.draw_quads
 	draw_quads_btn.x = 10
 	draw_quads_btn.y = get_btn_y()
