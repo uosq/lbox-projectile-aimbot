@@ -418,7 +418,8 @@ local function ProcessBuilding(classTable, enemy_team)
 				m_flStepSize = 0,
 				m_vecMins = building:GetMins(),
 				m_vecMaxs = building:GetMaxs(),
-				m_nCond = 0
+				m_nCond = 0,
+				priority = 0,
 			}
 		end
 	end
