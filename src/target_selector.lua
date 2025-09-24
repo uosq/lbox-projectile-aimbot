@@ -12,82 +12,47 @@ local function GetEnemyTeam(pLocal)
     return pLocal:GetTeamNumber() == 2 and 3 or 2
 end
 
----@param pPlayer Entity
+---@param entityData table
 ---@param settings table
-local function ShouldSkipPlayer(pPlayer, settings)
-    if pPlayer:IsPlayer() then
-        if not pPlayer:IsAlive() then
-            return true
-        end
-    else
-        if pPlayer:GetHealth() == 0 then
-            return true
-        end
-    end
+local function ShouldSkipPlayer(entityData, settings)
+    local cond = entityData.m_nCond
 
-    if pPlayer:IsDormant() then
+    -- cloak/disguise/taunt/bonk
+    if settings.ignore_conds.cloaked    and (cond & E_TFCOND.TFCond_Cloaked)    ~= 0 then return true end
+    if settings.ignore_conds.disguised  and (cond & E_TFCOND.TFCond_Disguised)  ~= 0 then return true end
+    if settings.ignore_conds.taunting   and (cond & E_TFCOND.TFCond_Taunting)   ~= 0 then return true end
+    if settings.ignore_conds.bonked     and (cond & E_TFCOND.TFCond_Bonked)     ~= 0 then return true end
+
+    -- uber / crit
+    if settings.ignore_conds.ubercharged  and (cond & E_TFCOND.TFCond_Ubercharged)  ~= 0 then return true end
+    if settings.ignore_conds.kritzkrieged and (cond & E_TFCOND.TFCond_Kritzkrieged) ~= 0 then return true end
+
+    -- debuffs
+    if settings.ignore_conds.jarated and (cond & E_TFCOND.TFCond_Jarated) ~= 0 then return true end
+    if settings.ignore_conds.milked  and (cond & E_TFCOND.TFCond_Milked)  ~= 0 then return true end
+
+    -- misc
+    if settings.ignore_conds.ghost and (cond & E_TFCOND.TFCond_HalloweenGhostMode) ~= 0 then return true end
+
+    -- friends / priority
+    if entityData.priority < 0 and not settings.ignore_conds.friends then
+        return true
+    end
+    if settings.min_priority > entityData.priority then
         return true
     end
 
-    if pPlayer:InCond(E_TFCOND.TFCond_Cloaked) and settings.ignore_conds.cloaked then
+    local VACCINATOR_MASK =
+      E_TFCOND.TFCond_UberBulletResist
+    | E_TFCOND.TFCond_UberBlastResist
+    | E_TFCOND.TFCond_UberFireResist
+    | E_TFCOND.TFCond_SmallBulletResist
+    | E_TFCOND.TFCond_SmallBlastResist
+    | E_TFCOND.TFCond_SmallFireResist
+
+    -- vaccinator resistances (single mask)
+    if settings.ignore_conds.vaccinator and (cond & VACCINATOR_MASK) ~= 0 then
         return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Disguised) and settings.ignore_conds.disguised then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Taunting) and settings.ignore_conds.taunting then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Bonked) and settings.ignore_conds.bonked then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Ubercharged) and settings.ignore_conds.ubercharged then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Kritzkrieged) and settings.ignore_conds.kritzkrieged then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Jarated) and settings.ignore_conds.jarated then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_Milked) and settings.ignore_conds.milked then
-        return true
-    end
-
-    if pPlayer:InCond(E_TFCOND.TFCond_HalloweenGhostMode) and settings.ignore_conds.ghost then
-        return true
-    end
-
-    if playerlist.GetPriority(pPlayer) < 0 and not settings.ignore_conds.friends then
-        return true
-    end
-
-    if settings.min_priority > playerlist.GetPriority(pPlayer) then
-        return true
-    end
-
-    if settings.ignore_conds.vaccinator then
-        local resist_table = {
-            TFCond_UberBulletResist = 58,
-            TFCond_UberBlastResist = 59,
-            TFCond_UberFireResist = 60,
-            TFCond_SmallBulletResist = 61,
-            TFCond_SmallBlastResist = 62,
-            TFCond_SmallFireResist = 63,
-        }
-
-        for _, resist in pairs(resist_table) do
-            if pPlayer:InCond(resist) then
-                return true
-            end
-        end
     end
 
     return false
@@ -106,19 +71,16 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
     local nOffset = nil
     local trace
 
-    local ignore_team = bAimAtTeamMates and GetEnemyTeam(pLocal) or pLocal:GetTeamNumber()
-    local ignore_index = pLocal:GetIndex()
-    local close_distance = (settings.close_distance / 100) * settings.max_distance
+    local close_distance = (settings.close_distance * 0.01) * settings.max_distance
 
     for index, entityInfo in pairs (entitylist) do
-        local entity = entities.GetByIndex(index)
-        if entity and not entity:IsDormant() and entity:GetIndex() ~= ignore_index and entity:GetTeamNumber() ~= ignore_team and not ShouldSkipPlayer(entity, settings) then
-            local vDistance = (vHeadPos - entity:GetAbsOrigin()):Length()
+        if not ShouldSkipPlayer(entityInfo, settings) then
+            local vDistance = (vHeadPos - entityInfo.m_vecPos):Length()
             if vDistance <= settings.max_distance then
                 for i = 1, #z_offsets do
                     local offset = z_offsets[i]
-                    local zOffset = (entity:GetMaxs().z * offset)
-                    local origin = entity:GetAbsOrigin()
+                    local zOffset = (entityInfo.m_vecMaxs.z * offset)
+                    local origin = entityInfo.m_vecPos
                     origin.z = origin.z + zOffset
 
                     if (vHeadPos - origin):Length() <= close_distance then
@@ -126,7 +88,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
                         local fov = math_utils.AngleFov(angle, engine.GetViewAngles())
                         if fov <= bestFov then
                             bestFov = fov
-                            selected_entity = entity
+                            selected_entity = index
                             nOffset = zOffset
                         end
                     else
@@ -139,7 +101,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
                             local fov = math_utils.AngleFov(angle, engine.GetViewAngles())
                             if fov <= bestFov then
                                 bestFov = fov
-                                selected_entity = entity
+                                selected_entity = index
                                 nOffset = zOffset
                             end
                         end
@@ -149,7 +111,11 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
         end
     end
 
-    return selected_entity, nOffset
+    if selected_entity == nil then
+        return nil, nil
+    end
+
+    return entities.GetByIndex(selected_entity), nOffset
 end
 
 return mod

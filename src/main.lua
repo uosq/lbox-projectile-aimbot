@@ -34,6 +34,7 @@ local settings = {
 	explosive = true,
 	close_distance = 10, --- %
 	draw_quads = true,
+	show_angles = true,
 
 	sim = {
 		use_detonate_time = true,
@@ -76,6 +77,13 @@ local settings = {
 		multipoint_target = 20,
 		target_glow = 360,
 		quads = 193,
+	},
+
+	thickness = {
+		bounding_box = 1,
+		player_path = 1,
+		projectile_path = 1,
+		multipoint_target = 1,
 	},
 }
 
@@ -138,6 +146,9 @@ local original_gui_value               = gui.GetValue("projectile aimbot")
 
 ---@type Entity?
 local pSelectedTarget = nil
+
+---@type Vector3?
+local vAngles = nil
 
 ---@class ENTRY
 ---@field m_vecPos Vector3
@@ -324,6 +335,7 @@ local function ShootProjectile(pInfo, pLocal, pWeapon, pTarget, vHeadPos, weapon
 	displayed_time = globals.CurTime() + settings.draw_time
 	paths.player_path = player_path
 	paths.proj_path = proj_path
+	if settings.show_angles then vAngles = uCmd.viewangles end
 end
 
 ---@param uCmd UserCmd
@@ -425,7 +437,7 @@ local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporte
 	for _, player in pairs(players) do
 		if player:GetTeamNumber() == enemy_team and player:IsAlive() and not player:IsDormant() then
 			entitylist[player:GetIndex()] = {
-				m_vecPos =  player:GetPropVector("localdata", "m_vecOrigin") or player:GetAbsOrigin(),
+				m_vecPos = player:GetPropVector("localdata", "m_vecOrigin") or player:GetAbsOrigin(),
 				m_vecVelocity = player:EstimateAbsVelocity(),
 				m_flFriction = player:GetPropFloat("m_flFriction"),
 				m_flAngularVelocity = player_sim.GetSmoothedAngularVelocity(player),
@@ -435,6 +447,11 @@ local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporte
 				m_flStepSize = player:GetPropFloat("m_flStepSize"),
 				m_vecMins = player:GetMins(),
 				m_vecMaxs = player:GetMaxs(),
+
+				m_nCond   = player:GetPropInt("m_Shared", "m_nPlayerCond") or 0,
+				--m_nCondEx = player:GetPropInt("m_Shared", "m_nPlayerCondEx") or 0,
+				--m_nCondEx2 = player:GetPropInt("m_Shared", "m_nPlayerCondEx2") or 0,
+				priority  = playerlist.GetPriority(player),
 			}
 		end
 	end
@@ -447,6 +464,7 @@ end
 ---@param uCmd UserCmd
 local function CreateMove(uCmd)
 	pSelectedTarget = nil
+	vAngles = nil
 
 	if (settings.enabled == false) then
 		return
@@ -582,113 +600,121 @@ local function HSVToRGB( hue, saturation, value )
 	end;
 end;
 
---- Terminator (titaniummachine1) made this
----@param playerPos Vector3
----@param mins Vector3
----@param maxs Vector3
 local function DrawPlayerHitbox(playerPos, mins, maxs)
-	-- Calculate world space bounds
-	local worldMins = playerPos + mins
-	local worldMaxs = playerPos + maxs
+    local worldMins = playerPos + mins
+    local worldMaxs = playerPos + maxs
 
-	-- Calculate vertices of the AABB
-	local vertices = {
-		Vector3(worldMins.x, worldMins.y, worldMins.z), -- Bottom-back-left
-		Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- Bottom-front-left
-		Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- Bottom-front-right
-		Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- Bottom-back-right
-		Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- Top-back-left
-		Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- Top-front-left
-		Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- Top-front-right
-		Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- Top-back-right
-	}
+    -- 8 corners of the AABB
+    local v3 = {
+        Vector3(worldMins.x, worldMins.y, worldMins.z), -- 1: bottom-back-left
+        Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- 2: bottom-front-left
+        Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- 3: bottom-front-right
+        Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- 4: bottom-back-right
+        Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- 5: top-back-left
+        Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- 6: top-front-left
+        Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- 7: top-front-right
+        Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- 8: top-back-right
+    }
 
-	-- Convert 3D coordinates to 2D screen coordinates
-	for i, vertex in ipairs(vertices) do
-		vertices[i] = client.WorldToScreen(vertex)
-	end
+    -- Project 3D to 2D screen
+    local v2 = {}
+    for i = 1, 8 do
+        v2[i] = client.WorldToScreen(v3[i])
+    end
 
-	-- Draw lines between vertices to visualize the box
-	if
-		vertices[1]
-		and vertices[2]
-		and vertices[3]
-		and vertices[4]
-		and vertices[5]
-		and vertices[6]
-		and vertices[7]
-		and vertices[8]
-	then
-		-- Draw front face
-		draw.Line(vertices[1][1], vertices[1][2], vertices[2][1], vertices[2][2])
-		draw.Line(vertices[2][1], vertices[2][2], vertices[3][1], vertices[3][2])
-		draw.Line(vertices[3][1], vertices[3][2], vertices[4][1], vertices[4][2])
-		draw.Line(vertices[4][1], vertices[4][2], vertices[1][1], vertices[1][2])
+    -- If any corner is off-screen, skip
+    for i = 1, 8 do
+        if not v2[i] then return end
+    end
 
-		-- Draw back face
-		draw.Line(vertices[5][1], vertices[5][2], vertices[6][1], vertices[6][2])
-		draw.Line(vertices[6][1], vertices[6][2], vertices[7][1], vertices[7][2])
-		draw.Line(vertices[7][1], vertices[7][2], vertices[8][1], vertices[8][2])
-		draw.Line(vertices[8][1], vertices[8][2], vertices[5][1], vertices[5][2])
+    local edges = {
+        {1,2},{2,3},{3,4},{4,1}, -- bottom
+        {5,6},{6,7},{7,8},{8,5}, -- top
+        {1,5},{2,6},{3,7},{4,8}, -- verticals
+    }
 
-		-- Draw connecting lines
-		draw.Line(vertices[1][1], vertices[1][2], vertices[5][1], vertices[5][2])
-		draw.Line(vertices[2][1], vertices[2][2], vertices[6][1], vertices[6][2])
-		draw.Line(vertices[3][1], vertices[3][2], vertices[7][1], vertices[7][2])
-		draw.Line(vertices[4][1], vertices[4][2], vertices[8][1], vertices[8][2])
-	end
+	local thickness = settings.thickness.bounding_box
+
+    for _, e in ipairs(edges) do
+        local a, b = v2[e[1]], v2[e[2]]
+        local dx, dy = b[1] - a[1], b[2] - a[2]
+        local len = math.sqrt(dx*dx + dy*dy)
+        if len > 0 then
+            dx, dy = dx / len, dy / len
+            local px, py = -dy * thickness, dx * thickness
+            local verts = {
+                {a[1] + px, a[2] + py, 0, 0},
+                {a[1] - px, a[2] - py, 0, 1},
+                {b[1] - px, b[2] - py, 1, 1},
+                {b[1] + px, b[2] + py, 1, 0},
+            }
+            draw.TexturedPolygon(texture, verts, false)
+        end
+    end
+end
+
+local function DrawLine(p1, p2, thickness)
+    local dx, dy = p2[1] - p1[1], p2[2] - p1[2]
+    local len = math.sqrt(dx*dx + dy*dy)
+    if len <= 0 then return end
+
+    dx, dy = dx / len, dy / len
+    local px, py = -dy * thickness, dx * thickness
+
+    local verts = {
+        {p1[1] + px, p1[2] + py, 0, 0},
+        {p1[1] - px, p1[2] - py, 0, 1},
+        {p2[1] - px, p2[2] - py, 1, 1},
+        {p2[1] + px, p2[2] + py, 1, 0},
+    }
+
+    draw.TexturedPolygon(texture, verts, false)
 end
 
 local function DrawPlayerPath()
-	local lastpos = nil
-	local lastpos_screen = nil
+    if not paths.player_path or #paths.player_path < 2 then return end
 
-	for i, pos in pairs(paths.player_path) do
-		if lastpos then
-			local current = client.WorldToScreen(pos)
-			if current and lastpos_screen then
-				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
-			end
-		end
+    local last = client.WorldToScreen(paths.player_path[1])
+    if not last then return end
 
-		lastpos = pos
-		lastpos_screen = client.WorldToScreen(lastpos)
-	end
-end
-
-local function DrawProjPath()
-	local lastpos = nil
-	local lastpos_screen = nil
-
-	for _, pos in pairs(paths.proj_path) do
-		if lastpos then
-			local current = client.WorldToScreen(pos.pos)
-			if current and lastpos_screen then
-				draw.Line(lastpos_screen[1], lastpos_screen[2], current[1], current[2])
-			end
-		end
-
-		lastpos = pos.pos
-		lastpos_screen = client.WorldToScreen(lastpos)
-	end
+    for i = 2, #paths.player_path do
+        local current = client.WorldToScreen(paths.player_path[i])
+        if current and last then
+            DrawLine(last, current, settings.thickness.player_path)
+        end
+        last = current
+    end
 end
 
 local function DrawMultipointTarget()
-	if not multipoint_target_pos then
-		return
-	end
+    if not multipoint_target_pos then return end
+    local pos = client.WorldToScreen(multipoint_target_pos)
+    if not pos then return end
 
-	local screen_pos = client.WorldToScreen(multipoint_target_pos)
-	if not screen_pos then
-		return
-	end
+    local s = settings.thickness.multipoint_target
+    local verts = {
+        {pos[1] - s, pos[2] - s, 0, 0},
+        {pos[1] + s, pos[2] - s, 1, 0},
+        {pos[1] + s, pos[2] + s, 1, 1},
+        {pos[1] - s, pos[2] + s, 0, 1},
+    }
 
-	-- Draw a small square at the multipoint target position
-	local square_size = 4
+    draw.TexturedPolygon(texture, verts, false)
+end
 
-	-- Draw filled square
-	draw.FilledRect(screen_pos[1] - square_size, screen_pos[2] - square_size,
-	screen_pos[1] + square_size, screen_pos[2] + square_size)
+local function DrawProjPath()
+    if not paths.proj_path or #paths.proj_path < 2 then return end
+
+    local last = client.WorldToScreen(paths.proj_path[1].pos)
+    if not last then return end
+
+    for i = 2, #paths.proj_path do
+        local current = client.WorldToScreen(paths.proj_path[i].pos)
+        if current and last then
+            DrawLine(last, current, settings.thickness.projectile_path)
+        end
+        last = current
+    end
 end
 
 local function Draw()
@@ -780,10 +806,11 @@ local function FrameStage(stage)
 		local plocal = entities.GetLocalPlayer()
 		if not plocal then return end
 
-		local pweapon = plocal:GetPropEntity("m_hActiveWeapon")
-		if not pweapon then return end
-
 		player_sim.RunBackground(plocal, entitylist)
+	elseif stage == E_ClientFrameStage.FRAME_RENDER_START and vAngles then
+		local plocal = entities.GetLocalPlayer()
+		if not plocal or not plocal:GetPropBool("m_nForceTauntCam") then return end
+		plocal:SetVAngles(vAngles)
 	end
 end
 

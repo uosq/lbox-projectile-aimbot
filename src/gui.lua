@@ -45,7 +45,7 @@ function gui.init(settings, version)
 	assert(aim_tab, "[PROJ AIMBOT] aimbot tab is nil! WTF")
 
 	menu:set_tab_draw_function(aim_tab, function (current_window, current_tab, content_offset)
-		window.height = 255
+		window.height = 285
 	end)
 
 	local enabled_btn = menu:make_checkbox()
@@ -152,6 +152,19 @@ function gui.init(settings, version)
 		cancel_shot_btn.enabled = settings.cancel_shot
 	end
 
+	local draw_quads_btn = menu:make_checkbox()
+	draw_quads_btn.height = component_height
+	draw_quads_btn.width = component_width
+	draw_quads_btn.label = "draw quads"
+	draw_quads_btn.enabled = settings.draw_quads
+	draw_quads_btn.x = 10
+	draw_quads_btn.y = get_btn_y()
+
+	draw_quads_btn.func = function()
+		settings.draw_quads = not settings.draw_quads
+		draw_quads_btn.enabled = settings.draw_quads
+	end
+
 	--- right side
 
 	btn_starty = 10
@@ -223,6 +236,19 @@ function gui.init(settings, version)
 	wait_charge_btn.func = function()
 		settings.wait_for_charge = not settings.wait_for_charge
 		wait_charge_btn.enabled = settings.wait_for_charge
+	end
+
+	local show_angles_btn = menu:make_checkbox()
+	show_angles_btn.height = component_height
+	show_angles_btn.width = component_width
+	show_angles_btn.label = "show angles"
+	show_angles_btn.enabled = settings.show_angles
+	show_angles_btn.x = component_width + 20
+	show_angles_btn.y = get_btn_y()
+
+	show_angles_btn.func = function()
+		settings.show_angles = not settings.show_angles
+		show_angles_btn.enabled = settings.show_angles
 	end
 
 	---
@@ -402,7 +428,7 @@ function gui.init(settings, version)
 	assert(colors_tab, "colors tab is nil!")
 
 	menu:set_tab_draw_function(colors_tab, function (current_window, current_tab, content_offset)
-		window.height = 240
+		window.height = 280
 	end)
 
 	btn_starty = 25
@@ -464,6 +490,31 @@ function gui.init(settings, version)
 			btn.enabled = settings.sim[name]
 		end
 	end]]
+
+	local thick = menu:make_tab("thickness")
+	assert(thick, "Thick is not valid!")
+	menu:set_tab_draw_function(thick, function (current_window, current_tab, content_offset)
+		window.height = 195
+	end)
+
+	btn_starty = 25
+
+	for name, visual in pairs (settings.thickness) do
+		local slider = menu:make_slider()
+		assert(slider, string.format("Slider %s is nil!", name))
+
+		slider.width = component_width * 2
+		slider.height = component_height
+		slider.x = 10
+		slider.y = get_slider_y()
+		slider.max = 5
+		slider.min = 0.1
+		slider.value = visual
+		slider.label = string.gsub(name, "_", " ")
+		slider.func = function()
+			settings.thickness[name] = slider.value//1
+		end
+	end
 
 	menu:register()
 	printc(150, 255, 150, 255, "[PROJ AIMBOT] Menu loaded")
