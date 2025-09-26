@@ -204,7 +204,7 @@ local function handle_mouse_click()
 			end
 
 			if input.IsButtonDown(E_ButtonCode.MOUSE_LEFT) then
-				draw.Color(76, 86, 106, 255)
+				draw.Color(175, 208, 208, 255)
 			end
 		end
 	end
@@ -225,7 +225,7 @@ local function handle_mouse_hover()
 	local y2 = component.y + window.y + component.height + OUTLINE_THICKNESS
 
 	if is_mouse_inside(x1, y1, x2, y2) then
-		draw.Color(67, 76, 94, 255)
+		draw.Color(157, 200, 200, 255)
 	end
 end
 
@@ -405,7 +405,7 @@ local function draw_checkbox()
 	draw.SetFont(window.font or font)
 	local _, label_height = draw.GetTextSize(component.label)
 	draw.Color(236, 239, 244, 255)
-	draw.Text(box_x + box_width + 3, box_y + (box_height // 2) - (label_height // 2), component.label)
+	draw.TextShadow(box_x + box_width + 3, box_y + (box_height // 2) - (label_height // 2), component.label)
 end
 
 local function draw_tab_buttons(window)
