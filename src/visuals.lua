@@ -236,10 +236,6 @@ local function drawQuads(self, pos)
 
 	local worldMins = pos + self.target_min_hull
 	local worldMaxs = pos + self.target_max_hull
-	local midX = (worldMins.x + worldMaxs.x) * 0.5
-	local midY = (worldMins.y + worldMaxs.y) * 0.5
-	local midZ = (worldMins.z + worldMaxs.z) * 0.5
-
 	local vertices = getBoxVertices(pos, self.target_min_hull, self.target_max_hull)
 	if not vertices then
 		return
@@ -250,54 +246,24 @@ local function drawQuads(self, pos)
 		projected[index] = client.WorldToScreen(vertex)
 	end
 
-	local faces = {
-		{
-			indices = { 1, 2, 3, 4 },
-			normal = Vector3(0, 0, -1),
-			center = Vector3(midX, midY, worldMins.z)
-		},
-		{
-			indices = { 5, 6, 7, 8 },
-			normal = Vector3(0, 0, 1),
-			center = Vector3(midX, midY, worldMaxs.z)
-		},
-		{
-			indices = { 2, 3, 7, 6 },
-			normal = Vector3(0, 1, 0),
-			center = Vector3(midX, worldMaxs.y, midZ)
-		},
-		{
-			indices = { 1, 4, 8, 5 },
-			normal = Vector3(0, -1, 0),
-			center = Vector3(midX, worldMins.y, midZ)
-		},
-		{
-			indices = { 1, 2, 6, 5 },
-			normal = Vector3(-1, 0, 0),
-			center = Vector3(worldMins.x, midY, midZ)
-		},
-		{
-			indices = { 4, 3, 7, 8 },
-			normal = Vector3(1, 0, 0),
-			center = Vector3(worldMaxs.x, midY, midZ)
-		}
-	}
-
-	for _, face in ipairs(faces) do
-		if isFaceVisible(face.normal, face.center, self.eye_pos) then
-			local idx = face.indices
-			local a, b, c, d = projected[idx[1]], projected[idx[2]], projected[idx[3]], projected[idx[4]]
-			if a and b and c and d then
-				drawQuadFace(self.texture, a, b, c, d)
-			end
-		end
-	end
+	drawQuadFace(self.texture, projected[1], projected[2], projected[3], projected[4])
+	drawQuadFace(self.texture, projected[5], projected[6], projected[7], projected[8])
+	drawQuadFace(self.texture, projected[2], projected[3], projected[7], projected[6])
+	drawQuadFace(self.texture, projected[1], projected[4], projected[8], projected[5])
+	drawQuadFace(self.texture, projected[1], projected[2], projected[6], projected[5])
+	drawQuadFace(self.texture, projected[4], projected[3], projected[7], projected[8])
 end
 
 function Visuals.new(settings)
 	local instance = setmetatable({}, Visuals)
-	instance.settings = settings
-	instance.texture = draw.CreateTextureRGBA(string.char(255, 255, 255, 255), 1, 1)
+	instance.settings = settings or {}
+
+	if draw and draw.CreateTextureRGBA then
+		instance.texture = draw.CreateTextureRGBA(string.char(255, 255, 255, 255), 1, 1)
+	else
+		error("[PROJ AIMBOT] draw library unavailable - textures cannot be created")
+	end
+
 	instance.paths = {
 		player_path = {},
 		proj_path = {},
