@@ -116,6 +116,53 @@ local function drawLine(texture, p1, p2, thickness)
 	draw.TexturedPolygon(texture, verts, false)
 end
 
+local function buildBoxFaces(worldMins, worldMaxs)
+	local midX = (worldMins.x + worldMaxs.x) * 0.5
+	local midY = (worldMins.y + worldMaxs.y) * 0.5
+	local midZ = (worldMins.z + worldMaxs.z) * 0.5
+
+	return {
+		{
+			id = "bottom",
+			indices = { 1, 4, 3, 2 },
+			normal = Vector3(0, 0, -1),
+			center = Vector3(midX, midY, worldMins.z),
+			flip_v = true,
+		},
+		{
+			id = "top",
+			indices = { 5, 6, 7, 8 },
+			normal = Vector3(0, 0, 1),
+			center = Vector3(midX, midY, worldMaxs.z),
+		},
+		{
+			id = "front",
+			indices = { 2, 3, 7, 6 },
+			normal = Vector3(0, 1, 0),
+			center = Vector3(midX, worldMaxs.y, midZ),
+		},
+		{
+			id = "back",
+			indices = { 1, 5, 8, 4 },
+			normal = Vector3(0, -1, 0),
+			center = Vector3(midX, worldMins.y, midZ),
+			flip_u = true,
+		},
+		{
+			id = "left",
+			indices = { 1, 2, 6, 5 },
+			normal = Vector3(-1, 0, 0),
+			center = Vector3(worldMins.x, midY, midZ),
+		},
+		{
+			id = "right",
+			indices = { 4, 8, 7, 3 },
+			normal = Vector3(1, 0, 0),
+			center = Vector3(worldMaxs.x, midY, midZ),
+		},
+	}
+end
+
 local function drawPlayerPath(self)
 	local playerPath = self.paths.player_path
 	if not playerPath or #playerPath < 2 then
@@ -227,25 +274,38 @@ local function drawPlayerHitbox(self, playerPos)
 	end
 
 	local edges = {
-		{ 1, 2 },
-		{ 2, 3 },
-		{ 3, 4 },
-		{ 4, 1 },
-		{ 5, 6 },
-		{ 6, 7 },
-		{ 7, 8 },
-		{ 8, 5 },
-		{ 1, 5 },
-		{ 2, 6 },
-		{ 3, 7 },
-		{ 4, 8 },
+		{ 1, 2, "bottom", "left" },
+		{ 2, 3, "bottom", "front" },
+		{ 3, 4, "bottom", "right" },
+		{ 4, 1, "bottom", "back" },
+		{ 5, 6, "top", "left" },
+		{ 6, 7, "top", "front" },
+		{ 7, 8, "top", "right" },
+		{ 8, 5, "top", "back" },
+		{ 1, 5, "left", "back" },
+		{ 2, 6, "left", "front" },
+		{ 3, 7, "right", "front" },
+		{ 4, 8, "right", "back" },
 	}
+
+	local faces = buildBoxFaces(worldMins, worldMaxs)
+	local facesVisible = {}
+	for _, face in ipairs(faces) do
+		facesVisible[face.id] = isFaceVisible(face.normal, face.center, self.eye_pos)
+	end
+	self.visible_faces = facesVisible
 
 	local thickness = self.settings.thickness.bounding_box
 	for _, edge in ipairs(edges) do
 		local a = projected[edge[1]]
 		local b = projected[edge[2]]
-		if a and b then
+		local faceA = edge[3]
+		local faceB = edge[4]
+
+		local visibleA = facesVisible[faceA]
+		local visibleB = facesVisible[faceB]
+
+		if a and b and (visibleA or visibleB) then
 			drawLine(self.texture, a, b, thickness)
 		end
 	end
@@ -268,50 +328,19 @@ local function drawQuads(self, pos)
 		projected[index] = client.WorldToScreen(vertex)
 	end
 
-	local midX = (worldMins.x + worldMaxs.x) * 0.5
-	local midY = (worldMins.y + worldMaxs.y) * 0.5
-	local midZ = (worldMins.z + worldMaxs.z) * 0.5
+	local faces = buildBoxFaces(worldMins, worldMaxs)
 
-	local faces = {
-		{
-			indices = { 1, 4, 3, 2 },
-			normal = Vector3(0, 0, -1),
-			center = Vector3(midX, midY, worldMins.z),
-			flip_v = true,
-		},
-		{
-			indices = { 5, 6, 7, 8 },
-			normal = Vector3(0, 0, 1),
-			center = Vector3(midX, midY, worldMaxs.z),
-		},
-		{
-			indices = { 2, 3, 7, 6 },
-			normal = Vector3(0, 1, 0),
-			center = Vector3(midX, worldMaxs.y, midZ),
-		},
-		{
-			indices = { 1, 5, 8, 4 },
-			normal = Vector3(0, -1, 0),
-			center = Vector3(midX, worldMins.y, midZ),
-			flip_u = true,
-		},
-		{
-			indices = { 1, 2, 6, 5 },
-			normal = Vector3(-1, 0, 0),
-			center = Vector3(worldMins.x, midY, midZ),
-		},
-		{
-			indices = { 4, 8, 7, 3 },
-			normal = Vector3(1, 0, 0),
-			center = Vector3(worldMaxs.x, midY, midZ),
-		},
-	}
+	local facesVisible = {}
 
 	for _, face in ipairs(faces) do
-		if isFaceVisible(face.normal, face.center, self.eye_pos) then
+		local visible = isFaceVisible(face.normal, face.center, self.eye_pos)
+		facesVisible[face.id] = visible
+		if visible then
 			drawQuadFace(self.texture, projected, face.indices, face.flip_u, face.flip_v)
 		end
 	end
+
+	self.visible_faces = facesVisible
 end
 
 function Visuals.new(settings)
@@ -368,6 +397,21 @@ end
 function Visuals:draw()
 	if not self.settings.enabled then
 		return
+	end
+
+	local localPlayer = entities and entities.GetLocalPlayer and entities.GetLocalPlayer()
+	if localPlayer then
+		local origin = localPlayer:GetAbsOrigin()
+		local viewOffset = localPlayer:GetPropVector("localdata", "m_vecViewOffset[0]")
+		if origin and viewOffset then
+			self.eye_pos = origin + viewOffset
+		elseif origin then
+			self.eye_pos = origin
+		else
+			self.eye_pos = nil
+		end
+	else
+		self.eye_pos = nil
 	end
 
 	if not self.displayed_time or self.displayed_time < globals.CurTime() then
