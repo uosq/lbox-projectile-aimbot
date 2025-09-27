@@ -86,6 +86,24 @@ function FastPlayers.Reset()
 	ResetCaches()
 end
 
+callbacks.Unregister("CreateMove", "FastPlayers_ResetCaches")
+callbacks.Unregister("FireGameEvent", "FastPlayers_PlayerEvents")
+
 callbacks.Register("CreateMove", "FastPlayers_ResetCaches", ResetCaches)
+callbacks.Register("FireGameEvent", "FastPlayers_PlayerEvents", function(event)
+    local name = event:GetName()
+    if name == "player_disconnect"
+        or name == "player_connect"
+        or name == "player_changeteam"
+        or name == "player_changeclass"
+        or name == "player_spawn"
+        or name == "teamplay_round_start"
+        or name == "game_newmap"
+        or name == "localplayer_changeteam"
+        or name == "localplayer_changeclass"
+    then
+        FastPlayers.Reset()
+    end
+end)
 
 return FastPlayers
