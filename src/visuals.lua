@@ -47,7 +47,7 @@ local function hsvToRgb(hue, saturation, value)
 		return p, q, value
 	elseif hueSector == 4 then
 		return t, p, value
-	elseif hueSector == 5 then
+	else
 		return value, p, q
 	end
 end
@@ -57,15 +57,21 @@ local function drawQuadFaceDoubleSided(texture, a, b, c, d)
 		return
 	end
 
-	local front1 = { xyuv(a, 0, 0), xyuv(b, 1, 0), xyuv(c, 1, 1) }
-	local front2 = { xyuv(a, 0, 0), xyuv(c, 1, 1), xyuv(d, 0, 1) }
-	draw.TexturedPolygon(texture, front1, true)
-	draw.TexturedPolygon(texture, front2, true)
+	local front = {
+		xyuv(a, 0, 0),
+		xyuv(b, 1, 0),
+		xyuv(c, 1, 1),
+		xyuv(d, 0, 1),
+	}
+	local back = {
+		xyuv(a, 0, 0),
+		xyuv(d, 0, 1),
+		xyuv(c, 1, 1),
+		xyuv(b, 1, 0),
+	}
 
-	local back1 = { xyuv(a, 0, 0), xyuv(c, 1, 1), xyuv(b, 1, 0) }
-	local back2 = { xyuv(a, 0, 0), xyuv(d, 0, 1), xyuv(c, 1, 1) }
-	draw.TexturedPolygon(texture, back1, true)
-	draw.TexturedPolygon(texture, back2, true)
+	draw.TexturedPolygon(texture, front, true)
+	draw.TexturedPolygon(texture, back, true)
 end
 
 local function drawLine(texture, p1, p2, thickness)
