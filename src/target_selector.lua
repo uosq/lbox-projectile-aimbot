@@ -104,11 +104,11 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 	local selected_entity = nil
 	local nOffset = nil
 	local trace
-	local index = nil
+	local selected_index = nil
 
 	local close_distance = (settings.close_distance * 0.01) * settings.max_distance
 
-	for _, entityInfo in pairs(entitylist) do
+	for idx, entityInfo in ipairs(entitylist) do
 		if not ShouldSkipPlayer(entityInfo, settings) then
 			local vDistance = (vHeadPos - entityInfo.m_vecPos):Length()
 			if vDistance <= settings.max_distance then
@@ -125,6 +125,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 							bestFov = fov
 							selected_entity = entityInfo.m_iIndex
 							nOffset = zOffset
+							selected_index = idx
 						end
 					else
 						trace = engine.TraceLine(
@@ -142,8 +143,8 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 							if fov <= bestFov then
 								bestFov = fov
 								selected_entity = entityInfo.m_iIndex
-								index = entityInfo.m_iIndex
 								nOffset = zOffset
+								selected_index = idx
 							end
 						end
 					end
@@ -155,8 +156,9 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 	if selected_entity == nil then
 		return nil, nil
 	end
+	print(selected_entity)
 
-	return entities.GetByIndex(selected_entity), nOffset, index
+	return entities.GetByIndex(selected_entity), nOffset, selected_index
 end
 
 return mod
