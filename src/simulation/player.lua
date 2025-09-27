@@ -706,10 +706,10 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 	local tick_interval = globals.TickInterval()
 	local local_player_index = client.GetLocalPlayerIndex()
 
-	local surface_friction = pInfo.m_flFriction
+	local surface_friction = pInfo.m_flFriction or 1.0
 	local angular_velocity = pInfo.m_flAngularVelocity * tick_interval
-	local maxspeed = pInfo.m_flMaxspeed
-	local step_size = pInfo.m_flStepSize
+	local maxspeed = pInfo.m_flMaxspeed or 450
+	local step_size = pInfo.m_flStepSize or 18
 	local mins = pInfo.m_vecMins
 	local maxs = pInfo.m_vecMaxs
 	local gravity_step = pInfo.m_flGravityStep * tick_interval

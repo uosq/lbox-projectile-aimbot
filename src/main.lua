@@ -161,6 +161,7 @@ local vAngles = nil
 ---@field m_flStepSize number
 ---@field m_vecMins Vector3
 ---@field m_vecMaxs Vector3
+---@field m_iIndex integer
 
 ---@type table<integer, ENTRY>
 local entitylist = {}
@@ -407,7 +408,8 @@ end
 local function ProcessBuilding(classTable, enemy_team)
 	for _, building in pairs(classTable) do
 		if building:GetTeamNumber() == enemy_team and building:GetHealth() > 0 and not building:IsDormant() then
-			entitylist[building:GetIndex()] = {
+			entitylist[#entitylist+1] = {
+				m_iIndex = building:GetIndex(),
 				m_vecPos = building:GetPropVector("m_vecOrigin") or building:GetAbsOrigin(),
 				m_vecVelocity = Vector3(),
 				m_flFriction = 0,
@@ -419,6 +421,11 @@ local function ProcessBuilding(classTable, enemy_team)
 				m_vecMins = building:GetMins(),
 				m_vecMaxs = building:GetMaxs(),
 				m_nCond = 0,
+				m_nCondEx = 0,
+				m_nCondEx2 = 0,
+				m_nCondEx3 = 0,
+				m_nCondEx4 = 0,
+				m_nConditionBits = 0,
 				priority = 0,
 			}
 		end
@@ -438,21 +445,25 @@ local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporte
 
 	for _, player in pairs(players) do
 		if player:GetTeamNumber() == enemy_team and player:IsAlive() and not player:IsDormant() then
-			entitylist[player:GetIndex()] = {
+			entitylist[#entitylist+1] = {
+				m_iIndex = player:GetIndex(),
 				m_vecPos = player:GetPropVector("localdata", "m_vecOrigin") or player:GetAbsOrigin(),
-				m_vecVelocity = player:EstimateAbsVelocity(),
-				m_flFriction = player:GetPropFloat("m_flFriction"),
+				m_vecVelocity = player:EstimateAbsVelocity() or Vector3(),
+				m_flFriction = player:GetPropFloat("m_flFriction") or 1.0,
 				m_flAngularVelocity = player_sim.GetSmoothedAngularVelocity(player),
-				m_flGravityStep = sv_gravity,
-				m_flMaxspeed = player:GetPropFloat("m_flMaxspeed"),
+				m_flGravityStep = sv_gravity or 800.0,
+				m_flMaxspeed = player:GetPropFloat("m_flMaxspeed") or 450,
 				m_iTeam = enemy_team,
-				m_flStepSize = player:GetPropFloat("m_flStepSize"),
+				m_flStepSize = player:GetPropFloat("m_flStepSize") or 18,
 				m_vecMins = player:GetMins(),
 				m_vecMaxs = player:GetMaxs(),
 
 				m_nCond = player:GetPropInt("m_Shared", "m_nPlayerCond") or 0,
-				--m_nCondEx = player:GetPropInt("m_Shared", "m_nPlayerCondEx") or 0,
-				--m_nCondEx2 = player:GetPropInt("m_Shared", "m_nPlayerCondEx2") or 0,
+				m_nCondEx = player:GetPropInt("m_Shared", "m_nPlayerCondEx") or 0,
+				m_nCondEx2 = player:GetPropInt("m_Shared", "m_nPlayerCondEx2") or 0,
+				m_nCondEx3 = player:GetPropInt("m_Shared", "m_nPlayerCondEx3") or 0,
+				m_nCondEx4 = player:GetPropInt("m_Shared", "m_nPlayerCondEx4") or 0,
+				m_nConditionBits = player:GetPropInt("m_Shared", "m_ConditionList", "_condition_bits") or 0,
 				priority = playerlist.GetPriority(player),
 			}
 		end
@@ -524,7 +535,7 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local pTarget = target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
+	local pTarget, _, index = target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
 	pSelectedTarget = pTarget
 	if pTarget == nil then
 		return
@@ -548,7 +559,10 @@ local function CreateMove(uCmd)
 
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time + 1 --- one extra tick because our current createmove is 1 tick behind
-	local pInfo = entitylist[pTarget:GetIndex()]
+	local pInfo = entitylist[index]
+	if not pInfo then
+		return
+	end
 
 	if settings.draw_only then
 		local player_path = player_sim.Run(pInfo, pTarget, vecTargetOrigin, detonate_time)

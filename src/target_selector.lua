@@ -7,32 +7,30 @@ local mod = {}
 --- relative to Maxs().z
 local z_offsets = {0.2, 0.4, 0.5, 0.7, 0.9}
 
----@param pLocal Entity
-local function GetEnemyTeam(pLocal)
-    return pLocal:GetTeamNumber() == 2 and 3 or 2
-end
-
 ---@param entityData table
 ---@param settings table
 local function ShouldSkipPlayer(entityData, settings)
     local cond = entityData.m_nCond
+    local condEx = entityData.m_nCondEx
+    local condEx2 = entityData.m_nCondEx2
+    local condition_bits = entityData.m_nConditionBits
 
     -- cloak/disguise/taunt/bonk
-    if settings.ignore_conds.cloaked    and (cond & E_TFCOND.TFCond_Cloaked)    ~= 0 then return true end
-    if settings.ignore_conds.disguised  and (cond & E_TFCOND.TFCond_Disguised)  ~= 0 then return true end
-    if settings.ignore_conds.taunting   and (cond & E_TFCOND.TFCond_Taunting)   ~= 0 then return true end
-    if settings.ignore_conds.bonked     and (cond & E_TFCOND.TFCond_Bonked)     ~= 0 then return true end
+    if settings.ignore_conds.cloaked    and ((cond & E_TFCOND.TFCond_Cloaked)    ~= 0 or (condition_bits & (1<<cond)) ~= 0) then return true end
+    if settings.ignore_conds.disguised  and ((cond & E_TFCOND.TFCond_Disguised)  ~= 0 or (condition_bits & (1<<cond)) ~= 0) then return true end
+    if settings.ignore_conds.taunting   and ((cond & E_TFCOND.TFCond_Taunting)   ~= 0 or (condition_bits & (1<<cond)) ~= 0) then return true end
+    if settings.ignore_conds.bonked     and ((cond & E_TFCOND.TFCond_Bonked)     ~= 0 or (condition_bits & (1<<cond)) ~= 0) then return true end
 
     -- uber / crit
-    if settings.ignore_conds.ubercharged  and (cond & E_TFCOND.TFCond_Ubercharged)  ~= 0 then return true end
-    if settings.ignore_conds.kritzkrieged and (cond & E_TFCOND.TFCond_Kritzkrieged) ~= 0 then return true end
+    if settings.ignore_conds.ubercharged  and ((cond & E_TFCOND.TFCond_Ubercharged)  ~= 0 or condition_bits & (1<<cond) ~= 0) then return true end
+    if settings.ignore_conds.kritzkrieged and ((cond & E_TFCOND.TFCond_Kritzkrieged) ~= 0 or condition_bits & (1<<cond) ~= 0) then return true end
 
     -- debuffs
-    if settings.ignore_conds.jarated and (cond & E_TFCOND.TFCond_Jarated) ~= 0 then return true end
-    if settings.ignore_conds.milked  and (cond & E_TFCOND.TFCond_Milked)  ~= 0 then return true end
+    if settings.ignore_conds.jarated and ((cond & E_TFCOND.TFCond_Jarated) ~= 0 or condition_bits & (1<<cond) ~= 0) then return true end
+    if settings.ignore_conds.milked  and ((cond & E_TFCOND.TFCond_Milked)  ~= 0 or condition_bits & (1<<cond) ~= 0) then return true end
 
     -- misc
-    if settings.ignore_conds.ghost and (cond & E_TFCOND.TFCond_HalloweenGhostMode) ~= 0 then return true end
+    if settings.ignore_conds.ghost and (condEx2 & (1 << (E_TFCOND.TFCond_HalloweenGhostMode - 64))) ~= 0 then return true end
 
     -- friends / priority
     if entityData.priority < 0 and not settings.ignore_conds.friends then
@@ -51,7 +49,7 @@ local function ShouldSkipPlayer(entityData, settings)
     | E_TFCOND.TFCond_SmallFireResist
 
     -- vaccinator resistances (single mask)
-    if settings.ignore_conds.vaccinator and (cond & VACCINATOR_MASK) ~= 0 then
+    if settings.ignore_conds.vaccinator and (condEx & (1 << (VACCINATOR_MASK - 32))) ~= 0 then
         return true
     end
 
@@ -64,16 +62,17 @@ end
 ---@param entitylist table<integer, ENTRY>
 ---@param settings table
 ---@param bAimAtTeamMates boolean
----@return Entity?, number?
+---@return Entity?, number?, integer?
 function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
     local bestFov = settings.fov
     local selected_entity = nil
     local nOffset = nil
     local trace
+    local index = nil
 
     local close_distance = (settings.close_distance * 0.01) * settings.max_distance
 
-    for index, entityInfo in pairs (entitylist) do
+    for _, entityInfo in ipairs (entitylist) do
         if not ShouldSkipPlayer(entityInfo, settings) then
             local vDistance = (vHeadPos - entityInfo.m_vecPos):Length()
             if vDistance <= settings.max_distance then
@@ -88,7 +87,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
                         local fov = math_utils.AngleFov(angle, engine.GetViewAngles())
                         if fov <= bestFov then
                             bestFov = fov
-                            selected_entity = index
+                            selected_entity = entityInfo.m_iIndex
                             nOffset = zOffset
                         end
                     else
@@ -101,7 +100,8 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
                             local fov = math_utils.AngleFov(angle, engine.GetViewAngles())
                             if fov <= bestFov then
                                 bestFov = fov
-                                selected_entity = index
+                                selected_entity = entityInfo.m_iIndex
+                                index = entityInfo.m_iIndex
                                 nOffset = zOffset
                             end
                         end
@@ -115,7 +115,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
         return nil, nil
     end
 
-    return entities.GetByIndex(selected_entity), nOffset
+    return entities.GetByIndex(selected_entity), nOffset, index
 end
 
 return mod
