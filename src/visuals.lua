@@ -356,7 +356,7 @@ local function drawQuads(self, pos, baseColor)
 				elseif cosTheta > 1 then
 					cosTheta = 1
 				end
-				intensity = 0.45 + (cosTheta * 0.55)
+				intensity = 0.42 + (cosTheta * 0.58)
 			end
 
 			local r = (baseR * intensity) // 1
