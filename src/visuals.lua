@@ -311,7 +311,7 @@ local function drawPlayerHitbox(self, playerPos)
 	end
 end
 
-local function drawQuads(self, pos)
+local function drawQuads(self, pos, baseColor)
 	if not (pos and self.target_min_hull and self.target_max_hull and self.eye_pos) then
 		return
 	end
@@ -331,11 +331,38 @@ local function drawQuads(self, pos)
 	local faces = buildBoxFaces(worldMins, worldMaxs)
 
 	local facesVisible = {}
+	baseColor = baseColor or { r = 255, g = 255, b = 255, a = 25 }
+	local baseR = baseColor.r or 255
+	local baseG = baseColor.g or 255
+	local baseB = baseColor.b or 255
+	local baseA = baseColor.a or 255
 
 	for _, face in ipairs(faces) do
 		local visible = isFaceVisible(face.normal, face.center, self.eye_pos)
 		facesVisible[face.id] = visible
 		if visible then
+			local toEyeX = self.eye_pos.x - face.center.x
+			local toEyeY = self.eye_pos.y - face.center.y
+			local toEyeZ = self.eye_pos.z - face.center.z
+			local length = math.sqrt((toEyeX * toEyeX) + (toEyeY * toEyeY) + (toEyeZ * toEyeZ))
+			local intensity = 1
+			if length > 0 then
+				local dirX = toEyeX / length
+				local dirY = toEyeY / length
+				local dirZ = toEyeZ / length
+				local cosTheta = (dirX * face.normal.x) + (dirY * face.normal.y) + (dirZ * face.normal.z)
+				if cosTheta < 0 then
+					cosTheta = 0
+				elseif cosTheta > 1 then
+					cosTheta = 1
+				end
+				intensity = 0.45 + (cosTheta * 0.55)
+			end
+
+			local r = (baseR * intensity) // 1
+			local g = (baseG * intensity) // 1
+			local b = (baseB * intensity) // 1
+			draw.Color(r, g, b, baseA)
 			drawQuadFace(self.texture, projected, face.indices, face.flip_u, face.flip_v)
 		end
 	end
@@ -472,14 +499,20 @@ function Visuals:draw()
 	if settings.draw_quads and playerPath and #playerPath > 0 then
 		local pos = playerPath[#playerPath]
 		if pos then
+			local baseColor
 			if settings.colors.quads >= 360 then
-				draw.Color(255, 255, 255, 25)
+				baseColor = { r = 255, g = 255, b = 255, a = 25 }
 			else
 				local r, g, b = hsvToRgb(settings.colors.quads, 0.5, 1)
-				draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 25)
+				baseColor = {
+					r = (r * 255) // 1,
+					g = (g * 255) // 1,
+					b = (b * 255) // 1,
+					a = 25,
+				}
 			end
 
-			drawQuads(self, pos)
+			drawQuads(self, pos, baseColor)
 		end
 	end
 end
