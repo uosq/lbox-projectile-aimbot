@@ -52,17 +52,39 @@ local function hsvToRgb(hue, saturation, value)
 	end
 end
 
-local function drawQuadFace(texture, a, b, c, d)
-	if not (texture and a and b and c and d) then
+local function drawQuadFace(texture, projected, indices, flipU, flipV)
+	if not (texture and projected and indices) then
 		return
 	end
 
-	local poly = {
-		xyuv(a, 0, 0),
-		xyuv(b, 1, 0),
-		xyuv(c, 1, 1),
-		xyuv(d, 0, 1),
+	local uvs = {
+		{ 0, 0 },
+		{ 1, 0 },
+		{ 1, 1 },
+		{ 0, 1 },
 	}
+
+	if flipU then
+		for i = 1, 4 do
+			uvs[i][1] = 1 - uvs[i][1]
+		end
+	end
+
+	if flipV then
+		for i = 1, 4 do
+			uvs[i][2] = 1 - uvs[i][2]
+		end
+	end
+
+	local poly = {}
+	for i = 1, 4 do
+		local vertex = projected[indices[i]]
+		if not vertex then
+			return
+		end
+
+		poly[i] = xyuv(vertex, uvs[i][1], uvs[i][2])
+	end
 
 	draw.TexturedPolygon(texture, poly, true)
 end
@@ -246,12 +268,50 @@ local function drawQuads(self, pos)
 		projected[index] = client.WorldToScreen(vertex)
 	end
 
-	drawQuadFace(self.texture, projected[1], projected[2], projected[3], projected[4])
-	drawQuadFace(self.texture, projected[5], projected[6], projected[7], projected[8])
-	drawQuadFace(self.texture, projected[2], projected[3], projected[7], projected[6])
-	drawQuadFace(self.texture, projected[1], projected[4], projected[8], projected[5])
-	drawQuadFace(self.texture, projected[1], projected[2], projected[6], projected[5])
-	drawQuadFace(self.texture, projected[4], projected[3], projected[7], projected[8])
+	local midX = (worldMins.x + worldMaxs.x) * 0.5
+	local midY = (worldMins.y + worldMaxs.y) * 0.5
+	local midZ = (worldMins.z + worldMaxs.z) * 0.5
+
+	local faces = {
+		{
+			indices = { 1, 4, 3, 2 },
+			normal = Vector3(0, 0, -1),
+			center = Vector3(midX, midY, worldMins.z),
+			flip_v = true,
+		},
+		{
+			indices = { 5, 6, 7, 8 },
+			normal = Vector3(0, 0, 1),
+			center = Vector3(midX, midY, worldMaxs.z),
+		},
+		{
+			indices = { 2, 3, 7, 6 },
+			normal = Vector3(0, 1, 0),
+			center = Vector3(midX, worldMaxs.y, midZ),
+		},
+		{
+			indices = { 1, 5, 8, 4 },
+			normal = Vector3(0, -1, 0),
+			center = Vector3(midX, worldMins.y, midZ),
+			flip_u = true,
+		},
+		{
+			indices = { 1, 2, 6, 5 },
+			normal = Vector3(-1, 0, 0),
+			center = Vector3(worldMins.x, midY, midZ),
+		},
+		{
+			indices = { 4, 8, 7, 3 },
+			normal = Vector3(1, 0, 0),
+			center = Vector3(worldMaxs.x, midY, midZ),
+		},
+	}
+
+	for _, face in ipairs(faces) do
+		if isFaceVisible(face.normal, face.center, self.eye_pos) then
+			drawQuadFace(self.texture, projected, face.indices, face.flip_u, face.flip_v)
+		end
+	end
 end
 
 function Visuals.new(settings)
