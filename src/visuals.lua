@@ -52,26 +52,19 @@ local function hsvToRgb(hue, saturation, value)
 	end
 end
 
-local function drawQuadFaceDoubleSided(texture, a, b, c, d)
+local function drawQuadFace(texture, a, b, c, d)
 	if not (texture and a and b and c and d) then
 		return
 	end
 
-	local front = {
+	local poly = {
 		xyuv(a, 0, 0),
 		xyuv(b, 1, 0),
 		xyuv(c, 1, 1),
 		xyuv(d, 0, 1),
-	}
-	local back = {
-		xyuv(a, 0, 0),
-		xyuv(d, 0, 1),
-		xyuv(c, 1, 1),
-		xyuv(b, 1, 0),
 	}
 
-	draw.TexturedPolygon(texture, front, true)
-	draw.TexturedPolygon(texture, back, true)
+	draw.TexturedPolygon(texture, poly, true)
 end
 
 local function drawLine(texture, p1, p2, thickness)
@@ -165,6 +158,16 @@ local function drawMultipointTarget(self)
 	draw.TexturedPolygon(self.texture, verts, false)
 end
 
+local function isFaceVisible(normal, faceCenter, eyePos)
+	if not (normal and faceCenter and eyePos) then
+		return true
+	end
+
+	local toEye = Vector3(eyePos.x - faceCenter.x, eyePos.y - faceCenter.y, eyePos.z - faceCenter.z)
+	local dot = (toEye.x * normal.x) + (toEye.y * normal.y) + (toEye.z * normal.z)
+	return dot > 0
+end
+
 local function drawPlayerHitbox(self, playerPos)
 	if not playerPos then
 		return
@@ -227,9 +230,15 @@ local function drawPlayerHitbox(self, playerPos)
 end
 
 local function drawQuads(self, pos)
-	if not (pos and self.target_min_hull and self.target_max_hull) then
+	if not (pos and self.target_min_hull and self.target_max_hull and self.eye_pos) then
 		return
 	end
+
+	local worldMins = pos + self.target_min_hull
+	local worldMaxs = pos + self.target_max_hull
+	local midX = (worldMins.x + worldMaxs.x) * 0.5
+	local midY = (worldMins.y + worldMaxs.y) * 0.5
+	local midZ = (worldMins.z + worldMaxs.z) * 0.5
 
 	local vertices = getBoxVertices(pos, self.target_min_hull, self.target_max_hull)
 	if not vertices then
@@ -241,12 +250,48 @@ local function drawQuads(self, pos)
 		projected[index] = client.WorldToScreen(vertex)
 	end
 
-	drawQuadFaceDoubleSided(self.texture, projected[1], projected[2], projected[3], projected[4])
-	drawQuadFaceDoubleSided(self.texture, projected[5], projected[6], projected[7], projected[8])
-	drawQuadFaceDoubleSided(self.texture, projected[2], projected[3], projected[7], projected[6])
-	drawQuadFaceDoubleSided(self.texture, projected[1], projected[4], projected[8], projected[5])
-	drawQuadFaceDoubleSided(self.texture, projected[1], projected[2], projected[6], projected[5])
-	drawQuadFaceDoubleSided(self.texture, projected[4], projected[3], projected[7], projected[8])
+	local faces = {
+		{
+			indices = { 1, 2, 3, 4 },
+			normal = Vector3(0, 0, -1),
+			center = Vector3(midX, midY, worldMins.z)
+		},
+		{
+			indices = { 5, 6, 7, 8 },
+			normal = Vector3(0, 0, 1),
+			center = Vector3(midX, midY, worldMaxs.z)
+		},
+		{
+			indices = { 2, 3, 7, 6 },
+			normal = Vector3(0, 1, 0),
+			center = Vector3(midX, worldMaxs.y, midZ)
+		},
+		{
+			indices = { 1, 4, 8, 5 },
+			normal = Vector3(0, -1, 0),
+			center = Vector3(midX, worldMins.y, midZ)
+		},
+		{
+			indices = { 1, 2, 6, 5 },
+			normal = Vector3(-1, 0, 0),
+			center = Vector3(worldMins.x, midY, midZ)
+		},
+		{
+			indices = { 4, 3, 7, 8 },
+			normal = Vector3(1, 0, 0),
+			center = Vector3(worldMaxs.x, midY, midZ)
+		}
+	}
+
+	for _, face in ipairs(faces) do
+		if isFaceVisible(face.normal, face.center, self.eye_pos) then
+			local idx = face.indices
+			local a, b, c, d = projected[idx[1]], projected[idx[2]], projected[idx[3]], projected[idx[4]]
+			if a and b and c and d then
+				drawQuadFace(self.texture, a, b, c, d)
+			end
+		end
+	end
 end
 
 function Visuals.new(settings)
@@ -260,6 +305,7 @@ function Visuals.new(settings)
 	instance.displayed_time = 0
 	instance.target_min_hull = Vector3()
 	instance.target_max_hull = Vector3()
+	instance.eye_pos = nil
 
 	return instance
 end
@@ -278,6 +324,10 @@ function Visuals:set_target_hull(mins, maxs)
 	self.target_max_hull = maxs or Vector3()
 end
 
+function Visuals:set_eye_position(pos)
+	self.eye_pos = pos
+end
+
 function Visuals:set_displayed_time(time)
 	self.displayed_time = time or 0
 end
@@ -286,6 +336,7 @@ function Visuals:clear()
 	self.paths.player_path = {}
 	self.paths.proj_path = {}
 	self.multipoint_target_pos = nil
+	self.eye_pos = nil
 end
 
 function Visuals:draw()

@@ -11,7 +11,6 @@
 --]]
 
 ---@diagnostic disable: cast-local-type
-print(true)
 printc(186, 97, 255, 255, "The projectile aimbot is loading...")
 
 local version = "10"
@@ -571,6 +570,7 @@ local function CreateMove(uCmd)
 	end
 
 	local vHeadPos = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+	visuals:set_eye_position(vHeadPos)
 	local players = entities.FindByClass("CTFPlayer")
 	local sentries = entities.FindByClass("CObjectSentrygun")
 	local dispensers = entities.FindByClass("CObjectDispenser")
@@ -652,7 +652,6 @@ local function CreateMove(uCmd)
 
 	HandleWeaponFiring(uCmd, pLocal, pWeapon, pTarget, charge_time, weaponInfo, time_ticks, vHeadPos, pInfo)
 end
-
 
 --- source: https://gist.github.com/GigsD4X/8513963
 local function HSVToRGB(hue, saturation, value)

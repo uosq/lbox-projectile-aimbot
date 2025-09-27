@@ -156,7 +156,6 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 	if selected_entity == nil then
 		return nil, nil
 	end
-	print(selected_entity)
 
 	return entities.GetByIndex(selected_entity), nOffset, selected_index
 end
