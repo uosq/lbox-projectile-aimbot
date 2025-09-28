@@ -98,7 +98,7 @@ end
 ---@param entitylist table<integer, ENTRY>
 ---@param settings table
 ---@param bAimAtTeamMates boolean
----@return Entity?, number?, integer?
+---@return Entity?, number?, ENTRY?
 function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
 	local bestFov = settings.fov
 	local selected_entity = nil
