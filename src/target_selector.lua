@@ -157,7 +157,7 @@ function mod.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamM
 		return nil, nil
 	end
 
-	return entities.GetByIndex(selected_entity), nOffset, selected_index
+	return entities.GetByIndex(selected_entity), nOffset, entitylist[selected_index]
 end
 
 return mod
