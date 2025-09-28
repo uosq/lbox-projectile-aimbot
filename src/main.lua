@@ -126,6 +126,10 @@ local Visuals = require("src.visuals")
 assert(Visuals, "[PROJ AIMBOT] Visuals module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Visuals module loaded")
 
+local FastPlayers = require("src.utils.FastPlayers")
+assert(FastPlayers, "[PROJ AIMBOT] FastPlayers module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] FastPlayers module loaded")
+
 local visuals = Visuals.new(settings)
 local entities = entities
 local engine = engine
