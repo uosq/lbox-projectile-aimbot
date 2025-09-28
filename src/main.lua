@@ -360,6 +360,7 @@ local function GetTargets(includeTeam)
 
         -- simulate player path if moving
         if data.velocity:Length() > 0 then
+			data.origin.z = data.origin.z + 5 --- smol offset to fix a issue
             local time_ticks = math.ceil((total_time * 66.67) + 0.5) + choked_time + 1
             data.sim_path = player_sim.Run(data, ent, data.origin, time_ticks)
             if data.sim_path and #data.sim_path > 0 then
