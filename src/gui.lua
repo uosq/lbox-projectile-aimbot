@@ -49,9 +49,9 @@ function gui.init(settings, version)
 		settings.draw_multipoint_target = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "cancel shot", settings.cancel_shot, function(checked)
+	--[[menu:CreateToggle(aim_tab, component_width, component_height, "cancel shot", settings.cancel_shot, function(checked)
 		settings.cancel_shot = checked
-	end)
+	end)]]
 
 	menu:CreateToggle(aim_tab, component_width, component_height, "draw filled bounding box", settings.draw_quads, function(checked)
 		settings.draw_quads = checked

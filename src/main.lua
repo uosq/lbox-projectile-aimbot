@@ -73,10 +73,10 @@ local settings = {
 	},
 
 	weights = {
-		health_weight     = 0.5,
-		distance_weight   = 0.7,
+		health_weight     = 1.0, -- prefer lower player health
+		distance_weight   = 1.1, -- prefer closer players
 		fov_weight        = 2,
-		visibility_weight = 0.8,
+		visibility_weight = 1.2,
 		speed_weight      = 0.6,   -- prefer slower targets
 		medic_priority    = 1.5,   -- bonus if Medic
 		sniper_priority   = 1.0,   -- bonus if Sniper
@@ -142,6 +142,7 @@ local plocal, weapon, weaponInfo = nil, nil, nil
 ---@field score number
 ---@field isUbered boolean
 ---@field class integer
+---@field maxhealth integer
 
 ---@type table<integer, EntityInfo>
 local _entitylist = {}
@@ -156,6 +157,7 @@ local paths = {
 
 local displayed_time = 0.0
 local target_min_hull, target_max_hull = nil, nil
+local vAngles = nil
 
 ---@param pos Vector3
 ---@param mins Vector3
@@ -233,6 +235,7 @@ local function ProcessClass(className, includeTeam)
 			score = 0,
 			class = entity:GetPropInt("m_iClass") or nil,
 			isUbered = entity:InCond(E_TFCOND.TFCond_Ubercharged),
+			maxhealth = entity:GetMaxBuffedHealth()
 		}
 
 	    ::continue::
@@ -252,7 +255,7 @@ local function CalculateScore(data, eyePos, viewAngles)
 
     -- Health (lower health = higher score)
     if w.health_weight > 0 then
-        local health_score = 1 - math.min(data.health / 300, 1)
+        local health_score = 1 - math.min(data.health / data.maxhealth, 1)
         score = score + health_score * w.health_weight
     end
 
@@ -412,6 +415,8 @@ local function CreateMove(cmd)
 		return
 	end
 
+	vAngles = nil
+
 	if settings.enabled == false then
 		return
 	end
@@ -440,6 +445,19 @@ local function CreateMove(cmd)
 		return
 	end
 
+	if weaponInfo.m_bCharges then
+		local begintime = weapon:GetChargeBeginTime()
+		local maxtime = weapon:GetChargeMaxTime()
+		local percentage = (globals.CurTime() - begintime)/maxtime
+		if percentage > maxtime then
+			percentage = 0.0
+		end
+		if percentage < 0.1 then
+			cmd.buttons = cmd.buttons | IN_ATTACK
+			return
+		end
+	end
+
 	---@type table<integer, EntityInfo>?
 	local targets = GetTargets()
 	if targets == nil then
@@ -449,9 +467,10 @@ local function CreateMove(cmd)
 	---@type EulerAngles?
 	local angle = nil
 
-	local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
-	local projectileSpeed = weaponInfo:GetVelocity(0):Length2D()
-	local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(0) * 0.5
+	local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
+    local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+    local projectileSpeed = weaponInfo:GetVelocity(charge):Length2D()
+    local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge) * 0.5
 
 	for _, target in ipairs(targets) do
 		local finalPos = target.finalPos or target.origin
@@ -459,12 +478,15 @@ local function CreateMove(cmd)
 		-- calculate ballistic angle
 		angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
 		if angle then
-			cmd.buttons = cmd.buttons | IN_ATTACK
-			cmd.viewangles = Vector3(angle:Unpack())
+			if weaponInfo.m_bCharges == false then
+				cmd.buttons = cmd.buttons | IN_ATTACK
+			end
 			cmd.sendpacket = false
+			cmd.viewangles = Vector3(angle:Unpack())
 			paths.player = target.sim_path
 			displayed_time = globals.CurTime() + settings.draw_time
 			target_min_hull, target_max_hull = target.mins, target.maxs
+			vAngles = angle
 			return
 		end
 	end
@@ -483,6 +505,10 @@ local function FrameStage(stage)
 		weaponInfo = GetProjectileInformation(weapon:GetPropInt("m_iItemDefinitionIndex"))
 
 		player_sim.RunBackground(entities.FindByClass("CTFPlayer"))
+	elseif stage == E_ClientFrameStage.FRAME_RENDER_START and vAngles and settings.show_angles then
+		if plocal == nil then return end
+		if plocal:GetPropBool("m_nForceTauntCam") == false then return end
+		plocal:SetVAngles(Vector3(vAngles:Unpack()))
 	end
 end
 
