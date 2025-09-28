@@ -222,8 +222,8 @@ local function ProcessClass(className, includeTeam)
 			health = entity:GetHealth(),
 			maxs = entity:GetMaxs(),
 			mins = entity:GetMins(),
-			velocity = entity:EstimateAbsVelocity(),
-			maxspeed = entity:GetPropFloat("m_flMaxspeed"),
+			velocity = entity:EstimateAbsVelocity() or Vector3(),
+			maxspeed = entity:GetPropFloat("m_flMaxspeed") or 0,
 			angvelocity = player_sim.GetSmoothedAngularVelocity(entity) or 0,
 			stepsize = entity:GetPropFloat("m_flStepSize") or 18,
 			origin = entity:GetAbsOrigin(),
@@ -449,9 +449,11 @@ local function CreateMove(cmd)
 		local begintime = weapon:GetChargeBeginTime()
 		local maxtime = weapon:GetChargeMaxTime()
 		local percentage = (globals.CurTime() - begintime)/maxtime
+
 		if percentage > maxtime then
 			percentage = 0.0
 		end
+
 		if percentage < 0.1 then
 			cmd.buttons = cmd.buttons | IN_ATTACK
 			return
@@ -481,7 +483,11 @@ local function CreateMove(cmd)
 			if weaponInfo.m_bCharges == false then
 				cmd.buttons = cmd.buttons | IN_ATTACK
 			end
-			cmd.sendpacket = false
+
+			if settings.psilent then
+				cmd.sendpacket = false
+			end
+
 			cmd.viewangles = Vector3(angle:Unpack())
 			paths.player = target.sim_path
 			displayed_time = globals.CurTime() + settings.draw_time
