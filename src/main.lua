@@ -487,17 +487,18 @@ local function ProcessBuilding(classTable, enemy_team)
 end
 
 ---@param pLocal Entity
----@param players table<integer, Entity>
 ---@param sentries table<integer, Entity>
 ---@param dispensers table<integer, Entity>
 ---@param teleporters table<integer, Entity>
-local function UpdateEntityList(pLocal, players, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge)
+local function UpdateEntityList(pLocal, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge)
 	local enemy_team = pLocal:GetTeamNumber() == 2 and 3 or 2
 
 	entitylist = {}
 	local _, sv_gravity = client.GetConVar("sv_gravity")
+	local players = FastPlayers.GetAll(true) or {}
 
-	for _, player in pairs(players) do
+	for i = 1, #players do
+		local player = players[i]
 		if player:GetTeamNumber() == enemy_team and player:IsAlive() and not player:IsDormant() then
 			entitylist[#entitylist + 1] = {
 				m_iIndex = player:GetIndex(),
@@ -577,7 +578,7 @@ local function CreateMove(uCmd)
 	local teleporters = entities.FindByClass("CObjectTeleporter")
 	local charge_time = GetCharge(pWeapon)
 
-	UpdateEntityList(pLocal, players, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge_time)
+	UpdateEntityList(pLocal, sentries, dispensers, teleporters, weaponInfo, vHeadPos, charge_time)
 
 	local iWeaponID = pWeapon:GetWeaponID()
 	local bAimAtTeamMates = false
@@ -590,7 +591,8 @@ local function CreateMove(uCmd)
 
 	bAimAtTeamMates = settings.allow_aim_at_teammates and bAimAtTeamMates or false
 
-	local pTarget, _, index = target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
+	local pTarget, _, selectedEntry =
+		target_selector.Run(pLocal, vHeadPos, math_utils, entitylist, settings, bAimAtTeamMates)
 	pSelectedTarget = pTarget
 	if pTarget == nil then
 		return
@@ -617,7 +619,7 @@ local function CreateMove(uCmd)
 
 	local choked_time = clientstate:GetChokedCommands()
 	local time_ticks = (((total_time * 66.67) + 0.5) // 1) + choked_time + 1 --- one extra tick because our current createmove is 1 tick behind
-	local pInfo = entitylist[index]
+	local pInfo = selectedEntry
 	if not pInfo then
 		return
 	end
