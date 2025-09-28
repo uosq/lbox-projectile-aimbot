@@ -1,12 +1,12 @@
 local multipoint = {}
 
 --- relative to Maxs().z
-local z_offsets = {0.5, 0.7, 0.9, 0.4, 0.2}
+local z_offsets = { 0.5, 0.7, 0.9, 0.4, 0.2 }
 
 --- inverse of z_offsets
-local huntsman_z_offsets = {0.9, 0.7, 0.5, 0.4, 0.2}
+local huntsman_z_offsets = { 0.9, 0.7, 0.5, 0.4, 0.2 }
 
-local splash_offsets = {0.2, 0.4, 0.5, 0.7, 0.9}
+local splash_offsets = { 0.2, 0.4, 0.5, 0.7, 0.9 }
 
 ---@param vHeadPos Vector3
 ---@param pTarget Entity
@@ -15,13 +15,12 @@ local splash_offsets = {0.2, 0.4, 0.5, 0.7, 0.9}
 ---@param weaponInfo WeaponInfo
 function multipoint.Run(pTarget, pWeapon, weaponInfo, vHeadPos, vecPredictedPos)
 	local proj_type = pWeapon:GetWeaponProjectileType()
-	local bExplosive = weaponInfo.m_flDamageRadius > 0 and
-		proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE or
-		proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL or
-		proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
+	local bExplosive = weaponInfo.m_flDamageRadius > 0 and proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
+		or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB
+		or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
+		or proj_type == E_ProjectileType.TF_PROJECTILE_STICKY_BALL
+		or proj_type == E_ProjectileType.TF_PROJECTILE_CANNONBALL
+		or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_PRACTICE
 
 	local bSplashWeapon = proj_type == E_ProjectileType.TF_PROJECTILE_ROCKET
 		or proj_type == E_ProjectileType.TF_PROJECTILE_PIPEBOMB_REMOTE
@@ -32,24 +31,33 @@ function multipoint.Run(pTarget, pWeapon, weaponInfo, vHeadPos, vecPredictedPos)
 		or proj_type == E_ProjectileType.TF_PROJECTILE_FLAME_ROCKET
 
 	local bHuntsman = pWeapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_COMPOUND_BOW
-	local chosen_offsets = bHuntsman and huntsman_z_offsets or (bSplashWeapon or bExplosive) and splash_offsets or z_offsets
+	local chosen_offsets = bHuntsman and huntsman_z_offsets
+		or (bSplashWeapon or bExplosive) and splash_offsets
+		or z_offsets
 
-    local trace
+	local trace
 
-    for i = 1, #z_offsets do
-        local offset = chosen_offsets[i]
-        local zOffset = (pTarget:GetMaxs().z * offset)
-        local origin = vecPredictedPos + Vector3(0, 0, zOffset)
+	for i = 1, #z_offsets do
+		local offset = chosen_offsets[i]
+		local zOffset = (pTarget:GetMaxs().z * offset)
+		local origin = vecPredictedPos + Vector3(0, 0, zOffset)
 
-        trace = engine.TraceHull(vHeadPos, origin, weaponInfo.m_vecMins, weaponInfo.m_vecMaxs, weaponInfo.m_iTraceMask, function (ent, contentsMask)
-            return false
-        end)
+		trace = engine.TraceHull(
+			vHeadPos,
+			origin,
+			weaponInfo.m_vecMins,
+			weaponInfo.m_vecMaxs,
+			weaponInfo.m_iTraceMask,
+			function(ent, contentsMask)
+				return false
+			end
+		)
 
-    	if trace and trace.fraction >= 1 then
+		if trace and trace.fraction >= 1 then
 			vecPredictedPos.z = origin.z
 			return
-    	end
-    end
+		end
+	end
 end
 
 return multipoint
