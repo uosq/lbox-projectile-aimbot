@@ -14,6 +14,7 @@ function gui.init(settings, version)
 	local conds_tab = menu:CreateTab("conditions")
 	local colors_tab = menu:CreateTab("colors")
 	local thick_tab = menu:CreateTab("thickness")
+	local target_weights = menu:CreateTab("target weights")
 
 	local component_width = 260
 	local component_height = 25
@@ -76,9 +77,9 @@ function gui.init(settings, version)
 		end)
 	end
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge, function(checked)
+	--[[menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge, function(checked)
 		settings.wait_for_charge = checked
-	end)
+	end)]]
 
 	menu:CreateToggle(aim_tab, component_width, component_height, "show angles", settings.show_angles, function(checked)
 		settings.show_angles = checked
@@ -91,10 +92,6 @@ function gui.init(settings, version)
 
 	menu:CreateSlider(misc_tab, component_width, 20, "max distance", 0, 4096, settings.max_distance, function(value)
 		settings.max_distance = value
-	end)
-
-	menu:CreateSlider(misc_tab, component_width, 20, "fov", 0, 180, settings.fov, function(value)
-		settings.fov = value
 	end)
 
 	menu:CreateSlider(misc_tab, component_width, 20, "min priority", 0, 10, settings.min_priority, function(value)
@@ -111,6 +108,10 @@ function gui.init(settings, version)
 
 	menu:CreateSlider(misc_tab, component_width, 20, "close distance (%)", 0, 100, settings.close_distance, function(value)
 		settings.close_distance = value
+	end)
+
+	menu:CreateSlider(misc_tab, component_width, 20, "max targets", 1, 3, settings.max_targets, function (value)
+		settings.max_targets = value//1
 	end)
 
 	-- CONDITIONS TAB
@@ -135,6 +136,32 @@ function gui.init(settings, version)
 			settings.thickness[name] = math.floor(value)
 		end)
 	end
+
+	menu:CreateLabel(target_weights, 100, 20, "Bigger = more priority")
+
+	-- TARGET MODE
+	for name, mode in pairs(settings.weights) do
+		local label = string.gsub(name, "_", " ")
+		menu:CreateAccurateSlider(target_weights, component_width, component_height, label, 0, 2, mode, function (value)
+			settings.weights[name] = value
+		end)
+	end
+
+	menu:CreateToggle(target_weights, component_width, component_height, "draw scores", settings.draw_scores, function (checked)
+		settings.draw_scores = checked
+	end)
+
+	menu:CreateAccurateSlider(target_weights, component_width, component_height, "minimum score", 0, 10, settings.min_score, function (value)
+		settings.min_score = value
+	end)
+
+	menu:CreateToggle(target_weights, component_width, component_height, "inside fov only", settings.onfov_only, function (checked)
+		settings.onfov_only = checked
+	end)
+
+	menu:CreateSlider(target_weights, component_width, component_height, "fov", 0, 180, settings.fov, function(value)
+		settings.fov = value
+	end)
 
 	callbacks.Register("Draw", function (...)
 		menu:Draw()

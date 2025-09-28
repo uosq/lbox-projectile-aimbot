@@ -555,6 +555,107 @@ function window:CreateHueSlider(tab_index, width, height, label, currentvalue, f
     return slider
 end
 
+---@param func fun(value: number)?
+function window:CreateAccurateSlider(tab_index, width, height, label, min, max, currentvalue, func)
+    local slider = {
+        x = 0, y = 0,
+        w = width, h = height,
+        label = label, func = func,
+        min = min, max = max,
+        value = currentvalue
+    }
+
+    ---@param context Context
+    function slider:Draw(context)
+        local bx, by, bw, bh
+        bx = self.x + context.windowX
+        by = self.y + context.windowY
+        bw = self.w
+        bh = self.h
+
+        local mx, my = context.mouseX, context.mouseY
+        local mouseInside = mx >= bx and mx <= bx + bw
+            and my >= by and my <= by + bh
+
+        --- draw outline
+        draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
+        draw.OutlinedRect(bx - thickness, by - thickness, bx + bw + thickness, by + bh + thickness)
+
+        --- draw background based on mouse state
+        if (mouseInside and context.mouseDown) then
+            draw.Color(theme.bg_light[1], theme.bg_light[2], theme.bg_light[3], 255)
+        elseif (mouseInside) then
+            draw.Color(theme.bg[1], theme.bg[2], theme.bg[3], 255)
+        else
+            draw.Color(theme.bg_dark[1], theme.bg_dark[2], theme.bg_dark[3], 255)
+        end
+        draw.FilledRect(bx, by, bx + bw, by + bh)
+
+        -- calculate percentage for the slider fill
+        local percent = (self.value - self.min) / (self.max - self.min)
+        percent = math.max(0, math.min(1, percent)) --- clamp it ;)
+
+        --- draw slider fill
+        draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
+        draw.FilledRect(bx, by, (bx + (bw * percent))//1, by + bh)
+
+        --- draw label text
+        local tw, th = draw.GetTextSize(self.label)
+        local tx, ty
+        tx = bx + 2
+        ty = (by + bh * 0.5 - th * 0.5)//1
+        draw.Color(242, 242, 242, 255)
+        draw.TextShadow(tx + 2, ty, self.label)
+
+        tw = draw.GetTextSize(string.format("%f", self.value))
+        tx = bx + bw - tw - 2
+        draw.TextShadow(tx, ty, string.format("%f", self.value))
+
+        --- handle mouse interaction
+        if (mouseInside and context.mousePressed and context.tick > context.lastPressedTick) then
+            self.isDragging = true
+        end
+
+        --- continue dragging even if mouse is outside the slider
+        if (self.isDragging and context.mouseDown) then
+            --- update slider value based on mouse position
+            local mousePercent = (mx - bx) / bw
+            mousePercent = math.max(0, math.min(1, mousePercent))
+            self.value = self.min + (self.max - self.min) * mousePercent
+
+            if (self.func) then
+                self.func(self.value)
+            end
+        elseif (not context.mouseDown) then
+            --- stop dragging when mouse is released
+            self.isDragging = false
+        end
+    end
+
+    self:InsertElement(slider, tab_index or self.current_tab)
+    return slider
+end
+
+function window:CreateLabel(tab_index, width, height, text, func)
+    local label = {
+        x = 0, y = 0,
+        w = width, h = height,
+        text = text,
+    }
+
+    ---@param context Context
+    function label:Draw(context)
+        local x, y
+        x = (context.windowX + self.x + (self.w*0.5))//1
+        y = (context.windowY + self.y + (self.h*0.5))//1
+        draw.Color(255, 255, 255, 255)
+        draw.TextShadow(x, y, tostring(text))
+    end
+
+    self:InsertElement(label, tab_index or self.current_tab)
+    return label
+end
+
 ---@return GuiWindow
 function window.New(tbl)
     local newWindow = tbl or {}

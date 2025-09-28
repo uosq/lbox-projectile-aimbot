@@ -384,16 +384,10 @@ local function GetSmoothedAngularVelocity(pEntity)
 	return smoothed
 end
 
----@param pLocal Entity
----@param entitylist table<integer, ENTRY>
-function sim.RunBackground(pLocal, entitylist)
-	local enemy_team = pLocal:GetTeamNumber() == 2 and 3 or 2
-
-	for i, playerInfo in pairs(entitylist) do
-		local player = entities.GetByIndex(i)
-		if player and playerInfo.m_iTeam == enemy_team and player:IsAlive() and not player:IsDormant() then
-			AddPositionSample(player)
-		end
+---@param entitylist table<integer, Entity>
+function sim.RunBackground(entitylist)
+	for i, player in pairs(entitylist) do
+		AddPositionSample(player)
 	end
 end
 
@@ -696,7 +690,7 @@ local function ApplyFriction(velocity, pTarget, is_on_ground)
 	end
 end
 
----@param pInfo ENTRY
+---@param pInfo EntityInfo
 ---@param pTarget Entity
 ---@param initial_pos Vector3
 ---@param time number
@@ -706,15 +700,15 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 	local tick_interval = globals.TickInterval()
 	local local_player_index = client.GetLocalPlayerIndex()
 
-	local surface_friction = pInfo.m_flFriction or 1.0
-	local angular_velocity = pInfo.m_flAngularVelocity * tick_interval
-	local maxspeed = pInfo.m_flMaxspeed or 450
-	local step_size = pInfo.m_flStepSize or 18
-	local mins = pInfo.m_vecMins
-	local maxs = pInfo.m_vecMaxs
-	local gravity_step = pInfo.m_flGravityStep * tick_interval
+	local surface_friction = pInfo.friction or 1.0
+	local angular_velocity = pInfo.angvelocity * tick_interval
+	local maxspeed = pInfo.maxspeed or 450
+	local step_size = pInfo.stepsize or 18
+	local mins = pInfo.mins
+	local maxs = pInfo.maxs
+	local gravity_step = client.GetConVar("sv_gravity") * tick_interval
 
-	local velocity = pInfo.m_vecVelocity
+	local velocity = pInfo.velocity
 
 	local positions = {}
 
@@ -729,7 +723,7 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 
 	local function shouldHitEntity(ent)
 		local ent_index = ent:GetIndex()
-		return ent_index ~= local_player_index and ent:GetTeamNumber() ~= pInfo.m_iTeam
+		return ent_index ~= local_player_index and ent:GetTeamNumber() ~= pInfo.team
 	end
 
 	local was_onground = false
