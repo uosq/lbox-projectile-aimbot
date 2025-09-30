@@ -1,15 +1,16 @@
 local gui = {}
 
 local ui = require("src.ui")
+local settings = require("src.settings")
 
----@param settings table
 ---@param version string
-function gui.init(settings, version)
+function gui.init(version)
 	local menu = ui.New({title=string.format("NAVET'S PROJECTILE AIMBOT (v%s)", tostring(version))})
 	menu.y = 50
 	menu.x = 50
 	-- Create tabs
 	local aim_tab = menu:CreateTab("aimbot")
+	local visuals_tab = menu:CreateTab("visuals")
 	local misc_tab = menu:CreateTab("misc")
 	local conds_tab = menu:CreateTab("conditions")
 	local colors_tab = menu:CreateTab("colors")
@@ -29,23 +30,23 @@ function gui.init(settings, version)
 		settings.autoshoot = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw projectile path", settings.draw_proj_path, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw projectile path", settings.draw_proj_path, function(checked)
 		settings.draw_proj_path = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw player path", settings.draw_player_path, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw player path", settings.draw_player_path, function(checked)
 		settings.draw_player_path = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw bounding box", settings.draw_bounding_box, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw bounding box", settings.draw_bounding_box, function(checked)
 		settings.draw_bounding_box = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw only", settings.draw_only, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw only", settings.draw_only, function(checked)
 		settings.draw_only = checked
 	end)
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw multpoint target", settings.draw_multipoint_target, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw multpoint target", settings.draw_multipoint_target, function(checked)
 		settings.draw_multipoint_target = checked
 	end)
 
@@ -53,7 +54,7 @@ function gui.init(settings, version)
 		settings.cancel_shot = checked
 	end)]]
 
-	menu:CreateToggle(aim_tab, component_width, component_height, "draw filled bounding box", settings.draw_quads, function(checked)
+	menu:CreateToggle(visuals_tab, component_width, component_height, "draw filled bounding box", settings.draw_quads, function(checked)
 		settings.draw_quads = checked
 	end)
 
@@ -86,31 +87,31 @@ function gui.init(settings, version)
 	end)
 
 	-- MISC TAB
-	menu:CreateSlider(misc_tab, component_width, 20, "max sim time", 0.5, 10, settings.max_sim_time, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "max sim time", 0.5, 10, settings.max_sim_time, function(value)
 		settings.max_sim_time = value
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "max distance", 0, 4096, settings.max_distance, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "max distance", 0, 4096, settings.max_distance, function(value)
 		settings.max_distance = value
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "min priority", 0, 10, settings.min_priority, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "min priority", 0, 10, settings.min_priority, function(value)
 		settings.min_priority = math.floor(value)
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "draw time", 0, 10, settings.draw_time, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "draw time", 0, 10, settings.draw_time, function(value)
 		settings.draw_time = value
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "max charge (%)", 0, 100, settings.max_percent, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "max charge (%)", 0, 100, settings.max_percent, function(value)
 		settings.max_percent = value
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "close distance (%)", 0, 100, settings.close_distance, function(value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "close distance (%)", 0, 100, settings.close_distance, function(value)
 		settings.close_distance = value
 	end)
 
-	menu:CreateSlider(misc_tab, component_width, 20, "max targets", 1, 3, settings.max_targets, function (value)
+	menu:CreateSlider(misc_tab, component_width, component_height, "max targets", 1, 3, settings.max_targets, function (value)
 		settings.max_targets = value//1
 	end)
 
@@ -161,6 +162,10 @@ function gui.init(settings, version)
 
 	menu:CreateSlider(target_weights, component_width, component_height, "fov", 0, 180, settings.fov, function(value)
 		settings.fov = value
+	end)
+
+	menu:CreateToggle(target_weights, component_width, component_height, "smart mode", settings.smart_targeting, function (checked)
+		settings.smart_targeting = checked
 	end)
 
 	callbacks.Register("Draw", function (...)

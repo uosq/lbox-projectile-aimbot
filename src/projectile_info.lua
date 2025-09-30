@@ -34,8 +34,8 @@ local function AppendItemDefinitions(iType, ...)
 end
 
 ---@return WeaponInfo
-function GetProjectileInformation(i)
-	return aProjectileInfo[aItemDefinitions[i or 0]]
+function GetProjectileInformation(itemDefinitionIndex)
+	return aProjectileInfo[aItemDefinitions[itemDefinitionIndex or 0]]
 end
 
 ---@return WeaponInfo?

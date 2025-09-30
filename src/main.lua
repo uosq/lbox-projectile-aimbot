@@ -1,91 +1,7 @@
 local version = "10"
 
-local settings = {
-	enabled = true,
-	autoshoot = true,
-	fov = gui.GetValue("aim fov"),
-	max_sim_time = 2.0,
-	draw_time = 1.0,
-	draw_proj_path = true,
-	draw_player_path = true,
-	draw_bounding_box = true,
-	draw_only = false,
-	draw_multipoint_target = false,
-	max_distance = 1024,
-	allow_aim_at_teammates = true,
-	ping_compensation = true,
-	min_priority = 0,
-	explosive = true,
-	close_distance = 10, --- %
-	draw_quads = true,
-	show_angles = true,
-	max_targets = 2,
-	draw_scores = true,
-
-	sim = {
-		use_detonate_time = true,
-		can_rotate = true,
-		stay_on_ground = false,
-	},
-
-	max_percent = 90,
-	wait_for_charge = false,
-	cancel_shot = false,
-
-	ents = {
-		["aim players"] = true,
-		["aim sentries"] = true,
-		["aim dispensers"] = true,
-		["aim teleporters"] = true,
-	},
-
-	psilent = true,
-
-	ignore_conds = {
-		cloaked = true,
-		disguised = false,
-		ubercharged = true,
-		bonked = true,
-		taunting = true,
-		friends = true,
-		bumper_karts = false,
-		kritzkrieged = false,
-		jarated = false,
-		milked = false,
-		vaccinator = false,
-		ghost = true,
-	},
-
-	colors = {
-		bounding_box = 193, --{136, 192, 208, 255},
-		player_path = 193, --{136, 192, 208, 255},
-		projectile_path = 40, --{235, 203, 139, 255}
-		multipoint_target = 20,
-		target_glow = 360,
-		quads = 193,
-	},
-
-	thickness = {
-		bounding_box = 1,
-		player_path = 1,
-		projectile_path = 1,
-		multipoint_target = 1,
-	},
-
-	weights = {
-		health_weight     = 1.0, -- prefer lower player health
-		distance_weight   = 1.1, -- prefer closer players
-		fov_weight        = 2,
-		visibility_weight = 1.2,
-		speed_weight      = 0.6,   -- prefer slower targets
-		medic_priority    = 1.5,   -- bonus if Medic
-		sniper_priority   = 1.0,   -- bonus if Sniper
-		uber_penalty      = -2.0,  -- skip/penalize Ubercharged targets
-	},
-
-	min_score = 2,
-	onfov_only = true,
-}
+local settings = require("src.settings")
+assert(settings, "[PROJ AIMBOT] Settings module failed to load!")
 
 local wep_utils = require("src.utils.weapon_utils")
 assert(wep_utils, "[PROJ AIMBOT] Weapon utils module failed to load!")
@@ -113,7 +29,7 @@ assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module 
 printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
 local menu = require("src.gui")
-menu.init(settings, version)
+menu.init(version)
 
 local multipoint = require("src.multipoint")
 assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
@@ -121,28 +37,6 @@ printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
 ---@type Entity?, Entity?, WeaponInfo?
 local plocal, weapon, weaponInfo = nil, nil, nil
-
----@class EntityInfo
----@field index integer
----@field health integer
----@field maxs Vector3
----@field mins Vector3
----@field velocity Vector3
----@field maxspeed number
----@field angvelocity number
----@field stepsize number
----@field origin Vector3
----@field fov number?
----@field name string
----@field dist number
----@field friction number
----@field team number
----@field sim_path Vector3[]?
----@field finalPos Vector3?
----@field score number
----@field isUbered boolean
----@field class integer
----@field maxhealth integer
 
 ---@type table<integer, EntityInfo>
 local _entitylist = {}
@@ -201,7 +95,8 @@ local function DrawQuadFaceDoubleSided(tex, a, b, c, d)
     draw.TexturedPolygon(tex, b2, true)
 end
 
-local function ProcessClass(className, includeTeam)
+---@param outputList table<integer, EntityInfo>
+local function ProcessClass(className, includeTeam, outputList)
 	if plocal == nil then
 		return
 	end
@@ -217,7 +112,7 @@ local function ProcessClass(className, includeTeam)
 			goto continue
 		end
 
-		_entitylist[#_entitylist+1] = {
+		outputList[#outputList+1] = {
 			index = entity:GetIndex(),
 			health = entity:GetHealth(),
 			maxs = entity:GetMaxs(),
@@ -243,17 +138,22 @@ local function ProcessClass(className, includeTeam)
 end
 
 ---@param data EntityInfo
-local function CalculateScore(data, eyePos, viewAngles)
+---@return number
+local function CalculateScore(data, eyePos, viewAngles, includeTeam)
+	if plocal == nil then
+		return 0
+	end
+
     local score = 0
     local w = settings.weights
 
-    -- Distance (closer = higher score)
+    --- distance (closer = higher score)
     if w.distance_weight > 0 then
         local dist_score = 1 - math.min(data.dist / settings.max_distance, 1)
         score = score + dist_score * w.distance_weight
     end
 
-    -- Health (lower health = higher score)
+    --- health (lower health = higher score)
     if w.health_weight > 0 then
         local health_score = 1 - math.min(data.health / data.maxhealth, 1)
         score = score + health_score * w.health_weight
@@ -261,7 +161,7 @@ local function CalculateScore(data, eyePos, viewAngles)
 
 	--- No need for this as we already reduce
 	--- the entitylist with lowest fovs
-    if w.fov_weight > 0 then
+    if w.fov_weight > 0 and settings.onfov_only == false then
         local angle = math_utils.PositionAngles(eyePos, data.finalPos or data.origin)
         if angle then
             local fov = math_utils.AngleFov(viewAngles, angle)
@@ -270,49 +170,70 @@ local function CalculateScore(data, eyePos, viewAngles)
         end
     end
 
-    -- Visibility (if visible = full weight)
+    --- visibility (if visible = full weight)
     if w.visibility_weight > 0 then
         score = score + w.visibility_weight
     end
 
-    -- Speed (slower = easier to hit)
+    --- speed (slower = easier to hit)
     if w.speed_weight and w.speed_weight ~= 0 then
         local speed = data.velocity:Length()
         local speed_score = 1 - math.min(speed / data.maxspeed, 1) -- normalize
         score = score + speed_score * w.speed_weight
     end
 
-    -- Class priority
+    --- class priority
     if data.class and data.class == E_Character.TF2_Medic then
         score = score + w.medic_priority
     elseif data.class and data.class == E_Character.TF2_Sniper then
         score = score + w.sniper_priority
     end
 
-    -- Uber penalty (skip ubercharged targets)
+    --- uber penalty (skip ubercharged targets)
     if data.isUbered and w.uber_penalty then
         score = score + w.uber_penalty
     end
+
+	--- favor a lot our team
+	if includeTeam and data.team == plocal:GetTeamNumber() then
+		score = score + 5.0
+	end
 
     return score
 end
 
 --- Returns a sorted table (:))
-local function GetTargets(includeTeam)
+---@return table<integer, EntityInfo>?
+local function GetTargetsSmart(includeTeam)
     if plocal == nil or weapon == nil or weaponInfo == nil then
         return nil
     end
 
-    -- clear old list
-    for i = 1, #_entitylist do
-        _entitylist[i] = nil
-    end
+	local startList = {}
 
     -- collect entities
-    ProcessClass("CTFPlayer", includeTeam)
-    ProcessClass("CObjetSentrygun", includeTeam)
-    ProcessClass("CObjectDispenser", includeTeam)
-    ProcessClass("CObjectTeleporter", includeTeam)
+	if settings.ents["aim players"] then
+		ProcessClass("CTFPlayer", includeTeam, startList)
+	end
+
+	if settings.ents["aim sentries"] then
+		ProcessClass("CObjetSentrygun", includeTeam, startList)
+	end
+
+	if settings.ents["aim dispensers"] then
+		ProcessClass("CObjectDispenser", includeTeam, startList)
+	end
+
+	if settings.ents["aim teleporters"] then
+		ProcessClass("CObjectTeleporter", includeTeam, startList)
+	end
+
+	--- make a early return here
+	--- if there are no valid entities
+	--- then dont even bother
+	if #startList == 0 then
+		return startList
+	end
 
     local lpPos = plocal:GetAbsOrigin()
     local eyePos = lpPos + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
@@ -322,7 +243,7 @@ local function GetTargets(includeTeam)
     local candidates = {}
 
     --- basic filtering
-    for _, data in ipairs(_entitylist) do
+    for _, data in ipairs(startList) do
         local ent = entities.GetByIndex(data.index)
         if not ent then goto continue end
 
@@ -342,6 +263,12 @@ local function GetTargets(includeTeam)
 
         ::continue::
     end
+
+	--- another early return
+	--- dont bother if we have no candidates
+	if #candidates == 0 then
+		return candidates
+	end
 
     local det_mult = weapon:AttributeHookFloat("sticky_arm_time") or 1.0
     local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and 0.7 * det_mult or 0
@@ -382,7 +309,7 @@ local function GetTargets(includeTeam)
         data.finalPos = finalPos
 
         -- Assign weighted score
-        data.score = CalculateScore(data, eyePos, viewAngles)
+        data.score = CalculateScore(data, eyePos, viewAngles, includeTeam)
 
 		if data.score < (settings.weights.min_score or 0) then
     		goto continue
@@ -392,6 +319,10 @@ local function GetTargets(includeTeam)
 
         ::continue::
     end
+
+	if #final_targets == 0 then
+		return final_targets
+	end
 
     -- Sort by weighted score (highest first)
     table.sort(final_targets, function(a, b)
@@ -406,8 +337,126 @@ local function GetTargets(includeTeam)
         end
     end
 
-    _entitylist = final_targets
-    return _entitylist
+	_entitylist = final_targets
+    return final_targets
+end
+
+--- Normal closest to crosshair mode
+--- with no weights or anything like that
+---@return table<integer, EntityInfo>
+local function GetTargetsNormal(includeTeam)
+    if plocal == nil or weapon == nil or weaponInfo == nil then
+        return {}
+    end
+
+    ---@type table<integer, EntityInfo>
+    local startList = {}
+
+    -- collect entities
+    if settings.ents["aim players"] then
+        ProcessClass("CTFPlayer", includeTeam, startList)
+    end
+    if settings.ents["aim sentries"] then
+        ProcessClass("CObjetSentrygun", includeTeam, startList)
+    end
+    if settings.ents["aim dispensers"] then
+        ProcessClass("CObjectDispenser", includeTeam, startList)
+    end
+    if settings.ents["aim teleporters"] then
+        ProcessClass("CObjectTeleporter", includeTeam, startList)
+    end
+
+	if #startList == 0 then
+		return {}
+	end
+
+    local lpPos = plocal:GetAbsOrigin()
+    local eyePos = lpPos + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
+    local viewAngles = engine.GetViewAngles()
+    local projectileSpeed = weaponInfo:GetVelocity(0):Length2D()
+
+    local det_mult = weapon:AttributeHookFloat("sticky_arm_time") or 1.0
+    local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and 0.7 * det_mult or 0
+    local choked_time = clientstate:GetChokedCommands()
+
+    local candidates = {}
+
+    for _, data in ipairs(startList) do
+        local dist = (data.origin - lpPos):Length()
+        if dist > settings.max_distance then
+            goto continue
+        end
+
+        local angle = math_utils.PositionAngles(eyePos, data.origin)
+        if angle then
+            local fov = math_utils.AngleFov(viewAngles, angle)
+            if fov > settings.fov then
+                goto continue
+            end
+
+            data.fov = fov
+            data.dist = dist
+            data.finalPos = data.origin
+
+            local ent = entities.GetByIndex(data.index)
+            if ent then
+                local travel_time_est = dist / projectileSpeed
+                local total_time = travel_time_est + detonate_time
+                local finalPos = Vector3(data.origin:Unpack())
+
+                if data.velocity:Length() > 0 then
+                    data.origin.z = data.origin.z + 5
+                    local time_ticks = math.ceil((total_time * 66.67) + 0.5) + choked_time + 1
+                    data.sim_path = player_sim.Run(data, ent, data.origin, time_ticks)
+                    if data.sim_path and #data.sim_path > 0 then
+                        finalPos = data.sim_path[#data.sim_path]
+                        travel_time_est = (finalPos - eyePos):Length() / projectileSpeed
+                        total_time = travel_time_est + detonate_time
+                    end
+                else
+                    data.sim_path = { data.origin }
+                end
+
+                if total_time > settings.max_sim_time then
+                    goto continue
+                end
+
+                -- multipoint
+                local visible, mpFinalPos = multipoint.Run(ent, weapon, weaponInfo, eyePos, finalPos)
+                if not visible then
+                    goto continue
+                end
+                if mpFinalPos then
+                    finalPos = mpFinalPos
+                end
+
+                data.dist = (finalPos - lpPos):Length()
+                data.finalPos = finalPos
+                data.score = 1.0 -- dummy, since sorting is by fov
+            end
+
+            candidates[#candidates+1] = data
+        end
+        ::continue::
+    end
+
+    if #candidates == 0 then
+        return {}
+    end
+
+    table.sort(candidates, function(a, b)
+        return (a.fov or math.huge) < (b.fov or math.huge)
+    end)
+
+    local max_targets = settings.max_targets or 2
+    if #candidates > max_targets then
+        for i = max_targets + 1, #candidates do
+            candidates[i] = nil
+        end
+    end
+
+    _entitylist = candidates
+    return candidates
 end
 
 ---@param cmd UserCmd
@@ -446,29 +495,27 @@ local function CreateMove(cmd)
 		return
 	end
 
-	if weaponInfo.m_bCharges then
-		local begintime = weapon:GetChargeBeginTime()
-		local maxtime = weapon:GetChargeMaxTime()
-		local percentage = (globals.CurTime() - begintime)/maxtime
-
-		if percentage > maxtime then
-			percentage = 0.0
-		end
-
-		if percentage < 0.1 then
-			cmd.buttons = cmd.buttons | IN_ATTACK
-			return
-		end
-	end
+	local includeTeam = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_CROSSBOW
+		or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
 
 	---@type table<integer, EntityInfo>?
-	local targets = GetTargets()
-	if targets == nil then
+	local targets = settings.smart_targeting and GetTargetsSmart(includeTeam) or GetTargetsNormal(includeTeam)
+	if targets == nil or #targets == 0 then
 		return
 	end
 
 	---@type EulerAngles?
 	local angle = nil
+
+	local weaponNoPSilent = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_JAR_MILK
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_JAR
+
+	local in_attack2 = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_KNIFE
 
 	local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
     local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
@@ -481,11 +528,28 @@ local function CreateMove(cmd)
 		-- calculate ballistic angle
 		angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
 		if angle then
-			if weaponInfo.m_bCharges == false then
-				cmd.buttons = cmd.buttons | IN_ATTACK
+			if weaponInfo.m_bCharges then
+				local begintime = weapon:GetChargeBeginTime()
+				local maxtime = weapon:GetChargeMaxTime()
+				local percentage = (globals.CurTime() - begintime)/maxtime
+
+				if percentage > maxtime then
+					percentage = 0.0
+				end
+
+				if percentage < 0.01 then
+					cmd.buttons = cmd.buttons | IN_ATTACK
+					return
+				end
+			else
+				if in_attack2 then
+					cmd.buttons = cmd.buttons | IN_ATTACK2
+				else
+					cmd.buttons = cmd.buttons | IN_ATTACK
+				end
 			end
 
-			if settings.psilent then
+			if settings.psilent and weaponNoPSilent == false then
 				cmd.sendpacket = false
 			end
 
