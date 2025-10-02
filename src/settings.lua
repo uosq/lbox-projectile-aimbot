@@ -28,7 +28,7 @@ return {
 	},
 
 	max_percent = 90,
-	wait_for_charge = false,
+	wait_for_charge = true,
 	cancel_shot = false,
 
 	ents = {

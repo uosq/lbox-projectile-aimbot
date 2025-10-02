@@ -78,9 +78,9 @@ function gui.init(version)
 		end)
 	end
 
-	--[[menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge, function(checked)
+	menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge, function(checked)
 		settings.wait_for_charge = checked
-	end)]]
+	end)
 
 	menu:CreateToggle(aim_tab, component_width, component_height, "show angles", settings.show_angles, function(checked)
 		settings.show_angles = checked
@@ -138,7 +138,7 @@ function gui.init(version)
 		end)
 	end
 
-	menu:CreateLabel(target_weights, 100, 20, "Bigger = more priority")
+	menu:CreateLabel(target_weights, component_width, component_height, "Bigger = more priority")
 
 	-- TARGET MODE
 	for name, mode in pairs(settings.weights) do

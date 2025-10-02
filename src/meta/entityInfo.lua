@@ -21,3 +21,4 @@
 ---@field isUbered boolean
 ---@field class integer
 ---@field maxhealth integer
+---@field timesecs number

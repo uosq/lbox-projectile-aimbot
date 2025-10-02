@@ -310,6 +310,7 @@ local function GetTargetsSmart(includeTeam)
 
         -- Assign weighted score
         data.score = CalculateScore(data, eyePos, viewAngles, includeTeam)
+        data.timesecs = total_time
 
 		if data.score < (settings.weights.min_score or 0) then
     		goto continue
@@ -506,16 +507,17 @@ local function CreateMove(cmd)
 
 	---@type EulerAngles?
 	local angle = nil
+    local weaponID = weapon:GetWeaponID()
 
 	local weaponNoPSilent = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_JAR_MILK
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_JAR
+	or weaponID == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
+	or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+	or weaponID == E_WeaponBaseID.TF_WEAPON_JAR_MILK
+	or weaponID == E_WeaponBaseID.TF_WEAPON_JAR
 
-	local in_attack2 = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
-	or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_KNIFE
+	local in_attack2 = weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+	or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+	or weaponID == E_WeaponBaseID.TF_WEAPON_KNIFE
 
 	local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
     local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
@@ -529,25 +531,54 @@ local function CreateMove(cmd)
 		angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
 		if angle then
 			if weaponInfo.m_bCharges then
-				local begintime = weapon:GetChargeBeginTime()
-				local maxtime = weapon:GetChargeMaxTime()
-				local percentage = (globals.CurTime() - begintime)/maxtime
+                local begintime = weapon:GetChargeBeginTime()
+                local maxtime   = weapon:GetChargeMaxTime()
+                local elapsed   = globals.CurTime() - begintime
+                local chargeTime = math.min(elapsed, maxtime)
 
-				if percentage > maxtime then
-					percentage = 0.0
-				end
+                if settings.wait_for_charge then
+                    cmd.buttons = cmd.buttons | IN_ATTACK
 
-				if percentage < 0.01 then
-					cmd.buttons = cmd.buttons | IN_ATTACK
-					return
-				end
-			else
-				if in_attack2 then
-					cmd.buttons = cmd.buttons | IN_ATTACK2
-				else
-					cmd.buttons = cmd.buttons | IN_ATTACK
-				end
-			end
+                    local ent = entities.GetByIndex(target.index)
+                    if ent then
+                        local weaponFirePos = weaponInfo:GetFirePosition(
+                            plocal, eyePos, angle, weapon:IsViewModelFlipped()
+                        )
+
+                        local projpath, hit = proj_sim.Run(
+                            ent,
+                            plocal,
+                            weapon,
+                            weaponFirePos,
+                            angle:Forward(),
+                            target.sim_path[#target.sim_path],
+                            target.timesecs,
+                            weaponInfo,
+                            chargeTime
+                        )
+
+                        if not hit then
+                            -- keep charging until we predict a hit
+                            cmd.buttons = cmd.buttons | IN_ATTACK
+                            return
+                        else
+                            cmd.buttons = cmd.buttons & ~IN_ATTACK
+                        end
+                    end
+                else
+                    if elapsed < 0.01 then
+                        cmd.buttons = cmd.buttons | IN_ATTACK
+                        return
+                    end
+                end
+            else
+                -- normal non-charging weapons
+                if in_attack2 then
+                    cmd.buttons = cmd.buttons | IN_ATTACK2
+                else
+                    cmd.buttons = cmd.buttons | IN_ATTACK
+                end
+            end
 
 			if settings.psilent and weaponNoPSilent == false then
 				cmd.sendpacket = false
