@@ -45,8 +45,8 @@ local rgbaData = string.char(255, 255, 255, 255)
 local texture = draw.CreateTextureRGBA(rgbaData, 1, 1) --- 1x1 white pixel
 
 local paths = {
-	proj = {},
-	player = {},
+    proj = {},
+    player = {},
 }
 
 local displayed_time = 0.0
@@ -97,52 +97,53 @@ end
 
 ---@param outputList table<integer, EntityInfo>
 local function ProcessClass(className, includeTeam, outputList)
-	if plocal == nil then
-		return
-	end
+    if plocal == nil then
+        return
+    end
 
-	local list = entities.FindByClass(className)
+    local list = entities.FindByClass(className)
 
-	for _, entity in pairs (list) do
-		if entity:IsDormant() or (entity:IsPlayer() and not entity:IsAlive() or entity:GetHealth() <= 0) then
-			goto continue
-		end
+    for _, entity in pairs(list) do
+        if entity:IsDormant() or (entity:IsPlayer() and not entity:IsAlive() or entity:GetHealth() <= 0) then
+            goto continue
+        end
 
-		if not includeTeam and entity:GetTeamNumber() == plocal:GetTeamNumber() then
-			goto continue
-		end
+        if not includeTeam and entity:GetTeamNumber() == plocal:GetTeamNumber() then
+            goto continue
+        end
 
-		outputList[#outputList+1] = {
-			index = entity:GetIndex(),
-			health = entity:GetHealth(),
-			maxs = entity:GetMaxs(),
-			mins = entity:GetMins(),
-			velocity = entity:EstimateAbsVelocity() or Vector3(),
-			maxspeed = entity:GetPropFloat("m_flMaxspeed") or 0,
-			angvelocity = player_sim.GetSmoothedAngularVelocity(entity) or 0,
-			stepsize = entity:GetPropFloat("m_flStepSize") or 18,
-			origin = entity:GetAbsOrigin(),
-			name = entity:GetName() or "unnamed",
-			fov = math.huge,
-			dist = math.huge,
-			friction = entity:GetPropFloat("localdata", "m_flFriction") or 1.0,
-			team = entity:GetTeamNumber(),
-			score = 0,
-			class = entity:GetPropInt("m_iClass") or nil,
-			isUbered = entity:InCond(E_TFCOND.TFCond_Ubercharged),
-			maxhealth = entity:GetMaxBuffedHealth()
-		}
+        outputList[#outputList + 1] = {
+            index = entity:GetIndex(),
+            health = entity:GetHealth(),
+            maxs = entity:GetMaxs(),
+            mins = entity:GetMins(),
+            velocity = entity:EstimateAbsVelocity() or Vector3(),
+            maxspeed = entity:GetPropFloat("m_flMaxspeed") or 0,
+            angvelocity = player_sim.GetSmoothedAngularVelocity(entity) or 0,
+            stepsize = entity:GetPropFloat("m_flStepSize") or 18,
+            origin = entity:GetAbsOrigin(),
+            name = entity:GetName() or "unnamed",
+            fov = math.huge,
+            dist = math.huge,
+            friction = entity:GetPropFloat("localdata", "m_flFriction") or 1.0,
+            team = entity:GetTeamNumber(),
+            score = 0,
+            class = entity:GetPropInt("m_iClass") or nil,
+            isUbered = entity:InCond(E_TFCOND.TFCond_Ubercharged),
+            maxhealth = entity:GetMaxBuffedHealth(),
+            timesecs = 0,
+        }
 
-	    ::continue::
-	end
+        ::continue::
+    end
 end
 
 ---@param data EntityInfo
 ---@return number
 local function CalculateScore(data, eyePos, viewAngles, includeTeam)
-	if plocal == nil then
-		return 0
-	end
+    if plocal == nil then
+        return 0
+    end
 
     local score = 0
     local w = settings.weights
@@ -159,8 +160,8 @@ local function CalculateScore(data, eyePos, viewAngles, includeTeam)
         score = score + health_score * w.health_weight
     end
 
-	--- No need for this as we already reduce
-	--- the entitylist with lowest fovs
+    --- No need for this as we already reduce
+    --- the entitylist with lowest fovs
     if w.fov_weight > 0 and settings.onfov_only == false then
         local angle = math_utils.PositionAngles(eyePos, data.finalPos or data.origin)
         if angle then
@@ -194,10 +195,10 @@ local function CalculateScore(data, eyePos, viewAngles, includeTeam)
         score = score + w.uber_penalty
     end
 
-	--- favor a lot our team
-	if includeTeam and data.team == plocal:GetTeamNumber() then
-		score = score + 5.0
-	end
+    --- favor a lot our team
+    if includeTeam and data.team == plocal:GetTeamNumber() then
+        score = score + 5.0
+    end
 
     return score
 end
@@ -209,31 +210,31 @@ local function GetTargetsSmart(includeTeam)
         return nil
     end
 
-	local startList = {}
+    local startList = {}
 
     -- collect entities
-	if settings.ents["aim players"] then
-		ProcessClass("CTFPlayer", includeTeam, startList)
-	end
+    if settings.ents["aim players"] then
+        ProcessClass("CTFPlayer", includeTeam, startList)
+    end
 
-	if settings.ents["aim sentries"] then
-		ProcessClass("CObjetSentrygun", includeTeam, startList)
-	end
+    if settings.ents["aim sentries"] then
+        ProcessClass("CObjetSentrygun", includeTeam, startList)
+    end
 
-	if settings.ents["aim dispensers"] then
-		ProcessClass("CObjectDispenser", includeTeam, startList)
-	end
+    if settings.ents["aim dispensers"] then
+        ProcessClass("CObjectDispenser", includeTeam, startList)
+    end
 
-	if settings.ents["aim teleporters"] then
-		ProcessClass("CObjectTeleporter", includeTeam, startList)
-	end
+    if settings.ents["aim teleporters"] then
+        ProcessClass("CObjectTeleporter", includeTeam, startList)
+    end
 
-	--- make a early return here
-	--- if there are no valid entities
-	--- then dont even bother
-	if #startList == 0 then
-		return startList
-	end
+    --- make a early return here
+    --- if there are no valid entities
+    --- then dont even bother
+    if #startList == 0 then
+        return startList
+    end
 
     local lpPos = plocal:GetAbsOrigin()
     local eyePos = lpPos + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
@@ -251,27 +252,28 @@ local function GetTargetsSmart(includeTeam)
         if dist > settings.max_distance then goto continue end
         data.dist = dist
 
-		if settings.onfov_only then
-			local angle = math_utils.PositionAngles(eyePos, data.origin)
-			if angle then
-				local fov = math_utils.AngleFov(viewAngles, angle)
-				if fov > settings.fov then goto continue end
-			end
-		end
+        if settings.onfov_only then
+            local angle = math_utils.PositionAngles(eyePos, data.origin)
+            if angle then
+                local fov = math_utils.AngleFov(viewAngles, angle)
+                if fov > settings.fov then goto continue end
+            end
+        end
 
-        candidates[#candidates+1] = data
+        candidates[#candidates + 1] = data
 
         ::continue::
     end
 
-	--- another early return
-	--- dont bother if we have no candidates
-	if #candidates == 0 then
-		return candidates
-	end
+    --- another early return
+    --- dont bother if we have no candidates
+    if #candidates == 0 then
+        return candidates
+    end
 
     local det_mult = weapon:AttributeHookFloat("sticky_arm_time") or 1.0
-    local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and 0.7 * det_mult or 0
+    local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and
+        0.7 * det_mult or 0
     local choked_time = clientstate:GetChokedCommands()
 
     local final_targets = {}
@@ -287,7 +289,7 @@ local function GetTargetsSmart(includeTeam)
 
         -- simulate player path if moving
         if data.velocity:Length() > 0 then
-			data.origin.z = data.origin.z + 5 --- smol offset to fix a issue
+            data.origin.z = data.origin.z + 5 --- smol offset to fix a issue
             local time_ticks = math.ceil((total_time * 66.67) + 0.5) + choked_time + 1
             data.sim_path = player_sim.Run(data, ent, data.origin, time_ticks)
             if data.sim_path and #data.sim_path > 0 then
@@ -296,7 +298,7 @@ local function GetTargetsSmart(includeTeam)
                 total_time = travel_time_est + detonate_time
             end
         else
-            data.sim_path = {data.origin}
+            data.sim_path = { data.origin }
         end
 
         if total_time > settings.max_sim_time then goto continue end
@@ -312,18 +314,18 @@ local function GetTargetsSmart(includeTeam)
         data.score = CalculateScore(data, eyePos, viewAngles, includeTeam)
         data.timesecs = total_time
 
-		if data.score < (settings.weights.min_score or 0) then
-    		goto continue
-		end
+        if data.score < (settings.weights.min_score or 0) then
+            goto continue
+        end
 
-        final_targets[#final_targets+1] = data
+        final_targets[#final_targets + 1] = data
 
         ::continue::
     end
 
-	if #final_targets == 0 then
-		return final_targets
-	end
+    if #final_targets == 0 then
+        return final_targets
+    end
 
     -- Sort by weighted score (highest first)
     table.sort(final_targets, function(a, b)
@@ -338,7 +340,7 @@ local function GetTargetsSmart(includeTeam)
         end
     end
 
-	_entitylist = final_targets
+    _entitylist = final_targets
     return final_targets
 end
 
@@ -367,9 +369,9 @@ local function GetTargetsNormal(includeTeam)
         ProcessClass("CObjectTeleporter", includeTeam, startList)
     end
 
-	if #startList == 0 then
-		return {}
-	end
+    if #startList == 0 then
+        return {}
+    end
 
     local lpPos = plocal:GetAbsOrigin()
     local eyePos = lpPos + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
@@ -377,7 +379,8 @@ local function GetTargetsNormal(includeTeam)
     local projectileSpeed = weaponInfo:GetVelocity(0):Length2D()
 
     local det_mult = weapon:AttributeHookFloat("sticky_arm_time") or 1.0
-    local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and 0.7 * det_mult or 0
+    local detonate_time = (settings.sim.use_detonate_time and weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_PIPEBOMBLAUNCHER) and
+        0.7 * det_mult or 0
     local choked_time = clientstate:GetChokedCommands()
 
     local candidates = {}
@@ -436,7 +439,7 @@ local function GetTargetsNormal(includeTeam)
                 data.score = 1.0 -- dummy, since sorting is by fov
             end
 
-            candidates[#candidates+1] = data
+            candidates[#candidates + 1] = data
         end
         ::continue::
     end
@@ -462,78 +465,78 @@ end
 
 ---@param cmd UserCmd
 local function CreateMove(cmd)
-	if clientstate.GetNetChannel() == nil then
-		return
-	end
+    if clientstate.GetNetChannel() == nil then
+        return
+    end
 
-	vAngles = nil
+    vAngles = nil
 
-	if settings.enabled == false then
-		return
-	end
+    if settings.enabled == false then
+        return
+    end
 
-	if plocal == nil or weapon == nil or weaponInfo == nil then
-		return
-	end
+    if plocal == nil or weapon == nil or weaponInfo == nil then
+        return
+    end
 
-	if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
-		return
-	end
+    if (engine.IsChatOpen() or engine.Con_IsVisible() or engine.IsGameUIVisible()) == true then
+        return
+    end
 
-	if not wep_utils.CanShoot() then
-		return
-	end
+    if not wep_utils.CanShoot() then
+        return
+    end
 
-	if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
-		return
-	end
+    if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
+        return
+    end
 
-	if plocal:InCond(E_TFCOND.TFCond_Taunting) then
-		return
-	end
+    if plocal:InCond(E_TFCOND.TFCond_Taunting) then
+        return
+    end
 
-	if plocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
-		return
-	end
+    if plocal:InCond(E_TFCOND.TFCond_HalloweenKart) then
+        return
+    end
 
-	local includeTeam = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_CROSSBOW
-		or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+    local includeTeam = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_CROSSBOW
+        or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
 
-	---@type table<integer, EntityInfo>?
-	local targets = settings.smart_targeting and GetTargetsSmart(includeTeam) or GetTargetsNormal(includeTeam)
-	if targets == nil or #targets == 0 then
-		return
-	end
+    ---@type table<integer, EntityInfo>?
+    local targets = settings.smart_targeting and GetTargetsSmart(includeTeam) or GetTargetsNormal(includeTeam)
+    if targets == nil or #targets == 0 then
+        return
+    end
 
-	---@type EulerAngles?
-	local angle = nil
+    ---@type EulerAngles?
+    local angle = nil
     local weaponID = weapon:GetWeaponID()
 
-	local weaponNoPSilent = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
-	or weaponID == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
-	or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
-	or weaponID == E_WeaponBaseID.TF_WEAPON_JAR_MILK
-	or weaponID == E_WeaponBaseID.TF_WEAPON_JAR
+    local weaponNoPSilent = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+        or weaponID == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
+        or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+        or weaponID == E_WeaponBaseID.TF_WEAPON_JAR_MILK
+        or weaponID == E_WeaponBaseID.TF_WEAPON_JAR
 
-	local in_attack2 = weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
-	or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
-	or weaponID == E_WeaponBaseID.TF_WEAPON_KNIFE
+    local in_attack2 = weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+        or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
+        or weaponID == E_WeaponBaseID.TF_WEAPON_KNIFE
 
-	local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
+    local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
     local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
     local projectileSpeed = weaponInfo:GetVelocity(charge):Length2D()
     local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge) * 0.5
 
-	for _, target in ipairs(targets) do
-		local finalPos = target.finalPos or target.origin
+    for _, target in ipairs(targets) do
+        local finalPos = target.finalPos or target.origin
 
-		-- calculate ballistic angle
-		angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
-		if angle then
-			if weaponInfo.m_bCharges then
-                local begintime = weapon:GetChargeBeginTime()
-                local maxtime   = weapon:GetChargeMaxTime()
-                local elapsed   = globals.CurTime() - begintime
+        -- calculate ballistic angle
+        angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
+        if angle then
+            if weaponInfo.m_bCharges then
+                local begintime  = weapon:GetChargeBeginTime()
+                local maxtime    = weapon:GetChargeMaxTime()
+                local elapsed    = globals.CurTime() - begintime
                 local chargeTime = math.min(elapsed, maxtime)
 
                 if settings.wait_for_charge then
@@ -580,71 +583,71 @@ local function CreateMove(cmd)
                 end
             end
 
-			if settings.psilent and weaponNoPSilent == false then
-				cmd.sendpacket = false
-			end
+            if settings.psilent and weaponNoPSilent == false then
+                cmd.sendpacket = false
+            end
 
-			cmd.viewangles = Vector3(angle:Unpack())
-			paths.player = target.sim_path
-			displayed_time = globals.CurTime() + settings.draw_time
-			target_min_hull, target_max_hull = target.mins, target.maxs
-			vAngles = angle
-			return
-		end
-	end
+            cmd.viewangles = Vector3(angle:Unpack())
+            paths.player = target.sim_path
+            displayed_time = globals.CurTime() + settings.draw_time
+            target_min_hull, target_max_hull = target.mins, target.maxs
+            vAngles = angle
+            return
+        end
+    end
 end
 
 local function FrameStage(stage)
-	if stage == E_ClientFrameStage.FRAME_NET_UPDATE_END then
-		plocal = entities.GetLocalPlayer()
-		if plocal == nil then
-			weapon = nil
-			weaponInfo = nil
-			return
-		end
+    if stage == E_ClientFrameStage.FRAME_NET_UPDATE_END then
+        plocal = entities.GetLocalPlayer()
+        if plocal == nil then
+            weapon = nil
+            weaponInfo = nil
+            return
+        end
 
-		weapon = plocal:GetPropEntity("m_hActiveWeapon")
-		weaponInfo = GetProjectileInformation(weapon:GetPropInt("m_iItemDefinitionIndex"))
+        weapon = plocal:GetPropEntity("m_hActiveWeapon")
+        weaponInfo = GetProjectileInformation(weapon:GetPropInt("m_iItemDefinitionIndex"))
 
-		player_sim.RunBackground(entities.FindByClass("CTFPlayer"))
-	elseif stage == E_ClientFrameStage.FRAME_RENDER_START and vAngles and settings.show_angles then
-		if plocal == nil then return end
-		if plocal:GetPropBool("m_nForceTauntCam") == false then return end
-		plocal:SetVAngles(Vector3(vAngles:Unpack()))
-	end
+        player_sim.RunBackground(entities.FindByClass("CTFPlayer"))
+    elseif stage == E_ClientFrameStage.FRAME_RENDER_START and vAngles and settings.show_angles then
+        if plocal == nil then return end
+        if plocal:GetPropBool("m_nForceTauntCam") == false then return end
+        plocal:SetVAngles(Vector3(vAngles:Unpack()))
+    end
 end
 
 --- source: https://gist.github.com/GigsD4X/8513963
-local function HSVToRGB( hue, saturation, value )
-	-- Returns the RGB equivalent of the given HSV-defined color
-	-- (adapted from some code found around the web)
+local function HSVToRGB(hue, saturation, value)
+    -- Returns the RGB equivalent of the given HSV-defined color
+    -- (adapted from some code found around the web)
 
-	-- If it's achromatic, just return the value
-	if saturation == 0 then
-		return value, value, value;
-	end;
+    -- If it's achromatic, just return the value
+    if saturation == 0 then
+        return value, value, value;
+    end;
 
-	-- Get the hue sector
-	local hue_sector = math.floor( hue / 60 );
-	local hue_sector_offset = ( hue / 60 ) - hue_sector;
+    -- Get the hue sector
+    local hue_sector = math.floor(hue / 60);
+    local hue_sector_offset = (hue / 60) - hue_sector;
 
-	local p = value * ( 1 - saturation );
-	local q = value * ( 1 - saturation * hue_sector_offset );
-	local t = value * ( 1 - saturation * ( 1 - hue_sector_offset ) );
+    local p = value * (1 - saturation);
+    local q = value * (1 - saturation * hue_sector_offset);
+    local t = value * (1 - saturation * (1 - hue_sector_offset));
 
-	if hue_sector == 0 then
-		return value, t, p;
-	elseif hue_sector == 1 then
-		return q, value, p;
-	elseif hue_sector == 2 then
-		return p, value, t;
-	elseif hue_sector == 3 then
-		return p, q, value;
-	elseif hue_sector == 4 then
-		return t, p, value;
-	elseif hue_sector == 5 then
-		return value, p, q;
-	end;
+    if hue_sector == 0 then
+        return value, t, p;
+    elseif hue_sector == 1 then
+        return q, value, p;
+    elseif hue_sector == 2 then
+        return p, value, t;
+    elseif hue_sector == 3 then
+        return p, q, value;
+    elseif hue_sector == 4 then
+        return t, p, value;
+    elseif hue_sector == 5 then
+        return value, p, q;
+    end;
 end;
 
 local function DrawPlayerHitbox(playerPos, mins, maxs)
@@ -675,25 +678,25 @@ local function DrawPlayerHitbox(playerPos, mins, maxs)
     end
 
     local edges = {
-        {1,2},{2,3},{3,4},{4,1}, -- bottom
-        {5,6},{6,7},{7,8},{8,5}, -- top
-        {1,5},{2,6},{3,7},{4,8}, -- verticals
+        { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 1 }, -- bottom
+        { 5, 6 }, { 6, 7 }, { 7, 8 }, { 8, 5 }, -- top
+        { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 8 }, -- verticals
     }
 
-	local thickness = settings.thickness.bounding_box
+    local thickness = settings.thickness.bounding_box
 
     for _, e in ipairs(edges) do
         local a, b = v2[e[1]], v2[e[2]]
         local dx, dy = b[1] - a[1], b[2] - a[2]
-        local len = math.sqrt(dx*dx + dy*dy)
+        local len = math.sqrt(dx * dx + dy * dy)
         if len > 0 then
             dx, dy = dx / len, dy / len
             local px, py = -dy * thickness, dx * thickness
             local verts = {
-                {a[1] + px, a[2] + py, 0, 0},
-                {a[1] - px, a[2] - py, 0, 1},
-                {b[1] - px, b[2] - py, 1, 1},
-                {b[1] + px, b[2] + py, 1, 0},
+                { a[1] + px, a[2] + py, 0, 0 },
+                { a[1] - px, a[2] - py, 0, 1 },
+                { b[1] - px, b[2] - py, 1, 1 },
+                { b[1] + px, b[2] + py, 1, 0 },
             }
             draw.TexturedPolygon(texture, verts, false)
         end
@@ -702,17 +705,17 @@ end
 
 local function DrawLine(p1, p2, thickness)
     local dx, dy = p2[1] - p1[1], p2[2] - p1[2]
-    local len = math.sqrt(dx*dx + dy*dy)
+    local len = math.sqrt(dx * dx + dy * dy)
     if len <= 0 then return end
 
     dx, dy = dx / len, dy / len
     local px, py = -dy * thickness, dx * thickness
 
     local verts = {
-        {p1[1] + px, p1[2] + py, 0, 0},
-        {p1[1] - px, p1[2] - py, 0, 1},
-        {p2[1] - px, p2[2] - py, 1, 1},
-        {p2[1] + px, p2[2] + py, 1, 0},
+        { p1[1] + px, p1[2] + py, 0, 0 },
+        { p1[1] - px, p1[2] - py, 0, 1 },
+        { p2[1] - px, p2[2] - py, 1, 1 },
+        { p2[1] + px, p2[2] + py, 1, 0 },
     }
 
     draw.TexturedPolygon(texture, verts, false)
@@ -751,60 +754,60 @@ end
 local font = draw.CreateFont("Arial", 12, 400)
 
 local function Draw()
-	if not settings.enabled then
-		return
-	end
+    if not settings.enabled then
+        return
+    end
 
-	if displayed_time < globals.CurTime() then
-		paths.player = {}
-		paths.proj = {}
-		return
-	end
+    if displayed_time < globals.CurTime() then
+        paths.player = {}
+        paths.proj = {}
+        return
+    end
 
-	if not paths or not paths.player or not paths.proj then
-		return
-	end
+    if not paths or not paths.player or not paths.proj then
+        return
+    end
 
-	if settings.draw_player_path and paths.player and #paths.player > 0 then
-		if settings.colors.player_path >= 360 then
-			draw.Color(255, 255, 255, 255)
-		else
-			local r, g, b = HSVToRGB(settings.colors.player_path, 0.5, 1)
-			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
-		end
-		DrawPlayerPath()
-	end
+    if settings.draw_player_path and paths.player and #paths.player > 0 then
+        if settings.colors.player_path >= 360 then
+            draw.Color(255, 255, 255, 255)
+        else
+            local r, g, b = HSVToRGB(settings.colors.player_path, 0.5, 1)
+            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
+        end
+        DrawPlayerPath()
+    end
 
-	if settings.draw_bounding_box then
-		local pos = paths.player[#paths.player]
-		if pos then
-			if settings.colors.bounding_box >= 360 then
-			draw.Color(255, 255, 255, 255)
-			else
-				local r, g, b = HSVToRGB(settings.colors.bounding_box, 0.5, 1)
-				draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
-			end
-			DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
-		end
-	end
+    if settings.draw_bounding_box then
+        local pos = paths.player[#paths.player]
+        if pos then
+            if settings.colors.bounding_box >= 360 then
+                draw.Color(255, 255, 255, 255)
+            else
+                local r, g, b = HSVToRGB(settings.colors.bounding_box, 0.5, 1)
+                draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
+            end
+            DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
+        end
+    end
 
-	if settings.draw_proj_path and paths.proj and #paths.proj > 0 then
-		if settings.colors.projectile_path >= 360 then
-			draw.Color(255, 255, 255, 255)
-		else
-			local r, g, b = HSVToRGB(settings.colors.projectile_path, 0.5, 1)
-			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 255)
-		end
-		DrawProjPath()
-	end
+    if settings.draw_proj_path and paths.proj and #paths.proj > 0 then
+        if settings.colors.projectile_path >= 360 then
+            draw.Color(255, 255, 255, 255)
+        else
+            local r, g, b = HSVToRGB(settings.colors.projectile_path, 0.5, 1)
+            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
+        end
+        DrawProjPath()
+    end
 
-	if settings.draw_quads then
-		if target_max_hull == nil or target_min_hull == nil then
-			return
-		end
+    if settings.draw_quads then
+        if target_max_hull == nil or target_min_hull == nil then
+            return
+        end
 
-		local pos = paths.player[#paths.player]
-		local v3 = GetBoxVertices(pos, target_min_hull, target_max_hull)
+        local pos = paths.player[#paths.player]
+        local v3 = GetBoxVertices(pos, target_min_hull, target_max_hull)
 
         -- project to screen
         local v2 = {}
@@ -812,12 +815,12 @@ local function Draw()
             v2[i] = client.WorldToScreen(v) -- {x,y} or nil if behind camera
         end
 
-		if settings.colors.quads >= 360 then
-			draw.Color(255, 255, 255, 25)
-		else
-			local r, g, b = HSVToRGB(settings.colors.quads, 0.5, 1)
-			draw.Color((r*255)//1, (g*255)//1, (b*255)//1, 25)
-		end
+        if settings.colors.quads >= 360 then
+            draw.Color(255, 255, 255, 25)
+        else
+            local r, g, b = HSVToRGB(settings.colors.quads, 0.5, 1)
+            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 25)
+        end
 
         -- faces: bottom, top, front, back, left, right
         DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[3], v2[4]) -- bottom
@@ -826,27 +829,27 @@ local function Draw()
         DrawQuadFaceDoubleSided(texture, v2[1], v2[4], v2[8], v2[5]) -- back
         DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[6], v2[5]) -- left
         DrawQuadFaceDoubleSided(texture, v2[4], v2[3], v2[7], v2[8]) -- right
-	end
+    end
 
-	if settings.draw_scores then
-		draw.Color(255, 255, 255, 255)
-		draw.SetFont(font)
-		for _, data in ipairs(_entitylist) do
-			if data.score then
-				local screen = client.WorldToScreen(data.origin)
-				if screen then
-					local text = tostring(data.score)
-					local tw, th = draw.GetTextSize(text)
-					draw.Text(screen[1] - (tw//2), screen[2] - (th//2), text)
-				end
-			end
-		end
-	end
+    if settings.draw_scores then
+        draw.Color(255, 255, 255, 255)
+        draw.SetFont(font)
+        for _, data in ipairs(_entitylist) do
+            if data.score then
+                local screen = client.WorldToScreen(data.origin)
+                if screen then
+                    local text = tostring(data.score)
+                    local tw, th = draw.GetTextSize(text)
+                    draw.Text(screen[1] - (tw // 2), screen[2] - (th // 2), text)
+                end
+            end
+        end
+    end
 end
 
 local function Unload()
-	menu.unload()
-	draw.DeleteTexture(texture)
+    menu.unload()
+    draw.DeleteTexture(texture)
 end
 
 callbacks.Register("Draw", Draw)
