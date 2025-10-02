@@ -131,7 +131,7 @@ local function ProcessClass(className, includeTeam, outputList)
             class = entity:GetPropInt("m_iClass") or nil,
             isUbered = entity:InCond(E_TFCOND.TFCond_Ubercharged),
             maxhealth = entity:GetMaxBuffedHealth(),
-            timesecs = 0,
+            timesecs = math.huge,
         }
 
         ::continue::
@@ -160,8 +160,7 @@ local function CalculateScore(data, eyePos, viewAngles, includeTeam)
         score = score + health_score * w.health_weight
     end
 
-    --- No need for this as we already reduce
-    --- the entitylist with lowest fovs
+    --- lower fov = better
     if w.fov_weight > 0 and settings.onfov_only == false then
         local angle = math_utils.PositionAngles(eyePos, data.finalPos or data.origin)
         if angle then
@@ -530,70 +529,73 @@ local function CreateMove(cmd)
     for _, target in ipairs(targets) do
         local finalPos = target.finalPos or target.origin
 
-        -- calculate ballistic angle
-        angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
-        if angle then
-            if weaponInfo.m_bCharges then
-                local begintime  = weapon:GetChargeBeginTime()
-                local maxtime    = weapon:GetChargeMaxTime()
-                local elapsed    = globals.CurTime() - begintime
-                local chargeTime = math.min(elapsed, maxtime)
+        if settings.draw_only == false then
+            -- calculate ballistic angle
+            angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
+            if angle then
+                if weaponInfo.m_bCharges and settings.auoshoot then
+                    local begintime  = weapon:GetChargeBeginTime()
+                    local maxtime    = weapon:GetChargeMaxTime()
+                    local elapsed    = globals.CurTime() - begintime
+                    local chargeTime = math.min(elapsed, maxtime)
 
-                if settings.wait_for_charge then
-                    cmd.buttons = cmd.buttons | IN_ATTACK
+                    if settings.wait_for_charge then
+                        cmd.buttons = cmd.buttons | IN_ATTACK
 
-                    local ent = entities.GetByIndex(target.index)
-                    if ent then
-                        local weaponFirePos = weaponInfo:GetFirePosition(
-                            plocal, eyePos, angle, weapon:IsViewModelFlipped()
-                        )
+                        local ent = entities.GetByIndex(target.index)
+                        if ent then
+                            local weaponFirePos = weaponInfo:GetFirePosition(
+                                plocal, eyePos, angle, weapon:IsViewModelFlipped()
+                            )
 
-                        local projpath, hit = proj_sim.Run(
-                            ent,
-                            plocal,
-                            weapon,
-                            weaponFirePos,
-                            angle:Forward(),
-                            target.sim_path[#target.sim_path],
-                            target.timesecs,
-                            weaponInfo,
-                            chargeTime
-                        )
+                            local projpath, hit = proj_sim.Run(
+                                ent,
+                                plocal,
+                                weapon,
+                                weaponFirePos,
+                                angle:Forward(),
+                                target.sim_path[#target.sim_path],
+                                target.timesecs,
+                                weaponInfo,
+                                chargeTime
+                            )
 
-                        if not hit then
-                            -- keep charging until we predict a hit
+                            if not hit then
+                                -- keep charging until we predict a hit
+                                cmd.buttons = cmd.buttons | IN_ATTACK
+                                return
+                            else
+                                cmd.buttons = cmd.buttons & ~IN_ATTACK
+                            end
+                        end
+                    else
+                        if elapsed < 0.01 then
                             cmd.buttons = cmd.buttons | IN_ATTACK
                             return
-                        else
-                            cmd.buttons = cmd.buttons & ~IN_ATTACK
                         end
                     end
-                else
-                    if elapsed < 0.01 then
+                elseif settings.autoshoot then
+                    -- normal non-charging weapons
+                    if in_attack2 then
+                        cmd.buttons = cmd.buttons | IN_ATTACK2
+                    else
                         cmd.buttons = cmd.buttons | IN_ATTACK
-                        return
                     end
                 end
-            else
-                -- normal non-charging weapons
-                if in_attack2 then
-                    cmd.buttons = cmd.buttons | IN_ATTACK2
-                else
-                    cmd.buttons = cmd.buttons | IN_ATTACK
+
+                if settings.psilent and weaponNoPSilent == false then
+                    cmd.sendpacket = false
                 end
-            end
 
-            if settings.psilent and weaponNoPSilent == false then
-                cmd.sendpacket = false
+                cmd.viewangles = Vector3(angle:Unpack())
+                vAngles = angle
             end
-
-            cmd.viewangles = Vector3(angle:Unpack())
-            paths.player = target.sim_path
-            displayed_time = globals.CurTime() + settings.draw_time
-            target_min_hull, target_max_hull = target.mins, target.maxs
-            vAngles = angle
-            return
         end
+
+        paths.player = target.sim_path
+        displayed_time = globals.CurTime() + settings.draw_time
+        target_min_hull, target_max_hull = target.mins, target.maxs
+        return
     end
 end
 
