@@ -17,16 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Install nvm
-        run: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-
-      # Runs a set of commands using the runners shell
-      - name: Restart shell
-        run: \. "$HOME/.nvm/nvm.sh"
-
-      - name: Install NodeJS
-        run: nvm install 22
+      - uses: actions/setup-node@v5.0.0
+        with:
+          node-version: 22.x
 
       - name: Install luabundler
         run: npm install -g luabundler
