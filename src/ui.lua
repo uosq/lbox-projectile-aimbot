@@ -10,15 +10,15 @@
 ---@field windowY integer
 
 local theme = {
-    bg_light = {45, 45, 45},
-    bg = {35, 35, 35},
-    bg_dark = {30, 30, 30},
-    primary = {143, 188, 187},
-    success = {69, 255, 166},
-    fail = {255, 69, 69},
+    bg_light = { 45, 45, 45 },
+    bg = { 35, 35, 35 },
+    bg_dark = { 30, 30, 30 },
+    primary = { 143, 188, 187 },
+    success = { 69, 255, 166 },
+    fail = { 255, 69, 69 },
 }
 
-local thickness = 1 --- outline thickness
+local thickness = 1    --- outline thickness
 local header_size = 25 --- title height
 local tab_section_width = 100
 
@@ -30,7 +30,8 @@ local element_margin = 5
 ---@class GuiWindow
 local window = {
     dragging = false,
-    mx = 0, my = 0,
+    mx = 0,
+    my = 0,
     x = 0,
     y = 0,
     w = 0,
@@ -56,7 +57,7 @@ local function DrawFilledCircle(texture, centerX, centerY, radius, segments)
         local angle = (i / segments) * math.pi * 2
         local x = centerX + math.cos(angle) * radius
         local y = centerY + math.sin(angle) * radius
-        vertices[i + 1] = {x, y, 0, 0}
+        vertices[i + 1] = { x, y, 0, 0 }
     end
 
     draw.TexturedPolygon(texture, vertices, false)
@@ -87,8 +88,8 @@ local function draw_tab_button(parent, x, y, width, height, label, i)
 
     local tw, th = draw.GetTextSize(label)
     local tx, ty
-    tx = (x + (width*0.5) - (tw*0.5))//1
-    ty = (y + (height*0.5) - (th*0.5))//1
+    tx = (x + (width * 0.5) - (tw * 0.5)) // 1
+    ty = (y + (height * 0.5) - (th * 0.5)) // 1
 
     draw.Color(242, 242, 242, 255)
     draw.Text(tx, ty, label)
@@ -179,8 +180,8 @@ function window.Draw(self)
         draw.FilledRect(x - thickness, y - header_size, x + total_w + thickness, y - thickness)
 
         local tw, th = draw.GetTextSize(title)
-        local tx = (x - thickness + total_w * 0.5 - tw * 0.5)//1
-        local ty = (y - thickness - header_size*0.5 - th*0.5)//1
+        local tx = (x - thickness + total_w * 0.5 - tw * 0.5) // 1
+        local ty = (y - thickness - header_size * 0.5 - th * 0.5) // 1
 
         draw.Color(242, 242, 242, 255)
         draw.Text(tx, ty, title)
@@ -202,7 +203,8 @@ function window.Draw(self)
     local content_x = x + extra_width
 
     local context = {
-        mouseX = mousePos[1], mouseY = mousePos[2],
+        mouseX = mousePos[1],
+        mouseY = mousePos[2],
         mouseDown = input.IsButtonDown(E_ButtonCode.MOUSE_LEFT),
         mouseReleased = input.IsButtonReleased(E_ButtonCode.MOUSE_LEFT),
         mousePressed = mousePressed,
@@ -296,7 +298,7 @@ function window:RecalculateLayout(tab_index)
     end
 
     --- get total tab width
-    local tab_w = element_margin * 2  --- left and right margins
+    local tab_w = element_margin * 2 --- left and right margins
     for i, w in ipairs(col_widths) do
         tab_w = tab_w + w
         if i < #col_widths then
@@ -332,9 +334,12 @@ end
 ---@param func fun(checked: boolean)?
 function window:CreateToggle(tab_index, width, height, label, checked, func)
     local btn = {
-        x = 0, y = 0,
-        w = width, h = height,
-        label = label, func = func,
+        x = 0,
+        y = 0,
+        w = width,
+        h = height,
+        label = label,
+        func = func,
         checked = checked,
     }
 
@@ -365,13 +370,13 @@ function window:CreateToggle(tab_index, width, height, label, checked, func)
         local tw, th = draw.GetTextSize(self.label)
         local tx, ty
         tx = bx + 2
-        ty = (by + bh*0.5 - th*0.5)//1
+        ty = (by + bh * 0.5 - th * 0.5) // 1
 
         draw.Color(242, 242, 242, 255)
         draw.Text(tx, ty, label)
 
         local circle_x = bx + bw - 10
-        local circle_y = (by + bh*0.5)//1
+        local circle_y = (by + bh * 0.5) // 1
         local radius = 8
 
         if (btn.checked) then
@@ -398,10 +403,14 @@ end
 ---@param func fun(value: number)?
 function window:CreateSlider(tab_index, width, height, label, min, max, currentvalue, func)
     local slider = {
-        x = 0, y = 0,
-        w = width, h = height,
-        label = label, func = func,
-        min = min, max = max,
+        x = 0,
+        y = 0,
+        w = width,
+        h = height,
+        label = label,
+        func = func,
+        min = min,
+        max = max,
         value = currentvalue
     }
 
@@ -437,13 +446,13 @@ function window:CreateSlider(tab_index, width, height, label, min, max, currentv
 
         --- draw slider fill
         draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
-        draw.FilledRect(bx, by, (bx + (bw * percent))//1, by + bh)
+        draw.FilledRect(bx, by, (bx + (bw * percent)) // 1, by + bh)
 
         --- draw label text
         local tw, th = draw.GetTextSize(self.label)
         local tx, ty
         tx = bx + 2
-        ty = (by + bh * 0.5 - th * 0.5)//1
+        ty = (by + bh * 0.5 - th * 0.5) // 1
         draw.Color(242, 242, 242, 255)
         draw.TextShadow(tx + 2, ty, self.label)
 
@@ -479,10 +488,14 @@ end
 ---@param func fun(value: number)?
 function window:CreateHueSlider(tab_index, width, height, label, currentvalue, func)
     local slider = {
-        x = 0, y = 0,
-        w = width, h = height,
-        label = label, func = func,
-        min = 0, max = 360,
+        x = 0,
+        y = 0,
+        w = width,
+        h = height,
+        label = label,
+        func = func,
+        min = 0,
+        max = 360,
         value = currentvalue
     }
 
@@ -511,14 +524,14 @@ function window:CreateHueSlider(tab_index, width, height, label, currentvalue, f
         percent = math.max(0, math.min(1, percent))
 
         --- draw slider indicator line
-        local indicator_x = (bx + (bw * percent))//1
+        local indicator_x = (bx + (bw * percent)) // 1
         if (self.value == 360) then
             draw.Color(255, 255, 255, 255)
         else
-            local r, g, b = hsv_to_rgb(self.value/360, 1.0, 1.0)
+            local r, g, b = hsv_to_rgb(self.value / 360, 1.0, 1.0)
             draw.Color(r, g, b, 255)
         end
-        draw.FilledRect(bx, (by + bh*0.6)//1, indicator_x, by + bh)
+        draw.FilledRect(bx, (by + bh * 0.6) // 1, indicator_x, by + bh)
 
         --- draw label text with shadow for better visibility
         local tw, th = draw.GetTextSize(self.label)
@@ -555,11 +568,119 @@ function window:CreateHueSlider(tab_index, width, height, label, currentvalue, f
     return slider
 end
 
+---@param func fun(value: number)?
+function window:CreateAccurateSlider(tab_index, width, height, label, min, max, currentvalue, func)
+    local slider = {
+        x = 0,
+        y = 0,
+        w = width,
+        h = height,
+        label = label,
+        func = func,
+        min = min,
+        max = max,
+        value = currentvalue
+    }
+
+    ---@param context Context
+    function slider:Draw(context)
+        local bx, by, bw, bh
+        bx = self.x + context.windowX
+        by = self.y + context.windowY
+        bw = self.w
+        bh = self.h
+
+        local mx, my = context.mouseX, context.mouseY
+        local mouseInside = mx >= bx and mx <= bx + bw
+            and my >= by and my <= by + bh
+
+        --- draw outline
+        draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
+        draw.OutlinedRect(bx - thickness, by - thickness, bx + bw + thickness, by + bh + thickness)
+
+        --- draw background based on mouse state
+        if (mouseInside and context.mouseDown) then
+            draw.Color(theme.bg_light[1], theme.bg_light[2], theme.bg_light[3], 255)
+        elseif (mouseInside) then
+            draw.Color(theme.bg[1], theme.bg[2], theme.bg[3], 255)
+        else
+            draw.Color(theme.bg_dark[1], theme.bg_dark[2], theme.bg_dark[3], 255)
+        end
+        draw.FilledRect(bx, by, bx + bw, by + bh)
+
+        -- calculate percentage for the slider fill
+        local percent = (self.value - self.min) / (self.max - self.min)
+        percent = math.max(0, math.min(1, percent)) --- clamp it ;)
+
+        --- draw slider fill
+        draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
+        draw.FilledRect(bx, by, (bx + (bw * percent)) // 1, by + bh)
+
+        --- draw label text
+        local tw, th = draw.GetTextSize(self.label)
+        local tx, ty
+        tx = bx + 2
+        ty = (by + bh * 0.5 - th * 0.5) // 1
+        draw.Color(242, 242, 242, 255)
+        draw.TextShadow(tx + 2, ty, self.label)
+
+        tw = draw.GetTextSize(string.format("%f", self.value))
+        tx = bx + bw - tw - 2
+        draw.TextShadow(tx, ty, string.format("%f", self.value))
+
+        --- handle mouse interaction
+        if (mouseInside and context.mousePressed and context.tick > context.lastPressedTick) then
+            self.isDragging = true
+        end
+
+        --- continue dragging even if mouse is outside the slider
+        if (self.isDragging and context.mouseDown) then
+            --- update slider value based on mouse position
+            local mousePercent = (mx - bx) / bw
+            mousePercent = math.max(0, math.min(1, mousePercent))
+            self.value = self.min + (self.max - self.min) * mousePercent
+
+            if (self.func) then
+                self.func(self.value)
+            end
+        elseif (not context.mouseDown) then
+            --- stop dragging when mouse is released
+            self.isDragging = false
+        end
+    end
+
+    self:InsertElement(slider, tab_index or self.current_tab)
+    return slider
+end
+
+function window:CreateLabel(tab_index, width, height, text, func)
+    local label = {
+        x = 0,
+        y = 0,
+        w = width,
+        h = height,
+        text = text,
+    }
+
+    ---@param context Context
+    function label:Draw(context)
+        local x, y, tw, th
+        tw, th = draw.GetTextSize(self.text)
+        x = (context.windowX + self.x + (self.w * 0.5) - (tw * 0.5)) // 1
+        y = (context.windowY + self.y + (self.h * 0.5) - (th * 0.5)) // 1
+        draw.Color(255, 255, 255, 255)
+        draw.TextShadow(x, y, tostring(text))
+    end
+
+    self:InsertElement(label, tab_index or self.current_tab)
+    return label
+end
+
 ---@return GuiWindow
 function window.New(tbl)
     local newWindow = tbl or {}
-    setmetatable(newWindow, {__index = window})
-    newWindow.tabs[1] = {name="", objs={}}
+    setmetatable(newWindow, { __index = window })
+    newWindow.tabs[1] = { name = "", objs = {} }
     return newWindow
 end
 

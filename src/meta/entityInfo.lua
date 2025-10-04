@@ -1,0 +1,24 @@
+---@meta
+
+---@class EntityInfo
+---@field index integer
+---@field health integer
+---@field maxs Vector3
+---@field mins Vector3
+---@field velocity Vector3
+---@field maxspeed number
+---@field angvelocity number
+---@field stepsize number
+---@field origin Vector3
+---@field fov number?
+---@field name string
+---@field dist number
+---@field friction number
+---@field team number
+---@field sim_path Vector3[]?
+---@field finalPos Vector3?
+---@field score number
+---@field isUbered boolean
+---@field class integer
+---@field maxhealth integer
+---@field timesecs number
