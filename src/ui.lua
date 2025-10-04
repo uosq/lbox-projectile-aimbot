@@ -178,8 +178,6 @@ function window.Draw(self)
     if (title and #title > 0) then
         draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
         draw.FilledRect(x - thickness, y - header_size, x + total_w + thickness, y - thickness)
-        draw.Color(0, 0, 0, 255)
-        draw.FilledRectFade(x - thickness, y - header_size, x + total_w + thickness, y - thickness, 200, 0, false)
 
         local tw, th = draw.GetTextSize(title)
         local tx = (x - thickness + total_w * 0.5 - tw * 0.5) // 1

@@ -18,7 +18,7 @@ return {
     show_angles = "Show real viewangles",
     max_targets = "Maximum amount of targets",
     draw_scores = "If we draw the player scores",
-    smart_targeting = "Enable new weight system",
+    smart_targeting = "Enable weight system",
 
     sim = {
         use_detonate_time = "If we should use stickybomb's detonation time",

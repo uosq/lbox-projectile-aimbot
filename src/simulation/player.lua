@@ -19,13 +19,13 @@ local math_pi = math.pi
 
 local MIN_SPEED = 25
 local MAX_ANGULAR_VEL = 360
-local MIN_VELOCITY_Z = 0.1
 local AIR_ACCELERATE = 10.0
 local GROUND_ACCELERATE = 10.0
 local SURFACE_FRICTION = 1.0
 local MAX_CLIP_PLANES = 5
 local DIST_EPSILON = 0.03125
 local MAX_SAMPLES = 16
+local IMPACT_NORMAL_FLOOR = 0.7
 
 local temp_vec1 = Vector3()
 local temp_vec2 = Vector3()
@@ -327,6 +327,38 @@ local function ApplyFriction(velocity, pTarget, is_on_ground)
     end
 end
 
+local function CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
+    temp_vec1.x, temp_vec1.y, temp_vec1.z = pos.x, pos.y, pos.z
+    temp_vec2.x, temp_vec2.y = pos.x, pos.y
+    temp_vec2.z = pos.z - 66
+
+    local is_on_ground = false
+    local ground_normal = nil
+    local surface_friction = 1.0
+
+    -- check velocity in z - if shooting up fast, not on ground
+    if vel.z <= 180.0 then
+        local trace = DoTraceHull(temp_vec1, temp_vec2, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+
+        -- check if we hit a walkable surface
+        -- ground must have normal.z >= 0.7
+        if trace.fraction < 0.06 and (trace.plane.z >= IMPACT_NORMAL_FLOOR) then
+            is_on_ground = true
+            ground_normal = Vector3(trace.plane.x, trace.plane.y, trace.plane.z)
+
+            -- snap to ground if not in water and trace succeeded
+            if not trace.startsolid and not trace.allsolid then
+                -- move player down that small amount to stay on ground
+                pos.x = temp_vec1.x + trace.fraction * (temp_vec2.x - temp_vec1.x)
+                pos.y = temp_vec1.y + trace.fraction * (temp_vec2.y - temp_vec1.y)
+                pos.z = temp_vec1.z + trace.fraction * (temp_vec2.z - temp_vec1.z)
+            end
+        end
+    end
+
+    return is_on_ground, ground_normal, surface_friction
+end
+
 ---@param pInfo EntityInfo
 ---@param pTarget Entity
 ---@param initial_pos Vector3
@@ -375,8 +407,7 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
         temp_vec1.z = pos.z + vel.z * tick_interval
         temp_vec2.x, temp_vec2.y, temp_vec2.z = temp_vec1.x, temp_vec1.y, temp_vec1.z - step_size
 
-        local ground_trace = TraceLine(temp_vec1, temp_vec2, MASK_PLAYERSOLID, shouldHitEntity)
-        local is_on_ground = ground_trace and ground_trace.fraction < 1.0 and vel.z <= MIN_VELOCITY_Z
+        local is_on_ground = CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
 
         -- Friction
         -- i wanted to use this, but my implementation does not like acceleration
@@ -384,7 +415,7 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 
         -- Acceleration
         local horizontal_speed = vel:LengthSqr()
-        if horizontal_speed > 0.01 then
+        if horizontal_speed > 0.0001 then
             local inv_len = 1.0 / horizontal_speed
             temp_vec1.x, temp_vec1.y, temp_vec1.z = vel.x * inv_len, vel.y * inv_len, 0
             local wishspeed = math_min(horizontal_speed, maxspeed)
