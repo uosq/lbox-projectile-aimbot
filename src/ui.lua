@@ -666,9 +666,12 @@ function window:CreateLabel(tab_index, width, height, text, func)
 
     ---@param context Context
     function label:Draw(context)
-        local x, y
-        x = (context.windowX + self.x + (self.w * 0.5)) // 1
-        y = (context.windowY + self.y + (self.h * 0.5)) // 1
+        local x, y, tw, th
+
+        tw, th = draw.GetTextSize(self.text)
+
+        x = (context.windowX + self.x + (self.w * 0.5) - (tw * 0.5)) // 1
+        y = (context.windowY + self.y + (self.h * 0.5) - (th * 0.5)) // 1
         draw.Color(255, 255, 255, 255)
         draw.TextShadow(x, y, tostring(text))
     end

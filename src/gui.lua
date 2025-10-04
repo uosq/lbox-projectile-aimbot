@@ -51,8 +51,8 @@ function gui.init(version)
 
     menu:CreateToggle(visuals_tab, component_width, component_height, "draw multpoint target",
         settings.draw_multipoint_target, function(checked)
-        settings.draw_multipoint_target = checked
-    end)
+            settings.draw_multipoint_target = checked
+        end)
 
     --[[menu:CreateToggle(aim_tab, component_width, component_height, "cancel shot", settings.cancel_shot, function(checked)
 		settings.cancel_shot = checked
@@ -66,8 +66,8 @@ function gui.init(version)
     -- Right column toggles
     menu:CreateToggle(aim_tab, component_width, component_height, "allow aim at teammates",
         settings.allow_aim_at_teammates, function(checked)
-        settings.allow_aim_at_teammates = checked
-    end)
+            settings.allow_aim_at_teammates = checked
+        end)
 
     menu:CreateToggle(aim_tab, component_width, component_height, "silent+", settings.psilent, function(checked)
         settings.psilent = checked
@@ -159,7 +159,7 @@ function gui.init(version)
     -- TARGET MODE
     for name, mode in pairs(settings.weights) do
         local label = string.gsub(name, "_", " ")
-        menu:CreateAccurateSlider(target_weights, component_width, component_height, label, 0, 2, mode, function(value)
+        menu:CreateAccurateSlider(target_weights, component_width, component_height, label, 0, 5.0, mode, function(value)
             settings.weights[name] = value
         end)
     end
@@ -171,8 +171,8 @@ function gui.init(version)
 
     menu:CreateAccurateSlider(target_weights, component_width, component_height, "minimum score", 0, 10,
         settings.min_score, function(value)
-        settings.min_score = value
-    end)
+            settings.min_score = value
+        end)
 
     menu:CreateToggle(target_weights, component_width, component_height, "inside fov only", settings.onfov_only,
         function(checked)

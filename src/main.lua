@@ -44,12 +44,6 @@ printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 ---@type Entity?, Entity?, WeaponInfo?
 local plocal, weapon, weaponInfo = nil, nil, nil
 
----@type table<integer, EntityInfo>
-local _entitylist = {}
-
-local rgbaData = string.char(255, 255, 255, 255)
-local texture = draw.CreateTextureRGBA(rgbaData, 1, 1) --- 1x1 white pixel
-
 local vAngles = nil
 
 ---@param outputList table<integer, EntityInfo>
@@ -153,7 +147,7 @@ local function CalculateScore(data, eyePos, viewAngles, includeTeam)
 
     --- favor a lot our team
     if includeTeam and data.team == plocal:GetTeamNumber() then
-        score = score + 5.0
+        score = score + settings.weights.teammate_weight
     end
 
     return score
@@ -268,7 +262,7 @@ local function GetTargetsSmart(includeTeam)
         data.score = CalculateScore(data, eyePos, viewAngles, includeTeam)
         data.timesecs = total_time
 
-        if data.score < (settings.weights.min_score or 0) then
+        if data.score < (settings.min_score or 0) then
             goto continue
         end
 
@@ -294,7 +288,6 @@ local function GetTargetsSmart(includeTeam)
         end
     end
 
-    _entitylist = final_targets
     return final_targets
 end
 
@@ -413,7 +406,6 @@ local function GetTargetsNormal(includeTeam)
         end
     end
 
-    _entitylist = candidates
     return candidates
 end
 
@@ -508,13 +500,10 @@ local function CreateMove(cmd)
         local finalPos = target.finalPos or target.origin
 
         if settings.draw_only == false then
-            -- calculate ballistic angle
             angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
             if angle then
-                -- autoshoot logic
                 if settings.autoshoot then
                     if weaponInfo.m_bCharges then
-                        -- CHARGING WEAPONS (e.g. Huntsman, Cow Mangler, etc.)
                         local elapsedCharge = GetWeaponElapsedCharge()
 
                         if elapsedCharge < 0.01 then
@@ -525,17 +514,13 @@ local function CreateMove(cmd)
 
                         cmd.buttons = cmd.buttons & ~IN_ATTACK
                     else
-                        -- NON-CHARGING WEAPONS (normal projectiles like rockets, pipes, etc.)
-                        if angle then
-                            if in_attack2 then
-                                cmd.buttons = cmd.buttons | IN_ATTACK2
-                            else
-                                cmd.buttons = cmd.buttons | IN_ATTACK
-                            end
+                        if in_attack2 then
+                            cmd.buttons = cmd.buttons | IN_ATTACK2
+                        else
+                            cmd.buttons = cmd.buttons | IN_ATTACK
                         end
                     end
                 end
-
 
                 if settings.psilent and weaponNoPSilent == false then
                     cmd.sendpacket = false
@@ -597,7 +582,6 @@ end
 
 local function Unload()
     menu.unload()
-    draw.DeleteTexture(texture)
     visuals:destroy()
 end
 

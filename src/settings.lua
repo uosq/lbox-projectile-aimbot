@@ -77,9 +77,10 @@ return {
         fov_weight        = 2,
         visibility_weight = 1.2,
         speed_weight      = 0.6,  -- prefer slower targets
-        medic_priority    = 1.5,  -- bonus if Medic
-        sniper_priority   = 1.0,  -- bonus if Sniper
+        medic_priority    = 0.0,  -- bonus if Medic
+        sniper_priority   = 0.0,  -- bonus if Sniper
         uber_penalty      = -2.0, -- skip/penalize Ubercharged targets
+        teammate_weight   = 5.0   -- on weapons that can shoot teammates, they have priority
     },
 
     min_score = 2,
