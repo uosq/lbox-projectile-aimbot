@@ -184,19 +184,19 @@ end
 
 AppendItemDefinitions(
     1,
-    18, -- Rocket Launcher
-    205, -- Rocket Launcher (Renamed/Strange)
-    228, -- The Black Box
-    658, -- Festive Rocket Launcher
-    800, -- Silver Botkiller Rocket Launcher Mk.I
-    809, -- Gold Botkiller Rocket Launcher Mk.I
-    889, -- Rust Botkiller Rocket Launcher Mk.I
-    898, -- Blood Botkiller Rocket Launcher Mk.I
-    907, -- Carbonado Botkiller Rocket Launcher Mk.I
-    916, -- Diamond Botkiller Rocket Launcher Mk.I
-    965, -- Silver Botkiller Rocket Launcher Mk.II
-    974, -- Gold Botkiller Rocket Launcher Mk.II
-    1085, -- Festive Black Box
+    18,    -- Rocket Launcher
+    205,   -- Rocket Launcher (Renamed/Strange)
+    228,   -- The Black Box
+    658,   -- Festive Rocket Launcher
+    800,   -- Silver Botkiller Rocket Launcher Mk.I
+    809,   -- Gold Botkiller Rocket Launcher Mk.I
+    889,   -- Rust Botkiller Rocket Launcher Mk.I
+    898,   -- Blood Botkiller Rocket Launcher Mk.I
+    907,   -- Carbonado Botkiller Rocket Launcher Mk.I
+    916,   -- Diamond Botkiller Rocket Launcher Mk.I
+    965,   -- Silver Botkiller Rocket Launcher Mk.II
+    974,   -- Gold Botkiller Rocket Launcher Mk.II
+    1085,  -- Festive Black Box
     15006, -- Woodland Warrior
     15014, -- Sand Cannon
     15028, -- American Pastoral
@@ -208,7 +208,7 @@ AppendItemDefinitions(
     15105, -- Brain Candy
     15129, -- Coffin Nail
     15130, -- High Roller's
-    15150 -- Warhawk
+    15150  -- Warhawk
 )
 aProjectileInfo[1] = DefineBasicProjectileDefinition({
     vecVelocity = Vector3(1100, 0, 0),
@@ -310,17 +310,17 @@ aProjectileInfo[9] = DefineBasicProjectileDefinition({
 
 AppendItemDefinitions(
     10,
-    20, -- Stickybomb Launcher
-    207, -- Stickybomb Launcher (Renamed/Strange)
-    661, -- Festive Stickybomb Launcher
-    797, -- Silver Botkiller Stickybomb Launcher Mk.I
-    806, -- Gold Botkiller Stickybomb Launcher Mk.I
-    886, -- Rust Botkiller Stickybomb Launcher Mk.I
-    895, -- Blood Botkiller Stickybomb Launcher Mk.I
-    904, -- Carbonado Botkiller Stickybomb Launcher Mk.I
-    913, -- Diamond Botkiller Stickybomb Launcher Mk.I
-    962, -- Silver Botkiller Stickybomb Launcher Mk.II
-    971, -- Gold Botkiller Stickybomb Launcher Mk.II
+    20,    -- Stickybomb Launcher
+    207,   -- Stickybomb Launcher (Renamed/Strange)
+    661,   -- Festive Stickybomb Launcher
+    797,   -- Silver Botkiller Stickybomb Launcher Mk.I
+    806,   -- Gold Botkiller Stickybomb Launcher Mk.I
+    886,   -- Rust Botkiller Stickybomb Launcher Mk.I
+    895,   -- Blood Botkiller Stickybomb Launcher Mk.I
+    904,   -- Carbonado Botkiller Stickybomb Launcher Mk.I
+    913,   -- Diamond Botkiller Stickybomb Launcher Mk.I
+    962,   -- Silver Botkiller Stickybomb Launcher Mk.II
+    971,   -- Gold Botkiller Stickybomb Launcher Mk.II
     15009, -- Sudden Flurry
     15012, -- Carpet Bomber
     15024, -- Blasted Bombardier
@@ -333,7 +333,7 @@ AppendItemDefinitions(
     15113, -- Sweet Dreams
     15137, -- Coffin Nail
     15138, -- Dressed to Kill
-    15155 -- Blitzkrieg
+    15155  -- Blitzkrieg
 )
 aProjectileInfo[10] = DefineSimulProjectileDefinition({
     vecOffset = Vector3(16, 8, -6),
@@ -381,9 +381,9 @@ aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[12], {
 
 AppendItemDefinitions(
     14,
-    19, -- Grenade Launcher
-    206, -- Grenade Launcher (Renamed/Strange)
-    1007, -- Festive Grenade Launcher
+    19,    -- Grenade Launcher
+    206,   -- Grenade Launcher (Renamed/Strange)
+    1007,  -- Festive Grenade Launcher
     15077, -- Autumn
     15079, -- Macabre Web
     15091, -- Rainbow
@@ -391,7 +391,7 @@ AppendItemDefinitions(
     15116, -- Coffin Nail
     15117, -- Top Shelf
     15142, -- Warhawk
-    15158 -- Butcher Bird
+    15158  -- Butcher Bird
 )
 aProjectileInfo[14] = DefineSimulProjectileDefinition({
     vecOffset = Vector3(16, 8, -6),
@@ -446,9 +446,9 @@ aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 
 AppendItemDefinitions(
     18,
-    56, -- The Huntsman
+    56,   -- The Huntsman
     1005, -- Festive Huntsman
-    1092 -- The Fortified Compound
+    1092  -- The Fortified Compound
 )
 aProjectileInfo[18] = DefinePseudoProjectileDefinition({
     vecOffset = Vector3(23.5, -8, -3),
@@ -467,7 +467,7 @@ aProjectileInfo[18] = DefinePseudoProjectileDefinition({
 
 AppendItemDefinitions(
     19,
-    39, -- The Flare Gun
+    39,  -- The Flare Gun
     351, -- The Detonator
     595, -- The Manmelter
     1081 -- Festive Flare Gun
@@ -518,10 +518,10 @@ aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
 
 AppendItemDefinitions(
     23,
-    17, -- Syringe Gun
-    36, -- The Blutsauger
+    17,  -- Syringe Gun
+    36,  -- The Blutsauger
     204, -- Syringe Gun (Renamed/Strange)
-    412 -- The Overdose
+    412  -- The Overdose
 )
 aProjectileInfo[23] = DefinePseudoProjectileDefinition({
     vecOffset = Vector3(16, 6, -8),
@@ -533,11 +533,11 @@ aProjectileInfo[23] = DefinePseudoProjectileDefinition({
 
 AppendItemDefinitions(
     24,
-    58, -- Jarate
-    222, -- Mad Milk
+    58,   -- Jarate
+    222,  -- Mad Milk
     1083, -- Festive Jarate
     1105, -- The Self-Aware Beauty Mark
-    1121 -- Mutated Milk
+    1121  -- Mutated Milk
 )
 aProjectileInfo[24] = DefinePseudoProjectileDefinition({
     vecOffset = Vector3(16, 8, -6),
@@ -550,7 +550,7 @@ aProjectileInfo[24] = DefinePseudoProjectileDefinition({
 AppendItemDefinitions(
     25,
     812, -- The Flying Guillotine
-    833 -- The Flying Guillotine (Genuine)
+    833  -- The Flying Guillotine (Genuine)
 )
 aProjectileInfo[25] = DefinePseudoProjectileDefinition({
     vecOffset = Vector3(23.5, 8, -3),
@@ -644,13 +644,13 @@ aProjectileInfo[31] = DefineBasicProjectileDefinition({
 
 AppendItemDefinitions(
     32,
-    42, -- Sandvich
-    159, -- The Dalokohs Bar
-    311, -- The Buffalo Steak Sandvich
-    433, -- Fishcake
-    863, -- Robo-Sandvich
+    42,   -- Sandvich
+    159,  -- The Dalokohs Bar
+    311,  -- The Buffalo Steak Sandvich
+    433,  -- Fishcake
+    863,  -- Robo-Sandvich
     1002, -- Festive Sandvich
-    1190 -- Second Banana
+    1190  -- Second Banana
 )
 aProjectileInfo[32] = DefinePseudoProjectileDefinition({
     vecOffset = Vector3(0, 0, -8),

@@ -28,6 +28,12 @@ local GetProjectileInformation = require("src.projectile_info")
 assert(GetProjectileInformation, "[PROJ AIMBOT] GetProjectileInformation module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] GetProjectileInformation module loaded")
 
+local Visuals = require("src.visuals")
+assert(Visuals, "[PROJ AIMBOT] Visuals module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Visuals module loaded")
+
+local visuals = Visuals.new()
+
 local menu = require("src.gui")
 menu.init(version)
 
@@ -44,56 +50,7 @@ local _entitylist = {}
 local rgbaData = string.char(255, 255, 255, 255)
 local texture = draw.CreateTextureRGBA(rgbaData, 1, 1) --- 1x1 white pixel
 
-local paths = {
-    proj = {},
-    player = {},
-}
-
-local displayed_time = 0.0
-local target_min_hull, target_max_hull = nil, nil
 local vAngles = nil
-
----@param pos Vector3
----@param mins Vector3
----@param maxs Vector3
----@return Vector3[]
-local function GetBoxVertices(pos, mins, maxs)
-    local worldMins = pos + mins
-    local worldMaxs = pos + maxs
-
-    return {
-        Vector3(worldMins.x, worldMins.y, worldMins.z), -- 1 bottom-back-left
-        Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- 2 bottom-front-left
-        Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- 3 bottom-front-right
-        Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- 4 bottom-back-right
-        Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- 5 top-back-left
-        Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- 6 top-front-left
-        Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- 7 top-front-right
-        Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- 8 top-back-right
-    }
-end
-
--- build a {x,y,u,v} vertex from a screen point {x,y}
-local function XYUV(p, u, v)
-    return { p[1], p[2], u, v }
-end
-
--- draw a quad as two triangles in both windings (double sided)
-local function DrawQuadFaceDoubleSided(tex, a, b, c, d)
-    if not (a and b and c and d) then return end
-
-    -- front (a,b,c) + (a,c,d)
-    local f1 = { XYUV(a, 0, 0), XYUV(b, 1, 0), XYUV(c, 1, 1) }
-    local f2 = { XYUV(a, 0, 0), XYUV(c, 1, 1), XYUV(d, 0, 1) }
-    draw.TexturedPolygon(tex, f1, true)
-    draw.TexturedPolygon(tex, f2, true)
-
-    -- back (reverse winding): (a,c,b) + (a,d,c)
-    local b1 = { XYUV(a, 0, 0), XYUV(c, 1, 1), XYUV(b, 1, 0) }
-    local b2 = { XYUV(a, 0, 0), XYUV(d, 0, 1), XYUV(c, 1, 1) }
-    draw.TexturedPolygon(tex, b1, true)
-    draw.TexturedPolygon(tex, b2, true)
-end
 
 ---@param outputList table<integer, EntityInfo>
 local function ProcessClass(className, includeTeam, outputList)
@@ -277,7 +234,6 @@ local function GetTargetsSmart(includeTeam)
 
     local final_targets = {}
 
-    -- Simulation and multipoint
     for _, data in ipairs(candidates) do
         local ent = entities.GetByIndex(data.index)
         if not ent then goto continue end
@@ -309,7 +265,6 @@ local function GetTargetsSmart(includeTeam)
         data.dist = (finalPos - lpPos):Length()
         data.finalPos = finalPos
 
-        -- Assign weighted score
         data.score = CalculateScore(data, eyePos, viewAngles, includeTeam)
         data.timesecs = total_time
 
@@ -326,12 +281,12 @@ local function GetTargetsSmart(includeTeam)
         return final_targets
     end
 
-    -- Sort by weighted score (highest first)
+    -- sort by weighted score (highest first)
     table.sort(final_targets, function(a, b)
         return (a.score or 0) > (b.score or 0)
     end)
 
-    -- Limit number of targets
+    -- limit number of targets
     local max_targets = settings.max_targets or 2
     if #final_targets > max_targets then
         for i = max_targets + 1, #final_targets do
@@ -462,6 +417,26 @@ local function GetTargetsNormal(includeTeam)
     return candidates
 end
 
+local function GetWeaponElapsedCharge()
+    if weapon == nil or weaponInfo == nil then
+        return 0.0
+    end
+
+    if weaponInfo.m_bCharges == false then
+        return 0.0
+    end
+
+    local begintime = weapon:GetChargeBeginTime()
+    local maxtime   = weapon:GetChargeMaxTime()
+    local elapsed   = globals.CurTime() - begintime
+
+    if elapsed > maxtime then
+        elapsed = 0.0
+    end
+
+    return elapsed
+end
+
 ---@param cmd UserCmd
 local function CreateMove(cmd)
     if clientstate.GetNetChannel() == nil then
@@ -498,8 +473,10 @@ local function CreateMove(cmd)
         return
     end
 
-    local includeTeam = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_CROSSBOW
-        or weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+    local weaponID = weapon:GetWeaponID()
+
+    local includeTeam = weaponID == E_WeaponBaseID.TF_WEAPON_CROSSBOW
+        or weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
 
     ---@type table<integer, EntityInfo>?
     local targets = settings.smart_targeting and GetTargetsSmart(includeTeam) or GetTargetsNormal(includeTeam)
@@ -509,9 +486,8 @@ local function CreateMove(cmd)
 
     ---@type EulerAngles?
     local angle = nil
-    local weaponID = weapon:GetWeaponID()
 
-    local weaponNoPSilent = weapon:GetWeaponID() == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
+    local weaponNoPSilent = weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
         or weaponID == E_WeaponBaseID.TF_WEAPON_FLAME_BALL
         or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
         or weaponID == E_WeaponBaseID.TF_WEAPON_JAR_MILK
@@ -526,6 +502,8 @@ local function CreateMove(cmd)
     local projectileSpeed = weaponInfo:GetVelocity(charge):Length2D()
     local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge) * 0.5
 
+    visuals:set_eye_position(eyePos)
+
     for _, target in ipairs(targets) do
         local finalPos = target.finalPos or target.origin
 
@@ -533,55 +511,31 @@ local function CreateMove(cmd)
             -- calculate ballistic angle
             angle = math_utils.SolveBallisticArc(eyePos, finalPos, projectileSpeed, gravity)
             if angle then
-                if weaponInfo.m_bCharges and settings.auoshoot then
-                    local begintime  = weapon:GetChargeBeginTime()
-                    local maxtime    = weapon:GetChargeMaxTime()
-                    local elapsed    = globals.CurTime() - begintime
-                    local chargeTime = math.min(elapsed, maxtime)
+                -- autoshoot logic
+                if settings.autoshoot then
+                    if weaponInfo.m_bCharges then
+                        -- CHARGING WEAPONS (e.g. Huntsman, Cow Mangler, etc.)
+                        local elapsedCharge = GetWeaponElapsedCharge()
 
-                    if settings.wait_for_charge then
-                        cmd.buttons = cmd.buttons | IN_ATTACK
-
-                        local ent = entities.GetByIndex(target.index)
-                        if ent then
-                            local weaponFirePos = weaponInfo:GetFirePosition(
-                                plocal, eyePos, angle, weapon:IsViewModelFlipped()
-                            )
-
-                            local projpath, hit = proj_sim.Run(
-                                ent,
-                                plocal,
-                                weapon,
-                                weaponFirePos,
-                                angle:Forward(),
-                                target.sim_path[#target.sim_path],
-                                target.timesecs,
-                                weaponInfo,
-                                chargeTime
-                            )
-
-                            if not hit then
-                                -- keep charging until we predict a hit
-                                cmd.buttons = cmd.buttons | IN_ATTACK
-                                return
-                            else
-                                cmd.buttons = cmd.buttons & ~IN_ATTACK
-                            end
-                        end
-                    else
-                        if elapsed < 0.01 then
+                        if elapsedCharge < 0.01 then
+                            -- just started charging
                             cmd.buttons = cmd.buttons | IN_ATTACK
                             return
                         end
-                    end
-                elseif settings.autoshoot then
-                    -- normal non-charging weapons
-                    if in_attack2 then
-                        cmd.buttons = cmd.buttons | IN_ATTACK2
+
+                        cmd.buttons = cmd.buttons & ~IN_ATTACK
                     else
-                        cmd.buttons = cmd.buttons | IN_ATTACK
+                        -- NON-CHARGING WEAPONS (normal projectiles like rockets, pipes, etc.)
+                        if angle then
+                            if in_attack2 then
+                                cmd.buttons = cmd.buttons | IN_ATTACK2
+                            else
+                                cmd.buttons = cmd.buttons | IN_ATTACK
+                            end
+                        end
                     end
                 end
+
 
                 if settings.psilent and weaponNoPSilent == false then
                     cmd.sendpacket = false
@@ -592,10 +546,20 @@ local function CreateMove(cmd)
             end
         end
 
-        paths.player = target.sim_path
-        displayed_time = globals.CurTime() + settings.draw_time
-        target_min_hull, target_max_hull = target.mins, target.maxs
-        return
+        if target then
+            local ent = entities.GetByIndex(target.index)
+            local proj_path = nil
+            if ent and angle and settings.draw_proj_path then
+                local weaponFirePos = weaponInfo:GetFirePosition(plocal, eyePos, angle, weapon:IsViewModelFlipped())
+                proj_path = proj_sim.Run(ent, plocal, weapon, weaponFirePos, angle:Forward(),
+                    target.sim_path[#target.sim_path], target.timesecs, weaponInfo, charge)
+            end
+
+            visuals:update_paths(target.sim_path, proj_path)
+            visuals:set_target_hull(target.mins, target.maxs)
+            visuals:set_displayed_time(globals.CurTime() + settings.draw_time)
+            return
+        end
     end
 end
 
@@ -619,239 +583,22 @@ local function FrameStage(stage)
     end
 end
 
---- source: https://gist.github.com/GigsD4X/8513963
-local function HSVToRGB(hue, saturation, value)
-    -- Returns the RGB equivalent of the given HSV-defined color
-    -- (adapted from some code found around the web)
-
-    -- If it's achromatic, just return the value
-    if saturation == 0 then
-        return value, value, value;
-    end;
-
-    -- Get the hue sector
-    local hue_sector = math.floor(hue / 60);
-    local hue_sector_offset = (hue / 60) - hue_sector;
-
-    local p = value * (1 - saturation);
-    local q = value * (1 - saturation * hue_sector_offset);
-    local t = value * (1 - saturation * (1 - hue_sector_offset));
-
-    if hue_sector == 0 then
-        return value, t, p;
-    elseif hue_sector == 1 then
-        return q, value, p;
-    elseif hue_sector == 2 then
-        return p, value, t;
-    elseif hue_sector == 3 then
-        return p, q, value;
-    elseif hue_sector == 4 then
-        return t, p, value;
-    elseif hue_sector == 5 then
-        return value, p, q;
-    end;
-end;
-
-local function DrawPlayerHitbox(playerPos, mins, maxs)
-    local worldMins = playerPos + mins
-    local worldMaxs = playerPos + maxs
-
-    -- 8 corners of the AABB
-    local v3 = {
-        Vector3(worldMins.x, worldMins.y, worldMins.z), -- 1: bottom-back-left
-        Vector3(worldMins.x, worldMaxs.y, worldMins.z), -- 2: bottom-front-left
-        Vector3(worldMaxs.x, worldMaxs.y, worldMins.z), -- 3: bottom-front-right
-        Vector3(worldMaxs.x, worldMins.y, worldMins.z), -- 4: bottom-back-right
-        Vector3(worldMins.x, worldMins.y, worldMaxs.z), -- 5: top-back-left
-        Vector3(worldMins.x, worldMaxs.y, worldMaxs.z), -- 6: top-front-left
-        Vector3(worldMaxs.x, worldMaxs.y, worldMaxs.z), -- 7: top-front-right
-        Vector3(worldMaxs.x, worldMins.y, worldMaxs.z), -- 8: top-back-right
-    }
-
-    -- Project 3D to 2D screen
-    local v2 = {}
-    for i = 1, 8 do
-        v2[i] = client.WorldToScreen(v3[i])
-    end
-
-    -- If any corner is off-screen, skip
-    for i = 1, 8 do
-        if not v2[i] then return end
-    end
-
-    local edges = {
-        { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 1 }, -- bottom
-        { 5, 6 }, { 6, 7 }, { 7, 8 }, { 8, 5 }, -- top
-        { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 8 }, -- verticals
-    }
-
-    local thickness = settings.thickness.bounding_box
-
-    for _, e in ipairs(edges) do
-        local a, b = v2[e[1]], v2[e[2]]
-        local dx, dy = b[1] - a[1], b[2] - a[2]
-        local len = math.sqrt(dx * dx + dy * dy)
-        if len > 0 then
-            dx, dy = dx / len, dy / len
-            local px, py = -dy * thickness, dx * thickness
-            local verts = {
-                { a[1] + px, a[2] + py, 0, 0 },
-                { a[1] - px, a[2] - py, 0, 1 },
-                { b[1] - px, b[2] - py, 1, 1 },
-                { b[1] + px, b[2] + py, 1, 0 },
-            }
-            draw.TexturedPolygon(texture, verts, false)
-        end
-    end
-end
-
-local function DrawLine(p1, p2, thickness)
-    local dx, dy = p2[1] - p1[1], p2[2] - p1[2]
-    local len = math.sqrt(dx * dx + dy * dy)
-    if len <= 0 then return end
-
-    dx, dy = dx / len, dy / len
-    local px, py = -dy * thickness, dx * thickness
-
-    local verts = {
-        { p1[1] + px, p1[2] + py, 0, 0 },
-        { p1[1] - px, p1[2] - py, 0, 1 },
-        { p2[1] - px, p2[2] - py, 1, 1 },
-        { p2[1] + px, p2[2] + py, 1, 0 },
-    }
-
-    draw.TexturedPolygon(texture, verts, false)
-end
-
-local function DrawPlayerPath()
-    if not paths.player or #paths.player < 2 then return end
-
-    local last = client.WorldToScreen(paths.player[1])
-    if not last then return end
-
-    for i = 2, #paths.player do
-        local current = client.WorldToScreen(paths.player[i])
-        if current and last then
-            DrawLine(last, current, settings.thickness.player_path)
-        end
-        last = current
-    end
-end
-
-local function DrawProjPath()
-    if not paths.proj or #paths.proj < 2 then return end
-
-    local last = client.WorldToScreen(paths.proj[1].pos)
-    if not last then return end
-
-    for i = 2, #paths.proj do
-        local current = client.WorldToScreen(paths.proj[i].pos)
-        if current and last then
-            DrawLine(last, current, settings.thickness.projectile_path)
-        end
-        last = current
-    end
-end
-
-local font = draw.CreateFont("Arial", 12, 400)
-
 local function Draw()
     if not settings.enabled then
         return
     end
 
-    if displayed_time < globals.CurTime() then
-        paths.player = {}
-        paths.proj = {}
+    if clientstate.GetNetChannel() == nil then
         return
     end
 
-    if not paths or not paths.player or not paths.proj then
-        return
-    end
-
-    if settings.draw_player_path and paths.player and #paths.player > 0 then
-        if settings.colors.player_path >= 360 then
-            draw.Color(255, 255, 255, 255)
-        else
-            local r, g, b = HSVToRGB(settings.colors.player_path, 0.5, 1)
-            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
-        end
-        DrawPlayerPath()
-    end
-
-    if settings.draw_bounding_box then
-        local pos = paths.player[#paths.player]
-        if pos then
-            if settings.colors.bounding_box >= 360 then
-                draw.Color(255, 255, 255, 255)
-            else
-                local r, g, b = HSVToRGB(settings.colors.bounding_box, 0.5, 1)
-                draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
-            end
-            DrawPlayerHitbox(pos, target_min_hull, target_max_hull)
-        end
-    end
-
-    if settings.draw_proj_path and paths.proj and #paths.proj > 0 then
-        if settings.colors.projectile_path >= 360 then
-            draw.Color(255, 255, 255, 255)
-        else
-            local r, g, b = HSVToRGB(settings.colors.projectile_path, 0.5, 1)
-            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 255)
-        end
-        DrawProjPath()
-    end
-
-    if settings.draw_quads then
-        if target_max_hull == nil or target_min_hull == nil then
-            return
-        end
-
-        local pos = paths.player[#paths.player]
-        local v3 = GetBoxVertices(pos, target_min_hull, target_max_hull)
-
-        -- project to screen
-        local v2 = {}
-        for i, v in ipairs(v3) do
-            v2[i] = client.WorldToScreen(v) -- {x,y} or nil if behind camera
-        end
-
-        if settings.colors.quads >= 360 then
-            draw.Color(255, 255, 255, 25)
-        else
-            local r, g, b = HSVToRGB(settings.colors.quads, 0.5, 1)
-            draw.Color((r * 255) // 1, (g * 255) // 1, (b * 255) // 1, 25)
-        end
-
-        -- faces: bottom, top, front, back, left, right
-        DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[3], v2[4]) -- bottom
-        DrawQuadFaceDoubleSided(texture, v2[5], v2[6], v2[7], v2[8]) -- top
-        DrawQuadFaceDoubleSided(texture, v2[2], v2[3], v2[7], v2[6]) -- front
-        DrawQuadFaceDoubleSided(texture, v2[1], v2[4], v2[8], v2[5]) -- back
-        DrawQuadFaceDoubleSided(texture, v2[1], v2[2], v2[6], v2[5]) -- left
-        DrawQuadFaceDoubleSided(texture, v2[4], v2[3], v2[7], v2[8]) -- right
-    end
-
-    if settings.draw_scores then
-        draw.Color(255, 255, 255, 255)
-        draw.SetFont(font)
-        for _, data in ipairs(_entitylist) do
-            if data.score then
-                local screen = client.WorldToScreen(data.origin)
-                if screen then
-                    local text = tostring(data.score)
-                    local tw, th = draw.GetTextSize(text)
-                    draw.Text(screen[1] - (tw // 2), screen[2] - (th // 2), text)
-                end
-            end
-        end
-    end
+    visuals:draw()
 end
 
 local function Unload()
     menu.unload()
     draw.DeleteTexture(texture)
+    visuals:destroy()
 end
 
 callbacks.Register("Draw", Draw)

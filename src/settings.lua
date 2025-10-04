@@ -28,7 +28,7 @@ return {
     },
 
     max_percent = 90,
-    wait_for_charge = true,
+    wait_for_charge = false,
     cancel_shot = false,
 
     ents = {
@@ -56,12 +56,12 @@ return {
     },
 
     colors = {
-        bounding_box = 193, --{136, 192, 208, 255},
-        player_path = 193, --{136, 192, 208, 255},
-        projectile_path = 40, --{235, 203, 139, 255}
+        bounding_box = 360,    --{136, 192, 208, 255},
+        player_path = 360,     --{136, 192, 208, 255},
+        projectile_path = 360, --{235, 203, 139, 255}
         multipoint_target = 20,
         target_glow = 360,
-        quads = 193,
+        quads = 360,
     },
 
     thickness = {
@@ -76,9 +76,9 @@ return {
         distance_weight   = 1.1, -- prefer closer players
         fov_weight        = 2,
         visibility_weight = 1.2,
-        speed_weight      = 0.6, -- prefer slower targets
-        medic_priority    = 1.5, -- bonus if Medic
-        sniper_priority   = 1.0, -- bonus if Sniper
+        speed_weight      = 0.6,  -- prefer slower targets
+        medic_priority    = 1.5,  -- bonus if Medic
+        sniper_priority   = 1.0,  -- bonus if Sniper
         uber_penalty      = -2.0, -- skip/penalize Ubercharged targets
     },
 
