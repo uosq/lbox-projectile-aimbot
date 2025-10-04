@@ -25,10 +25,10 @@ jobs:
         run: npm install -g luabundler
 
       - name: Make merge.sh executable
-        run: chmod +x ${{github.workspace}}/merge.sh
+        run: chmod +x ./merge.sh
 
       - name: Bundle
-        run: ./${{github.workspace}}/merge.sh
+        run: ./merge.sh
 
       - uses: actions/upload-artifact@v4.6.2
         with:
