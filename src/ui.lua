@@ -20,7 +20,7 @@ local theme = {
 
 local thickness = 1    --- outline thickness
 local header_size = 25 --- title height
-local tab_section_width = 100
+local tab_section_height = 25
 
 local max_objects_per_column = 9
 local column_spacing = 10
@@ -69,9 +69,6 @@ local function draw_tab_button(parent, x, y, width, height, label, i)
     local mouseInside = mx >= x and mx <= x + width
         and my >= y and my <= y + height
 
-    --draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
-    --draw.FilledRect(x - thickness, y - thickness, x + width + thickness, y + height + thickness)
-
     if (mouseInside and input.IsButtonDown(E_ButtonCode.MOUSE_LEFT)) then
         draw.Color(theme.bg_light[1], theme.bg_light[2], theme.bg_light[3], 255)
     elseif (mouseInside) then
@@ -83,7 +80,7 @@ local function draw_tab_button(parent, x, y, width, height, label, i)
 
     if (parent.current_tab == i) then
         draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
-        draw.FilledRect(x + 2, y + 2, x + 4, y + height - 2)
+        draw.FilledRect(x + 2, y + height - 4, x + width - 2, y + height - 2)
     end
 
     local tw, th = draw.GetTextSize(label)
@@ -142,6 +139,28 @@ function window.Draw(self)
     local mousePressed, tick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
     local mousePos = input.GetMousePos()
 
+    local numTabs = #self.tabs
+    local extra_height = (numTabs > 1) and tab_section_height or 0
+
+    if (title and #title > 0) then
+        local header_x1 = x - thickness
+        local header_y1 = y - header_size
+        local header_x2 = x + w + thickness
+        local header_y2 = y - thickness
+
+        local mx, my = mousePos[1], mousePos[2]
+        local mouseInHeader = mx >= header_x1 and mx <= header_x2
+            and my >= header_y1 and my <= header_y2
+
+        if (mouseInHeader and mousePressed) then
+            self.dragging = true
+        end
+    end
+
+    if (not input.IsButtonDown(E_ButtonCode.MOUSE_LEFT)) then
+        self.dragging = false
+    end
+
     local dx, dy = mousePos[1] - self.mx, mousePos[2] - self.my
     if (self.dragging) then
         self.x = self.x + dx
@@ -150,57 +169,42 @@ function window.Draw(self)
 
     draw.SetFont(font)
 
-    local numTabs = #self.tabs
-    local extra_width = (numTabs > 1) and tab_section_width or 0
+    local total_h = h + extra_height
 
-    local total_w = w + extra_width
-
-    -- draw window outline & background
     draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
-    draw.OutlinedRect(x - thickness, y - thickness, x + total_w + thickness, y + h + thickness)
+    draw.OutlinedRect(x - thickness, y - thickness, x + w + thickness, y + total_h + thickness)
 
-    draw.Color(theme.bg_dark[1], theme.bg_dark[2], theme.bg_dark[3], 255)
-    draw.FilledRect(x, y, x + total_w, y + h)
+    draw.Color(theme.bg[1], theme.bg[2], theme.bg[3], 255)
+    draw.FilledRect(x, y, x + w, y + total_h)
 
-    -- draw tabs if needed
     if (numTabs > 1) then
         draw.Color(theme.bg_light[1], theme.bg_light[2], theme.bg_light[3], 255)
-        draw.FilledRect(x, y, x + tab_section_width, y + h)
+        draw.FilledRect(x, y, x + w, y + tab_section_height)
 
-        local btnx, btny = x, y
+        local btnx = x
+        local btny = y
         for i, t in ipairs(self.tabs) do
-            draw_tab_button(self, btnx, btny, tab_section_width, 25, t.name, i)
-            btny = btny + 25
+            local tab_width = math.max(80, draw.GetTextSize(t.name) + 20)
+            draw_tab_button(self, btnx, btny, tab_width, tab_section_height, t.name, i)
+            btnx = btnx + tab_width
         end
     end
 
     -- header
     if (title and #title > 0) then
         draw.Color(theme.primary[1], theme.primary[2], theme.primary[3], 255)
-        draw.FilledRect(x - thickness, y - header_size, x + total_w + thickness, y - thickness)
+        draw.FilledRect(x - thickness, y - header_size, x + w + thickness, y - thickness)
 
         local tw, th = draw.GetTextSize(title)
-        local tx = (x - thickness + total_w * 0.5 - tw * 0.5) // 1
+        local tx = (x - thickness + w * 0.5 - tw * 0.5) // 1
         local ty = (y - thickness - header_size * 0.5 - th * 0.5) // 1
 
         draw.Color(242, 242, 242, 255)
         draw.Text(tx, ty, title)
-
-        -- dragging check
-        if (mousePos[1] >= x and mousePos[1] <= x + total_w) and (mousePos[2] >= y - header_size and mousePos[2] <= y) then
-            local state, thistick = input.IsButtonPressed(E_ButtonCode.MOUSE_LEFT)
-            if (state and thistick > lastPressedTick) then
-                self.dragging = true
-            end
-        end
-
-        if (input.IsButtonReleased(E_ButtonCode.MOUSE_LEFT) and self.dragging) then
-            self.dragging = false
-        end
     end
 
-    -- adjust context X for drawing objs
-    local content_x = x + extra_width
+    local content_x = x
+    local content_y = y + extra_height
 
     local context = {
         mouseX = mousePos[1],
@@ -211,7 +215,7 @@ function window.Draw(self)
         tick = tick,
         lastPressedTick = lastPressedTick,
         windowX = content_x,
-        windowY = y,
+        windowY = content_y,
     }
 
     if (tab) then
@@ -258,64 +262,62 @@ function window:RecalculateLayout(tab_index)
     if not tab_index or not self.tabs[tab_index] then return end
     local tab = self.tabs[tab_index]
 
-    local col, row = 0, 0
-    local col_widths, col_heights = {}, {}
-    local current_col_width = 0
+    local columns = {}
+    local col, row = 1, 0
 
-    --- calculate positions and track column dimensions
     for i, obj in ipairs(tab.objs) do
-        --- track the maximum width in current column
-        if obj.w > current_col_width then
-            current_col_width = obj.w
+        if not columns[col] then
+            columns[col] = {}
         end
 
-        -- calculate x position using previously completed column widths
-        local x_offset = element_margin
-        for j = 1, col do
-            x_offset = x_offset + (col_widths[j] or 0) + column_spacing
-        end
-        obj.x = x_offset
-
-        --- calc y position
-        obj.y = element_margin + row * (obj.h + row_spacing)
-
+        table.insert(columns[col], obj)
         row = row + 1
-        if row >= max_objects_per_column then
-            col_widths[col + 1] = current_col_width
-            col_heights[col + 1] = row * (obj.h + row_spacing)
 
-            --- move to next column
+        if row >= max_objects_per_column then
             row = 0
             col = col + 1
-            current_col_width = 0
         end
     end
 
-    --- handle the last column if it has elements
-    if row > 0 and #tab.objs > 0 then
-        col_widths[col + 1] = current_col_width
-        col_heights[col + 1] = row * (tab.objs[#tab.objs].h + row_spacing)
-    end
+    local num_columns = #columns
+    local total_spacing = (num_columns - 1) * column_spacing + element_margin * 2
 
-    --- get total tab width
-    local tab_w = element_margin * 2 --- left and right margins
-    for i, w in ipairs(col_widths) do
-        tab_w = tab_w + w
-        if i < #col_widths then
-            tab_w = tab_w + column_spacing
+    local min_window_width = 200
+
+    if #self.tabs > 1 then
+        local total_tabs_width = 0
+        for i, t in ipairs(self.tabs) do
+            local tab_button_width = math.max(80, draw.GetTextSize(t.name) + 20)
+            total_tabs_width = (total_tabs_width + tab_button_width) // 1
+        end
+
+        if total_tabs_width > min_window_width then
+            min_window_width = total_tabs_width // 1
         end
     end
 
-    --- calculate total tab height (maximum of all column heights)
-    local tab_h = 0
-    for _, h in ipairs(col_heights) do
-        if h > tab_h then tab_h = h end
-    end
-    tab_h = tab_h + element_margin * 2
+    local available_width = min_window_width - total_spacing
+    local column_width = available_width / num_columns
 
-    --- save tab size
-    tab.w = tab_w
-    tab.h = tab_h
+    local max_height = 0
+
+    for col_idx, column in ipairs(columns) do
+        local x_offset = element_margin + (col_idx - 1) * (column_width + column_spacing)
+
+        for row_idx, obj in ipairs(column) do
+            obj.x = x_offset // 1
+            obj.y = (element_margin + (row_idx - 1) * (obj.h + row_spacing)) // 1
+            obj.w = column_width // 1
+
+            local obj_bottom = obj.y + obj.h
+            if obj_bottom > max_height then
+                max_height = obj_bottom
+            end
+        end
+    end
+
+    tab.w = min_window_width // 1
+    tab.h = (max_height + element_margin) // 1
 end
 
 function window:InsertElement(object, tab_index)

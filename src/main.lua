@@ -428,7 +428,7 @@ local function GetWeaponElapsedCharge(cmd)
     end
 
     if weapon:GetPropInt("m_iItemDefinitionIndex") == 996 then
-        elapsed = 1 - elapsed
+        elapsed = math.max(0, 1 - elapsed)
     end
 
     return elapsed
@@ -503,7 +503,8 @@ local function CreateMove(cmd)
 
     visuals:set_eye_position(eyePos)
 
-    local elapsedCharge = 0.0
+    local elapsedCharge = GetWeaponElapsedCharge(cmd)
+    local ammo = weapon:GetPropInt("m_iClip1")
     for _, target in ipairs(targets) do
         local finalPos = target.finalPos or target.origin
 
@@ -512,8 +513,6 @@ local function CreateMove(cmd)
             if angle then
                 if settings.autoshoot then
                     if weaponInfo.m_bCharges then
-                        elapsedCharge = GetWeaponElapsedCharge(cmd)
-
                         if elapsedCharge < 0.01 then
                             -- just started charging
                             cmd.buttons = cmd.buttons | IN_ATTACK
@@ -526,8 +525,6 @@ local function CreateMove(cmd)
                             cmd.buttons = cmd.buttons | IN_ATTACK2
                         else
                             if isBeggarsBazooka then
-                                local ammo = weapon:GetPropInt("m_iClip1")
-
                                 --- gotta check CanShoot() as we skip it
                                 --- because it returns false with 0 ammo
                                 if ammo == 0 and wep_utils.CanShoot() == false then
