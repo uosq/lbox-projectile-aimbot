@@ -4,7 +4,6 @@ local sim = {}
 
 local MASK_PLAYERSOLID = MASK_PLAYERSOLID
 local DoTraceHull = engine.TraceHull
-local TraceLine = engine.TraceLine
 local Vector3 = Vector3
 local math_deg = math.deg
 local math_rad = math.rad
@@ -267,8 +266,11 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
     local down_dist = (origin.x - orig_x) + (origin.y - orig_y)
 
     if not is_on_ground or down_dist > 5.0 or (orig_vx * orig_vx + orig_vy * orig_vy) < 1.0 then
-        return -- regular move was good enough or we're in air
+        return
     end
+
+    local down_x, down_y, down_z = origin.x, origin.y, origin.z
+    local down_vx, down_vy, down_vz = velocity.x, velocity.y, velocity.z
 
     -- reset and try step up
     origin.x, origin.y, origin.z = orig_x, orig_y, orig_z
@@ -283,15 +285,15 @@ local function StepMove(origin, velocity, frametime, mins, maxs, shouldHitEntity
     end
 
     -- move forward
-    local up_orig_x, up_orig_y, up_orig_z = origin.x, origin.y, origin.z
+    local up_orig_x, up_orig_y = origin.x, origin.y
     TryPlayerMove(origin, velocity, frametime, mins, maxs, shouldHitEntity, surface_friction)
 
     local up_dist = (origin.x - up_orig_x) + (origin.y - up_orig_y)
 
-    -- If stepping up didn't help us move forward, revert
+    -- if stepping up didn't help, revert to original result
     if up_dist <= down_dist then
-        origin.x, origin.y, origin.z = orig_x + (origin.x - orig_x), orig_y + (origin.y - orig_y), orig_z
-        velocity.x, velocity.y, velocity.z = orig_vx, orig_vy, orig_vz
+        origin.x, origin.y, origin.z = down_x, down_y, down_z
+        velocity.x, velocity.y, velocity.z = down_vx, down_vy, down_vz
         return
     end
 
@@ -396,6 +398,12 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
     temp_vec3.x, temp_vec3.y, temp_vec3.z = 0, 0, -step_size
 
     for i = 1, time do
+        local is_on_ground = CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
+
+        -- Friction
+        -- i wanted to use this, but my implementation does not like acceleration
+        --ApplyFriction(vel, pTarget, is_on_ground)
+
         -- Apply rotation
         if angular_velocity ~= 0 then
             local vx, vy = vel.x, vel.y
@@ -407,24 +415,37 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
         temp_vec1.z = pos.z + vel.z * tick_interval
         temp_vec2.x, temp_vec2.y, temp_vec2.z = temp_vec1.x, temp_vec1.y, temp_vec1.z - step_size
 
-        local is_on_ground = CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
-
-        -- Friction
-        -- i wanted to use this, but my implementation does not like acceleration
-        --ApplyFriction(vel, pTarget, is_on_ground)
+        if not is_on_ground then
+            vel.z = vel.z - (gravity_step * 0.5)
+        end
 
         -- Acceleration
-        local horizontal_speed = vel:LengthSqr()
+        local horizontal_speed = vel:Length2DSqr()
         if horizontal_speed > 0.0001 then
             local inv_len = 1.0 / horizontal_speed
-            temp_vec1.x, temp_vec1.y, temp_vec1.z = vel.x * inv_len, vel.y * inv_len, 0
+            -- This is the direction they're currently moving
+            local wish_x = vel.x * inv_len
+            local wish_y = vel.y * inv_len
+
+            -- Apply angular rotation to predict their turning
+            if angular_velocity ~= 0 then
+                local vx, vy = wish_x, wish_y
+                wish_x = vx * cos_yaw - vy * sin_yaw
+                wish_y = vx * sin_yaw + vy * cos_yaw
+            end
+
+            temp_vec1.x, temp_vec1.y, temp_vec1.z = wish_x, wish_y, 0
             local wishspeed = math_min(horizontal_speed, maxspeed)
 
             if is_on_ground then
                 AccelerateInPlace(vel, temp_vec1, wishspeed, GROUND_ACCELERATE, tick_interval, surface_friction)
-            elseif vel.z < 0 then
+            else
                 AirAccelerateInPlace(vel, temp_vec1, wishspeed, AIR_ACCELERATE, tick_interval, surface_friction, pTarget)
             end
+
+            vel.x = math_max(-3500, math_min(3500, vel.x)) -- clamp to reasonable bounds
+            vel.y = math_max(-3500, math_min(3500, vel.y)) -- clamp to reasonable bounds
+            vel.z = math_max(-3500, math_min(3500, vel.z)) -- clamp to reasonable bounds
         end
 
         -- Speed cap on ground
@@ -432,21 +453,21 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
             local vel_length = vel:Length()
             if vel_length > maxspeed then
                 local scale = maxspeed / vel_length
-                vel.x, vel.y, vel.z = vel.x * scale, vel.y * scale, vel.z * scale
+                vel.x, vel.y = vel.x * scale, vel.y * scale
             end
         end
 
         -- Move
         StepMove(pos, vel, tick_interval, mins, maxs, shouldHitEntity, surface_friction, step_size, is_on_ground)
 
-        positions[#positions + 1] = Vector3(pos.x, pos.y, pos.z)
-
         -- Gravity
         if not is_on_ground then
-            vel.z = vel.z - gravity_step
+            vel.z = vel.z - gravity_step * 0.5
         elseif vel.z < 0 then
             vel.z = 0
         end
+
+        positions[#positions + 1] = Vector3(pos.x, pos.y, pos.z)
     end
 
     return positions

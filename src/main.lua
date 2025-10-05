@@ -32,14 +32,14 @@ local Visuals = require("src.visuals")
 assert(Visuals, "[PROJ AIMBOT] Visuals module failed to load")
 printc(150, 255, 150, 255, "[PROJ AIMBOT] Visuals module loaded")
 
+local multipoint = require("src.multipoint")
+assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
+printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
+
 local visuals = Visuals.new()
 
 local menu = require("src.gui")
 menu.init(version)
-
-local multipoint = require("src.multipoint")
-assert(multipoint, "[PROJ AIMBOT] Multipoint module failed to load")
-printc(150, 255, 150, 255, "[PROJ AIMBOT] Multipoint module loaded")
 
 ---@type Entity?, Entity?, WeaponInfo?
 local plocal, weapon, weaponInfo = nil, nil, nil
@@ -127,7 +127,7 @@ local function CalculateScore(data, eyePos, viewAngles, includeTeam)
     end
 
     --- speed (slower = easier to hit)
-    if w.speed_weight and w.speed_weight ~= 0 then
+    if w.speed_weight and w.speed_weight > 0 then
         local speed = data.velocity:Length()
         local speed_score = 1 - math.min(speed / data.maxspeed, 1) -- normalize
         score = score + speed_score * w.speed_weight
@@ -238,7 +238,7 @@ local function GetTargetsSmart(includeTeam)
 
         -- simulate player path if moving
         if data.velocity:Length() > 0 then
-            data.origin.z = data.origin.z + 5 --- smol offset to fix a issue
+            data.origin.z = data.origin.z + 1 --- smol offset to fix a issue
             local time_ticks = math.ceil((total_time * 66.67) + 0.5) + choked_time + 1
             data.sim_path = player_sim.Run(data, ent, data.origin, time_ticks)
             if data.sim_path and #data.sim_path > 0 then
@@ -356,7 +356,7 @@ local function GetTargetsNormal(includeTeam)
                 local finalPos = Vector3(data.origin:Unpack())
 
                 if data.velocity:Length() > 0 then
-                    data.origin.z = data.origin.z + 5
+                    data.origin.z = data.origin.z + 1
                     local time_ticks = math.ceil((total_time * 66.67) + 0.5) + choked_time + 1
                     data.sim_path = player_sim.Run(data, ent, data.origin, time_ticks)
                     if data.sim_path and #data.sim_path > 0 then
@@ -409,7 +409,8 @@ local function GetTargetsNormal(includeTeam)
     return candidates
 end
 
-local function GetWeaponElapsedCharge()
+---@param cmd UserCmd
+local function GetWeaponElapsedCharge(cmd)
     if weapon == nil or weaponInfo == nil then
         return 0.0
     end
@@ -422,8 +423,12 @@ local function GetWeaponElapsedCharge()
     local maxtime   = weapon:GetChargeMaxTime()
     local elapsed   = globals.CurTime() - begintime
 
-    if elapsed > maxtime then
-        elapsed = 0.0
+    if elapsed > maxtime and (cmd.buttons & IN_ATTACK) == 0 then
+        return 0.0
+    end
+
+    if weapon:GetPropInt("m_iItemDefinitionIndex") == 996 then
+        elapsed = 1 - elapsed
     end
 
     return elapsed
@@ -449,7 +454,9 @@ local function CreateMove(cmd)
         return
     end
 
-    if not wep_utils.CanShoot() then
+    local isBeggarsBazooka = weapon:GetPropInt("m_iItemDefinitionIndex") == 730
+
+    if not isBeggarsBazooka and not wep_utils.CanShoot() then
         return
     end
 
@@ -496,6 +503,7 @@ local function CreateMove(cmd)
 
     visuals:set_eye_position(eyePos)
 
+    local elapsedCharge = 0.0
     for _, target in ipairs(targets) do
         local finalPos = target.finalPos or target.origin
 
@@ -504,7 +512,7 @@ local function CreateMove(cmd)
             if angle then
                 if settings.autoshoot then
                     if weaponInfo.m_bCharges then
-                        local elapsedCharge = GetWeaponElapsedCharge()
+                        elapsedCharge = GetWeaponElapsedCharge(cmd)
 
                         if elapsedCharge < 0.01 then
                             -- just started charging
@@ -517,7 +525,18 @@ local function CreateMove(cmd)
                         if in_attack2 then
                             cmd.buttons = cmd.buttons | IN_ATTACK2
                         else
-                            cmd.buttons = cmd.buttons | IN_ATTACK
+                            if isBeggarsBazooka then
+                                local ammo = weapon:GetPropInt("m_iClip1")
+
+                                --- gotta check CanShoot() as we skip it
+                                --- because it returns false with 0 ammo
+                                if ammo == 0 and wep_utils.CanShoot() == false then
+                                    cmd.buttons = cmd.buttons | IN_ATTACK
+                                    return
+                                end
+                            else
+                                cmd.buttons = cmd.buttons | IN_ATTACK
+                            end
                         end
                     end
                 end

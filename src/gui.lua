@@ -49,10 +49,10 @@ function gui.init(version)
         settings.draw_only = checked
     end)
 
-    menu:CreateToggle(visuals_tab, component_width, component_height, "draw multpoint target",
+    --[[menu:CreateToggle(visuals_tab, component_width, component_height, "draw multpoint target",
         settings.draw_multipoint_target, function(checked)
             settings.draw_multipoint_target = checked
-        end)
+        end)]]
 
     --[[menu:CreateToggle(aim_tab, component_width, component_height, "cancel shot", settings.cancel_shot, function(checked)
 		settings.cancel_shot = checked
@@ -85,14 +85,15 @@ function gui.init(version)
         end)
     end
 
-    menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge,
+    --[[menu:CreateToggle(aim_tab, component_width, component_height, "wait for charge (laggy)", settings.wait_for_charge,
         function(checked)
             settings.wait_for_charge = checked
-        end)
+        end)]]
 
-    menu:CreateToggle(aim_tab, component_width, component_height, "show angles", settings.show_angles, function(checked)
-        settings.show_angles = checked
-    end)
+    menu:CreateToggle(visuals_tab, component_width, component_height, "show angles", settings.show_angles,
+        function(checked)
+            settings.show_angles = checked
+        end)
 
     -- MISC TAB
     menu:CreateSlider(misc_tab, component_width, component_height, "max sim time", 0.5, 10, settings.max_sim_time,
@@ -159,9 +160,10 @@ function gui.init(version)
     -- TARGET MODE
     for name, mode in pairs(settings.weights) do
         local label = string.gsub(name, "_", " ")
-        menu:CreateAccurateSlider(target_weights, component_width, component_height, label, 0, 5.0, mode, function(value)
-            settings.weights[name] = value
-        end)
+        menu:CreateAccurateSlider(target_weights, component_width, component_height, label, -5.0, 5.0, mode,
+            function(value)
+                settings.weights[name] = value
+            end)
     end
 
     menu:CreateToggle(target_weights, component_width, component_height, "draw scores", settings.draw_scores,
