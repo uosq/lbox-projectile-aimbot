@@ -5,5 +5,6 @@
     "diagnostics.disable": [
         "duplicate-set-field",
         "duplicate-doc-field"
-    ]
+    ],
+    "runtime.version": "Lua 5.4"
 }

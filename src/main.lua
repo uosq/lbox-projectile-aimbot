@@ -491,15 +491,19 @@ local function CreateMove(cmd)
         or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
         or weaponID == E_WeaponBaseID.TF_WEAPON_JAR_MILK
         or weaponID == E_WeaponBaseID.TF_WEAPON_JAR
+        or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_GIFTWRAP
 
     local in_attack2 = weaponID == E_WeaponBaseID.TF_WEAPON_LUNCHBOX
         or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_WOOD
         or weaponID == E_WeaponBaseID.TF_WEAPON_KNIFE
+        or weaponID == E_WeaponBaseID.TF_WEAPON_BAT_GIFTWRAP
 
     local charge = weaponInfo.m_bCharges and weapon:GetChargeBeginTime() or globals.CurTime()
     local eyePos = plocal:GetAbsOrigin() + plocal:GetPropVector("localdata", "m_vecViewOffset[0]")
     local projectileSpeed = weaponInfo:GetVelocity(charge):Length2D()
     local gravity = client.GetConVar("sv_gravity") * weaponInfo:GetGravity(charge) * 0.5
+
+    local isRocketLauncher = isBeggarsBazooka or weaponID == E_WeaponBaseID.TF_WEAPON_ROCKETLAUNCHER
 
     visuals:set_eye_position(eyePos)
 
@@ -552,8 +556,12 @@ local function CreateMove(cmd)
             local proj_path = nil
             if ent and angle and settings.draw_proj_path then
                 local weaponFirePos = weaponInfo:GetFirePosition(plocal, eyePos, angle, weapon:IsViewModelFlipped())
-                proj_path = proj_sim.Run(ent, plocal, weapon, weaponFirePos, angle:Forward(),
-                    target.sim_path[#target.sim_path], target.timesecs, weaponInfo, charge)
+                if isRocketLauncher then
+                  proj_path = {{pos = weaponFirePos}, {pos = target.sim_path[#target.sim_path]}}
+                else
+                  proj_path = proj_sim.Run(ent, plocal, weapon, weaponFirePos, angle:Forward(),
+                      target.sim_path[#target.sim_path], target.timesecs, weaponInfo, charge)
+                end
             end
 
             visuals:update_paths(target.sim_path, proj_path)
