@@ -1,6 +1,16 @@
 # Navet's Projectile Aimbot
 
-### This script is a work in progress!
+### This project is archived
+
+### There won't be a new update
+
+Nothing is forever, but I hope you at least had some fun using it
+
+Yes, you can use it, but there won't be any major updates (or any updates at all, unless a core feature is broken somehow)
+
+If you want to fork it, go ahead do whatever you want with it, im not stopping you
+
+---
 
 Every commit has a lua file you can get [here](https://github.com/uosq/lbox-projectile-aimbot/actions)
 
