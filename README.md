@@ -2,6 +2,8 @@
 
 ### This script is a work in progress!
 
+Every commit has a lua file you can get [here](https://github.com/uosq/lbox-projectile-aimbot/actions)
+
 The only setting that you gotta configure in the Lmaobox menu is the aim key!
 
 If LMAOBOX's projectile aimbot is enabled, this script will disabled it when shooting with a projectile weapon (we dont need 2 aimbots running at the same time, do we?)
