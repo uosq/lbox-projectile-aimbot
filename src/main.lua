@@ -168,7 +168,7 @@ local function GetTargetsSmart(includeTeam)
     end
 
     if settings.ents["aim sentries"] then
-        ProcessClass("CObjetSentrygun", includeTeam, startList)
+        ProcessClass("CObjectSentrygun", includeTeam, startList)
     end
 
     if settings.ents["aim dispensers"] then
@@ -307,7 +307,7 @@ local function GetTargetsNormal(includeTeam)
         ProcessClass("CTFPlayer", includeTeam, startList)
     end
     if settings.ents["aim sentries"] then
-        ProcessClass("CObjetSentrygun", includeTeam, startList)
+        ProcessClass("CObjectSentrygun", includeTeam, startList)
     end
     if settings.ents["aim dispensers"] then
         ProcessClass("CObjectDispenser", includeTeam, startList)

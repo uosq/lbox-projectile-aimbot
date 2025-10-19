@@ -36,6 +36,7 @@ for i = 1, MAX_CLIP_PLANES do
 end
 
 local position_samples = {}
+local settings = require("src.settings")
 
 local RuneTypes_t = {
 	RUNE_NONE = -1,
@@ -384,6 +385,66 @@ local function CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
 	return is_on_ground, ground_normal, surface_friction
 end
 
+local function TryPlayerMoveFast(origin, velocity, frametime, mins, maxs, shouldHitEntity)
+	--- predict next position
+	temp_vec1.x = origin.x + velocity.x * frametime
+	temp_vec1.y = origin.y + velocity.y * frametime
+	temp_vec1.z = origin.z + velocity.z * frametime
+
+	--- simple ground check
+	local trace = engine.TraceHull(origin, temp_vec1, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+	if trace.allsolid then
+		velocity.x, velocity.y, velocity.z = 0, 0, 0
+		return
+	end
+
+	-- Move to end position or collision point
+	origin.x, origin.y, origin.z = trace.endpos.x, trace.endpos.y, trace.endpos.z
+
+	if trace.fraction < 1.0 then
+		-- reflect velocity along surface normal
+		local n = trace.plane
+		local dot = velocity.x * n.x + velocity.y * n.y + velocity.z * n.z
+		velocity.x = velocity.x - dot * n.x
+		velocity.y = velocity.y - dot * n.y
+		velocity.z = velocity.z - dot * n.z
+	end
+end
+
+local function StepMoveFast(origin, velocity, frametime, mins, maxs, shouldHitEntity, step_size)
+	-- save original state
+	local ox, oy, oz = origin.x, origin.y, origin.z
+
+	-- try flat move first
+	TryPlayerMoveFast(origin, velocity, frametime, mins, maxs, shouldHitEntity)
+	local flat_dx = (origin.x - ox) ^ 2 + (origin.y - oy) ^ 2
+
+	-- step up attempt (skip if not moving enough horizontally)
+	if flat_dx < 1.0 then
+		return
+	end
+
+	-- move upward
+	temp_vec1.x, temp_vec1.y, temp_vec1.z = ox, oy, oz + step_size
+	local up_trace = engine.TraceHull(Vector3(ox, oy, oz), temp_vec1, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+	if up_trace.allsolid then
+		return
+	end
+
+	-- apply step-up position
+	origin.x, origin.y, origin.z = up_trace.endpos.x, up_trace.endpos.y, up_trace.endpos.z
+
+	-- move again from higher position
+	TryPlayerMoveFast(origin, velocity, frametime, mins, maxs, shouldHitEntity)
+
+	-- step down gently
+	temp_vec1.x, temp_vec1.y, temp_vec1.z = origin.x, origin.y, origin.z - step_size
+	local down_trace = engine.TraceHull(origin, temp_vec1, mins, maxs, MASK_PLAYERSOLID, shouldHitEntity)
+	if not down_trace.allsolid then
+		origin.x, origin.y, origin.z = down_trace.endpos.x, down_trace.endpos.y, down_trace.endpos.z
+	end
+end
+
 ---@param pInfo EntityInfo
 ---@param pTarget Entity
 ---@param initial_pos Vector3
@@ -419,6 +480,7 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 	end
 
 	temp_vec3.x, temp_vec3.y, temp_vec3.z = 0, 0, -step_size
+	local fast_mode = settings.sim.fast_mode
 
 	for i = 1, time do
 		local is_on_ground = CategorizePosition(pos, vel, mins, maxs, shouldHitEntity)
@@ -489,7 +551,16 @@ function sim.Run(pInfo, pTarget, initial_pos, time)
 		end
 
 		-- Move
-		StepMove(pos, vel, tick_interval, mins, maxs, shouldHitEntity, surface_friction, step_size, is_on_ground)
+		-- Branching here is probably not a good idea
+		-- Make it select a function instead outside the loop !!!
+		-- Im lazy, i'll do it later when i remember this comment lol
+		if fast_mode then
+			StepMoveFast(pos, vel, tick_interval, mins, maxs, shouldHitEntity, step_size)
+		else
+			StepMove(pos, vel, tick_interval, mins, maxs, shouldHitEntity, surface_friction, step_size, is_on_ground)
+		end
+		--StepMove(pos, vel, tick_interval, mins, maxs, shouldHitEntity, surface_friction, step_size, is_on_ground)
+		--StepMoveFast(pos, vel, tick_interval, mins, maxs, shouldHitEntity, step_size)
 
 		-- Gravity
 		if not is_on_ground then
