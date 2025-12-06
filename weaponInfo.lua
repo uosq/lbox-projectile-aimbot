@@ -32,9 +32,9 @@ function WeaponInfo:GetOffset(bDucking, bIsFlipped) end
 ---@return boolean
 function WeaponInfo:HasGravity() end
 
----@param flChargeBeginTime number
+---@param charge number
 ---@return Vector3
-function WeaponInfo:GetAngleOffset(flChargeBeginTime) end
+function WeaponInfo:GetAngleOffset(charge) end
 
 ---@param pLocalPlayer Entity
 ---@param vecLocalView Vector3
@@ -43,18 +43,18 @@ function WeaponInfo:GetAngleOffset(flChargeBeginTime) end
 ---@return Vector3
 function WeaponInfo:GetFirePosition(pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped) end
 
----@param flChargeBeginTime number
+---@param charge number
 ---@return Vector3
-function WeaponInfo:GetVelocity(flChargeBeginTime) end
+function WeaponInfo:GetVelocity(charge) end
 
----@param flChargeBeginTime number
+---@param charge number
 ---@return Vector3
-function WeaponInfo:GetAngularVelocity(flChargeBeginTime) end
+function WeaponInfo:GetAngularVelocity(charge) end
 
----@param flChargeBeginTime number
+---@param charge number
 ---@return number
-function WeaponInfo:GetGravity(flChargeBeginTime) end
+function WeaponInfo:GetGravity(charge) end
 
----@param flChargeBeginTime number
+---@param charge number
 ---@return number
-function WeaponInfo:GetLifetime(flChargeBeginTime) end
+function WeaponInfo:GetLifetime(charge) end

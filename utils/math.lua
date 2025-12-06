@@ -77,10 +77,7 @@ function Math.SolveBallisticArc(p0, p1, speed, gravity)
     -- Convert pitch from angle
     local pitch = -angle * M_RADPI -- negative because upward is negative pitch in most engines
 
-    --- seconds
-    local time = dx / (math.cos(pitch) * speed)
-
-    return EulerAngles(pitch, yaw, 0), time
+    return EulerAngles(pitch, yaw, 0)
 end
 
 -- Returns both low and high arc EulerAngles when gravity > 0
