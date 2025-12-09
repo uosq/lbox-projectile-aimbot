@@ -32,8 +32,10 @@ function wep_utils.CanShoot()
         nextAttack = GetNextPrimaryAttack(weapon)
     end
 
+    local tickbase = player:GetPropInt("m_nTickBase") * globals.TickInterval()
+
     old_weapon = weapon
-    return nextAttack < globals.CurTime()
+    return nextAttack <= tickbase
 end
 
 return wep_utils

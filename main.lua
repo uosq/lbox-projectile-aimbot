@@ -238,6 +238,14 @@ end
 local font = draw.CreateFont("Arial", 36, 1000)
 local origProjValue = gui.GetValue("projectile aimbot")
 
+local function GetAimMethod()
+	local method = gui.GetValue("aim method (projectile)")
+	if method == "none" then
+		return gui.GetValue("aim method")
+	end
+	return method
+end
+
 local function OnDraw()
 	--- Reset our state table
 	state.angle = nil
@@ -296,7 +304,7 @@ local function OnDraw()
 		DrawPath(storedprojpath)
 	end
 
-	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+	if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
 		return
 	end
 
@@ -434,7 +442,7 @@ local function OnCreateMove(cmd)
 		return
 	end
 
-	if input.IsButtonDown(gui.GetValue("aim key")) == false then
+	if gui.GetValue("aim key") ~= 0 and input.IsButtonDown(gui.GetValue("aim key")) == false then
 		return
 	end
 
@@ -461,8 +469,14 @@ local function OnCreateMove(cmd)
 		end
 	end
 
-	if state.silent then
+	local method = GetAimMethod()
+
+	if state.silent and method == "silent +" then
 		cmd.sendpacket = false
+	end
+
+	if method ~= "silent +" and method ~= "silent" then
+		engine.SetViewAngles(state.angle)
 	end
 
 	cmd.viewangles = Vector3(state.angle:Unpack())

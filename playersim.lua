@@ -157,11 +157,11 @@ end
 -- Clip velocity along a plane normal
 local function ClipVelocity(velocity, normal, overbounce)
 	local backoff = velocity:Dot(normal) * overbounce
-	
+
 	velocity.x = velocity.x - normal.x * backoff
 	velocity.y = velocity.y - normal.y * backoff
 	velocity.z = velocity.z - normal.z * backoff
-	
+
 	-- Zero out small components
 	if math.abs(velocity.x) < 0.01 then velocity.x = 0 end
 	if math.abs(velocity.y) < 0.01 then velocity.y = 0 end
@@ -174,9 +174,7 @@ local function TryPlayerMove(origin, velocity, mins, maxs, index, tickinterval)
 	local time_left = tickinterval
 	local planes = {}
 	local numplanes = 0
-	local original_velocity = Vector3(velocity.x, velocity.y, velocity.z)
-	local new_velocity = Vector3(velocity.x, velocity.y, velocity.z)
-	
+
 	-- Try moving up to 4 times (with bumps)
 	for bumpcount = 0, 3 do
 		if time_left <= 0 then
