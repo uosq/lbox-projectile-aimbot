@@ -236,6 +236,7 @@ local function Normalize(vec)
 end
 
 local font = draw.CreateFont("Arial", 36, 1000)
+local origProjValue = gui.GetValue("projectile aimbot")
 
 local function OnDraw()
 	--- Reset our state table
@@ -255,6 +256,11 @@ local function OnDraw()
 		tw = draw.GetTextSize(text)
 		text = "Go to AIMBOT tab to configure it"
 		draw.TextShadow((w*0.5 - tw*0.5)//1, (h*0.15)//1, text)
+	end
+
+	if gui.GetValue("projectile aimbot") ~= "none" then
+		origProjValue = gui.GetValue("projectile aimbot")
+		gui.SetValue("projectile aimbot", 0)
 	end
 
 	local netchannel = clientstate.GetNetChannel()
@@ -473,6 +479,10 @@ local function getKey()
 	return key
 end
 
+local function Unload()
+	gui.SetValue("projectile aimbot", origProjValue)
+end
+
 printc(150, 255, 150, 255, "Proj Aimbot - Loaded successfully")
 printc(
 	255, 255, 0, 255,
@@ -483,3 +493,4 @@ printc(
 
 callbacks.Register("Draw", OnDraw)
 callbacks.Register("CreateMove", OnCreateMove)
+callbacks.Register("Unload", Unload)
