@@ -235,6 +235,8 @@ local function Normalize(vec)
 	return len
 end
 
+local font = draw.CreateFont("Arial", 36, 1000)
+
 local function OnDraw()
 	--- Reset our state table
 	state.angle = nil
@@ -242,6 +244,18 @@ local function OnDraw()
 	state.target = nil
 	state.charge = 0
 	state.charges = false
+
+	if gui.IsMenuOpen() and not engine.IsTakingScreenshot() then
+		draw.SetFont(font)
+		draw.Color(255, 150, 150, 255)
+		local text = "Navet's Proj Aimbot Loaded"
+		local w, h = draw.GetScreenSize()
+		local tw, th = draw.GetTextSize(text)
+		draw.TextShadow((w*0.5 - tw*0.5)//1, (h*0.1)//1, text)
+		tw = draw.GetTextSize(text)
+		text = "Go to AIMBOT tab to configure it"
+		draw.TextShadow((w*0.5 - tw*0.5)//1, (h*0.15)//1, text)
+	end
 
 	local netchannel = clientstate.GetNetChannel()
 
@@ -447,6 +461,25 @@ local function OnCreateMove(cmd)
 
 	cmd.viewangles = Vector3(state.angle:Unpack())
 end
+
+local function getKey()
+	local value = gui.GetValue("aim key")
+	local key = "error"
+	for name, v in pairs(E_ButtonCode) do
+		if v == value then
+			key = name
+		end
+	end
+	return key
+end
+
+printc(150, 255, 150, 255, "Proj Aimbot - Loaded successfully")
+printc(
+	255, 255, 0, 255,
+	"There is no menu anymore. Use the AIMBOT tab in Lmaobox to configure",
+	"FOV: " .. gui.GetValue("aim fov"),
+	"Aim Key: " .. getKey()
+)
 
 callbacks.Register("Draw", OnDraw)
 callbacks.Register("CreateMove", OnCreateMove)
